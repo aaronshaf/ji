@@ -111,8 +111,16 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
 
     // Background refresh if we showed cached data
     if (fromCache && !options.sync) {
-      // Don't await - let it run in background
-      refreshInBackground(issueKey, config);
+      // Spawn a detached process for background refresh
+      const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-refresh', issueKey], {
+        detached: true,
+        stdio: 'ignore',
+        env: {
+          ...process.env,
+          JI_CONFIG: JSON.stringify(config)
+        }
+      });
+      proc.unref();
     }
   } catch (error) {
     console.error(`Failed to fetch issue: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -131,7 +139,7 @@ async function refreshInBackground(issueKey: string, config: any) {
     await cacheManager.saveIssue(freshIssue);
   } catch (error) {
     // Silently fail - this is a background refresh
-    console.error(`Background refresh failed for ${issueKey}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    // Don't log to console since we're in a detached process
   } finally {
     cacheManager.close();
   }
@@ -178,6 +186,15 @@ function parseADF(doc: any): string {
 
 async function main() {
   const args = process.argv.slice(2);
+  
+  // Handle internal refresh command (hidden from users)
+  if (args[0] === 'internal-refresh' && args[1]) {
+    const config = JSON.parse(process.env.JI_CONFIG || '{}');
+    if (config.jiraUrl) {
+      await refreshInBackground(args[1], config);
+    }
+    process.exit(0);
+  }
   
   if (args.length === 0) {
     console.log('ji - Jira CLI\n');
