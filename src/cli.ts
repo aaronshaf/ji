@@ -2,6 +2,7 @@
 import { parseArgs } from "util";
 import { ConfigManager } from './lib/config.js';
 import { JiraClient } from './lib/jira-client.js';
+import { CacheManager } from './lib/cache.js';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 
@@ -56,8 +57,9 @@ async function auth() {
   }
 }
 
-async function viewIssue(issueKey: string, options: { json?: boolean }) {
+async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boolean }) {
   const configManager = new ConfigManager();
+  const cacheManager = new CacheManager();
   const config = await configManager.getConfig();
   
   if (!config) {
@@ -66,8 +68,25 @@ async function viewIssue(issueKey: string, options: { json?: boolean }) {
   }
 
   try {
-    const client = new JiraClient(config);
-    const issue = await client.getIssue(issueKey);
+    let issue = null;
+    
+    // Try cache first unless --sync is specified
+    if (!options.sync) {
+      issue = await cacheManager.getIssue(issueKey);
+      if (issue) {
+        if (!options.json) {
+          console.log('(cached)');
+        }
+      }
+    }
+    
+    // Fetch from API if not in cache or if --sync
+    if (!issue) {
+      const client = new JiraClient(config);
+      issue = await client.getIssue(issueKey);
+      // Save to cache
+      await cacheManager.saveIssue(issue);
+    }
 
     if (options.json) {
       console.log(JSON.stringify(issue, null, 2));
@@ -94,6 +113,7 @@ async function viewIssue(issueKey: string, options: { json?: boolean }) {
     process.exit(1);
   } finally {
     configManager.close();
+    cacheManager.close();
   }
 }
 
@@ -155,7 +175,8 @@ async function main() {
   } else if (command === 'issue' && args[1] === 'view' && args[2]) {
     const issueKey = args[2];
     const options = {
-      json: args.includes('--json') || args.includes('-j')
+      json: args.includes('--json') || args.includes('-j'),
+      sync: args.includes('--sync') || args.includes('-s')
     };
     await viewIssue(issueKey, options);
   } else {
