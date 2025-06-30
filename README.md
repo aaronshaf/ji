@@ -8,7 +8,7 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 
 - 🚀 Built with Bun for lightning-fast performance
 - 💾 Local SQLite caching for offline access and instant queries
-- 🔄 Background daemon syncs data automatically
+- 🔄 Automatic background refresh keeps data up-to-date
 - 🔐 Secure API key storage
 - 📝 Clean, intuitive command structure
 
@@ -48,13 +48,15 @@ You'll need:
 ji issue view PROJ-123
 ```
 
+By default, if cached data exists, it will be displayed immediately while fresh data is fetched in the background for next time.
+
 View as JSON:
 ```bash
 ji issue view PROJ-123 --json
 ji issue view PROJ-123 -j
 ```
 
-Force sync from API (bypass cache):
+Force sync from API (wait for fresh data):
 ```bash
 ji issue view PROJ-123 --sync
 ji issue view PROJ-123 -s
