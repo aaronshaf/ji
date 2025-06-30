@@ -281,8 +281,8 @@ async function search(query: string, options: {
         }
         
         if (descriptionLine && descriptionLine.length > 0) {
-          if (descriptionLine.length > 100) {
-            console.log(`  ${descriptionLine.substring(0, 100)}...`);
+          if (descriptionLine.length > 80) {
+            console.log(`  ${descriptionLine.substring(0, 80)}...`);
           } else {
             console.log(`  ${descriptionLine}`);
           }
