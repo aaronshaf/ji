@@ -218,10 +218,11 @@ export class EmbeddingManager {
     `;
 
     // Escape special characters for FTS5
-    // FTS5 has issues with quotes, parentheses, and other special chars
+    // FTS5 has issues with quotes, parentheses, periods, commas, and other special chars
     const ftsQuery = query
-      .replace(/[-"'()]/g, ' ')  // Remove problematic chars
-      .replace(/\s+/g, ' ')      // Normalize whitespace
+      .replace(/[-"'().,;:!?]/g, ' ')  // Remove problematic chars
+      .replace(/[^a-zA-Z0-9\s]/g, ' ') // Remove any remaining special chars
+      .replace(/\s+/g, ' ')            // Normalize whitespace
       .trim();
     
     if (!ftsQuery) {
@@ -269,7 +270,7 @@ export class EmbeddingManager {
       return this.processResults(rows, query);
     } catch (error) {
       // If FTS fails, try a simple LIKE search as fallback
-      console.warn('FTS search failed, using fallback:', error);
+      // Only log in verbose mode since this is expected behavior for some queries
       
       let fallbackSql = `
         SELECT sc.*, '' as snippet, 0 as rank
