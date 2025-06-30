@@ -27,6 +27,15 @@ export class CacheManager {
     }
   }
 
+  async deleteProjectIssues(projectKey: string): Promise<void> {
+    // Delete from both issues table and searchable_content table
+    const deleteIssuesStmt = this.db.prepare('DELETE FROM issues WHERE project_key = ?');
+    const deleteContentStmt = this.db.prepare('DELETE FROM searchable_content WHERE project_key = ? AND source = ?');
+    
+    deleteIssuesStmt.run(projectKey);
+    deleteContentStmt.run(projectKey, 'jira');
+  }
+
   async saveIssue(issue: Issue): Promise<void> {
     // Save using content manager (handles both tables)
     await this.contentManager.saveJiraIssue(issue);
