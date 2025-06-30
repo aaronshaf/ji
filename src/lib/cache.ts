@@ -75,6 +75,16 @@ export class CacheManager {
     return result?.last_sync ? new Date(result.last_sync) : null;
   }
 
+  async getProjectIssueKeys(projectKey: string): Promise<string[]> {
+    const stmt = this.db.prepare(`
+      SELECT key
+      FROM issues
+      WHERE project_key = ?
+    `);
+    const results = stmt.all(projectKey) as any[];
+    return results.map(r => r.key);
+  }
+
   private extractDescription(description: any): string {
     if (typeof description === 'string') {
       return description;

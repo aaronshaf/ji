@@ -50,7 +50,7 @@ export class ContentManager {
       issue.fields.assignee?.displayName || null,
       issue.fields.assignee?.emailAddress || null,
       issue.fields.reporter.displayName,
-      issue.fields.reporter.emailAddress,
+      issue.fields.reporter.emailAddress || null,
       new Date(issue.fields.created).getTime(),
       new Date(issue.fields.updated).getTime(),
       this.extractDescription(issue.fields.description),
