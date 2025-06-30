@@ -12,3 +12,5 @@ ji-data/
 coverage/
 .vscode/
 .idea/
+auth.json
+**/auth.json

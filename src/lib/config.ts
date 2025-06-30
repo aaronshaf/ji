@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'fs';
 
 const ConfigSchema = z.object({
   jiraUrl: z.string().url(),
@@ -15,14 +15,17 @@ export type Config = z.infer<typeof ConfigSchema>;
 export class ConfigManager {
   private db: Database;
   private configDir: string;
+  private authFile: string;
 
   constructor() {
     this.configDir = join(homedir(), '.ji');
+    this.authFile = join(this.configDir, 'auth.json');
+    
     if (!existsSync(this.configDir)) {
       mkdirSync(this.configDir, { recursive: true });
     }
 
-    const dbPath = join(this.configDir, 'config.db');
+    const dbPath = join(this.configDir, 'data.db');
     this.db = new Database(dbPath);
     this.initDB();
   }
@@ -117,6 +120,18 @@ export class ConfigManager {
   }
 
   async getConfig(): Promise<Config | null> {
+    // Try to read from auth file first
+    if (existsSync(this.authFile)) {
+      try {
+        const authData = readFileSync(this.authFile, 'utf-8');
+        const config = JSON.parse(authData);
+        return ConfigSchema.parse(config);
+      } catch (error) {
+        console.error('Failed to read auth file:', error);
+      }
+    }
+    
+    // Fall back to database (for backward compatibility)
     const stmt = this.db.prepare('SELECT key, value FROM config');
     const rows = stmt.all() as { key: string; value: string }[];
     
@@ -128,7 +143,10 @@ export class ConfigManager {
     });
 
     try {
-      return ConfigSchema.parse(config);
+      const parsed = ConfigSchema.parse(config);
+      // Migrate to auth file
+      await this.setConfig(parsed);
+      return parsed;
     } catch {
       return null;
     }
@@ -137,13 +155,11 @@ export class ConfigManager {
   async setConfig(config: Config): Promise<void> {
     const validated = ConfigSchema.parse(config);
     
-    const stmt = this.db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
+    // Save to auth file with restrictive permissions
+    writeFileSync(this.authFile, JSON.stringify(validated, null, 2), 'utf-8');
     
-    this.db.transaction(() => {
-      stmt.run('jiraUrl', validated.jiraUrl);
-      stmt.run('email', validated.email);
-      stmt.run('apiToken', validated.apiToken);
-    })();
+    // Set file permissions to 600 (read/write for owner only)
+    chmodSync(this.authFile, 0o600);
   }
 
   close() {

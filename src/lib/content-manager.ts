@@ -22,7 +22,7 @@ export class ContentManager {
   private db: Database;
 
   constructor() {
-    const dbPath = join(homedir(), '.ji', 'config.db');
+    const dbPath = join(homedir(), '.ji', 'data.db');
     this.db = new Database(dbPath);
   }
 
