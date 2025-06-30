@@ -902,13 +902,18 @@ async function ask(question: string, options: {
     // Round 1: Broad Discovery - Generate diverse initial queries
     if (options.verbose) console.log(chalk.dim('🔍 Round 1: Broad discovery...'));
     
+    // Smart detection for team/project questions
+    const isTeamQuestion = /\b(team|who is|what is.*team|eval team)\b/i.test(question);
+    const hasProjectCode = /\b[A-Z]{2,6}\b/.test(question); // Detect project codes like EVAL, CFA, etc.
+    
     const round1Prompt = `Given this question: "${question}"
 
-Generate 3-4 diverse search queries for finding relevant technical documentation. Focus on:
+Generate 3-4 diverse search queries for finding relevant technical documentation. ${isTeamQuestion ? 'This appears to be a team/organization question, so focus on:' : 'Focus on:'}
 - Direct keywords from the question
-- Technical terms and abbreviations  
-- Related concepts and components
-- Different ways to phrase the same question
+${hasProjectCode ? '- Project codes and team abbreviations (like EVAL-, CFA-, etc.)' : '- Technical terms and abbreviations'}
+${isTeamQuestion ? '- Team structure, ownership, and organization' : '- Related concepts and components'}
+${isTeamQuestion ? '- Leadership and responsibility information' : '- Different ways to phrase the same question'}
+${isTeamQuestion ? '- Decoder ring, org chart, team directory' : ''}
 
 Return only the queries, one per line:`;
 
@@ -1022,12 +1027,42 @@ Return only the queries, one per line:`;
       }
     }
 
+    // Round 4: Team-specific targeted search (only for team questions)
+    if (isTeamQuestion && allContexts.length > 0) {
+      if (options.verbose) console.log(chalk.dim('👥 Round 4: Team-specific search...'));
+      
+      // Look for project codes and specific team searches
+      const extractedCodes = question.match(/\b[A-Z]{2,6}\b/g) || [];
+      const teamSearches = [
+        ...extractedCodes.map(code => `${code} team`),
+        ...extractedCodes.map(code => `${code} project`),
+        ...extractedCodes.map(code => `${code}-` + " issues"), // Project prefix search
+        `team structure ${extractedCodes.join(' ')}`,
+        'team ownership responsibilities'
+      ].filter(q => q.trim().length > 5); // Filter out short queries
+
+      for (const query of teamSearches.slice(0, 3)) {
+        const results = await embeddingManager.hybridSearch(query, {
+          source: effectiveSource,
+          limit: 3,
+          includeAll: true
+        });
+        
+        for (const result of results) {
+          if (!seenIds.has(result.content.id)) {
+            seenIds.add(result.content.id);
+            allContexts.push({ ...result, searchRound: 4 });
+          }
+        }
+      }
+    }
+
     if (options.verbose) {
       console.log(chalk.dim(`📊 Search completed: ${allContexts.length} unique documents found`));
-      const byRound = [1, 2, 3].map(round => 
+      const byRound = [1, 2, 3, 4].map(round => 
         allContexts.filter(c => c.searchRound === round).length
       );
-      console.log(chalk.dim(`   Round 1: ${byRound[0]}, Round 2: ${byRound[1]}, Round 3: ${byRound[2]}`));
+      console.log(chalk.dim(`   Round 1: ${byRound[0]}, Round 2: ${byRound[1]}, Round 3: ${byRound[2]}${isTeamQuestion ? `, Round 4: ${byRound[3]}` : ''}`));
       console.log();
     }
     
@@ -1133,8 +1168,15 @@ Return only the queries, one per line:`;
         contextBlock += `Space: ${content.spaceKey || 'Unknown'}\n`;
       }
       
-      // Include relevant content snippet - more for Confluence, less for Jira
-      const maxLength = content.source === 'confluence' ? 800 : 300;
+      // Include relevant content snippet - much more for key org docs
+      let maxLength = content.source === 'confluence' ? 800 : 300;
+      
+      // Special handling for key organizational documents
+      const isKeyOrgDoc = /decoder ring|team.*structure|org.*chart|leadership|ownership/i.test(content.title);
+      if (isKeyOrgDoc && isTeamQuestion) {
+        maxLength = 2000; // Much larger context for org docs when asking about teams
+      }
+      
       const snippet = content.content.substring(0, maxLength).replace(/\n+/g, ' ').trim();
       contextBlock += `Content: ${snippet}...\n`;
       
