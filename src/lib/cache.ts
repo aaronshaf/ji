@@ -3,18 +3,15 @@ import { homedir } from 'os';
 import { join } from 'path';
 import type { Issue } from './jira-client.js';
 import { ContentManager } from './content-manager.js';
-import { EmbeddingManager } from './embeddings.js';
 
 export class CacheManager {
   private db: Database;
   private contentManager: ContentManager;
-  private embeddingManager: EmbeddingManager;
 
   constructor() {
     const dbPath = join(homedir(), '.ji', 'config.db');
     this.db = new Database(dbPath);
     this.contentManager = new ContentManager();
-    this.embeddingManager = new EmbeddingManager();
   }
 
   async getIssue(key: string): Promise<Issue | null> {
