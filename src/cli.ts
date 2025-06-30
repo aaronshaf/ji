@@ -637,6 +637,12 @@ async function search(query: string, options: {
         } else if (content.source === 'jira') {
           fullUrl = `${config.jiraUrl}${content.url}`;
         }
+      } else if (config && content.url.includes('/rest/api/')) {
+        // Convert API URLs to browse URLs for Jira issues
+        if (content.source === 'jira' && content.id.startsWith('jira:')) {
+          const issueKey = content.id.replace('jira:', '');
+          fullUrl = `${config.jiraUrl}/browse/${issueKey}`;
+        }
       }
       
       console.log(chalk.dim(`  ${team} • `) + timeColor(timeAgo) + chalk.cyan(` → ${fullUrl}`));
