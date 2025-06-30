@@ -1061,14 +1061,22 @@ Based on the context above, please provide a helpful answer:`;
     
     if (confluenceSources.length > 0) {
       confluenceSources.slice(0, 3).forEach((ctx, i) => {
-        console.log(chalk.dim(`${i + 1}. ${ctx.content.title}`) + chalk.cyan(` → ${ctx.content.url}`));
+        // For Confluence, URLs are relative paths like /spaces/...
+        const fullUrl = ctx.content.url.startsWith('http') 
+          ? ctx.content.url 
+          : `${config.jiraUrl}/wiki${ctx.content.url}`;
+        console.log(chalk.dim(`${i + 1}. ${ctx.content.title}`) + chalk.cyan(` → ${fullUrl}`));
       });
     }
     
     if (jiraSources.length > 0 && options.includeJira) {
       jiraSources.slice(0, 2).forEach((ctx, i) => {
         const issueKey = ctx.content.id.replace('jira:', '');
-        console.log(chalk.dim(`${confluenceSources.length + i + 1}. ${issueKey}: ${ctx.content.title}`) + chalk.cyan(` → ${ctx.content.url}`));
+        // For Jira, URLs are usually relative like /browse/ISSUE-123
+        const fullUrl = ctx.content.url.startsWith('http') 
+          ? ctx.content.url 
+          : `${config.jiraUrl}${ctx.content.url}`;
+        console.log(chalk.dim(`${confluenceSources.length + i + 1}. ${issueKey}: ${ctx.content.title}`) + chalk.cyan(` → ${fullUrl}`));
       });
     }
     
