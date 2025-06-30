@@ -2,13 +2,19 @@ import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { Issue } from './jira-client.js';
+import { ContentManager } from './content-manager.js';
+import { EmbeddingManager } from './embeddings.js';
 
 export class CacheManager {
   private db: Database;
+  private contentManager: ContentManager;
+  private embeddingManager: EmbeddingManager;
 
   constructor() {
     const dbPath = join(homedir(), '.ji', 'config.db');
     this.db = new Database(dbPath);
+    this.contentManager = new ContentManager();
+    this.embeddingManager = new EmbeddingManager();
   }
 
   async getIssue(key: string): Promise<Issue | null> {
@@ -25,38 +31,21 @@ export class CacheManager {
   }
 
   async saveIssue(issue: Issue): Promise<void> {
-    // Extract project key from issue key (e.g., PROJ-123 -> PROJ)
-    const projectKey = issue.key.split('-')[0];
+    // Save using content manager (handles both tables)
+    await this.contentManager.saveJiraIssue(issue);
     
-    // Ensure project exists
-    const projectStmt = this.db.prepare('INSERT OR IGNORE INTO projects (key, name) VALUES (?, ?)');
-    projectStmt.run(projectKey, projectKey); // We'll update with proper name later
-    
-    // Save issue with all fields
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO issues (
-        key, project_key, summary, status, priority,
-        assignee_name, assignee_email, reporter_name, reporter_email,
-        created, updated, description, raw_data, synced_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    stmt.run(
-      issue.key,
-      projectKey,
-      issue.fields.summary,
-      issue.fields.status.name,
-      issue.fields.priority?.name || null,
-      issue.fields.assignee?.displayName || null,
-      issue.fields.assignee?.emailAddress || null,
-      issue.fields.reporter.displayName,
-      issue.fields.reporter.emailAddress,
-      new Date(issue.fields.created).getTime(),
-      new Date(issue.fields.updated).getTime(),
-      this.extractDescription(issue.fields.description),
-      JSON.stringify(issue),
-      Date.now()
-    );
+    // Generate embeddings in background
+    this.generateEmbeddingsInBackground(issue);
+  }
+
+  private async generateEmbeddingsInBackground(issue: Issue): Promise<void> {
+    // Spawn a detached process for embedding generation
+    const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-embed', `jira:${issue.key}`], {
+      detached: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
+      env: process.env
+    });
+    proc.unref();
   }
 
   async listIssuesByProject(projectKey: string): Promise<any[]> {
