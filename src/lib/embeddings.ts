@@ -252,14 +252,66 @@ export class EmbeddingManager {
     sql += ' ORDER BY rank LIMIT ?';
     params.push(options?.limit || 10);
 
-    const stmt = this.db.prepare(sql);
-    const rows = stmt.all(...params) as any[];
+    try {
+      const stmt = this.db.prepare(sql);
+      const rows = stmt.all(...params) as any[];
+      
+      if (rows.length === 0) {
+        // Try fallback with even simpler query
+        const fallbackQuery = ftsQuery.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (fallbackQuery && fallbackQuery !== ftsQuery) {
+          const fallbackParams = [fallbackQuery, ...params.slice(1)];
+          const fallbackStmt = this.db.prepare(sql);
+          return this.processResults(fallbackStmt.all(...fallbackParams) as any[], query);
+        }
+      }
+      
+      return this.processResults(rows, query);
+    } catch (error) {
+      // If FTS fails, try a simple LIKE search as fallback
+      console.warn('FTS search failed, using fallback:', error);
+      
+      let fallbackSql = `
+        SELECT sc.*, '' as snippet, 0 as rank
+        FROM searchable_content sc
+        WHERE (sc.title LIKE '%' || ? || '%' OR sc.content LIKE '%' || ? || '%')
+      `;
+      
+      const fallbackParams: any[] = [ftsQuery, ftsQuery];
+      
+      if (options?.source) {
+        fallbackSql += ' AND sc.source = ?';
+        fallbackParams.push(options.source);
+      }
+      
+      // Add the closed issues filter for fallback too
+      if (!options?.includeAll) {
+        fallbackSql += ` AND (
+          sc.source != 'jira' 
+          OR sc.metadata NOT LIKE '%"status":"Closed"%'
+          AND sc.metadata NOT LIKE '%"status":"Done"%'
+          AND sc.metadata NOT LIKE '%"status":"Resolved"%'
+          AND sc.metadata NOT LIKE '%"status":"Cancelled"%'
+          AND sc.metadata NOT LIKE '%"status":"Rejected"%'
+          AND sc.metadata NOT LIKE '%"status":"Won''t Do"%'
+        )`;
+      }
+      
+      fallbackSql += ' LIMIT ?';
+      fallbackParams.push(options?.limit || 10);
+      
+      const fallbackStmt = this.db.prepare(fallbackSql);
+      const fallbackRows = fallbackStmt.all(...fallbackParams) as any[];
+      return this.processResults(fallbackRows, query);
+    }
+  }
 
-    const queryLower = query.toLowerCase();
+  private processResults(rows: any[], originalQuery: string): SearchResult[] {
+    const queryLower = originalQuery.toLowerCase();
     
     return rows.map(row => {
       // Calculate score based on BM25 rank and title matches
-      let score = Math.abs(row.rank); // BM25 returns negative values, lower is better
+      let score = Math.abs(row.rank || 1); // BM25 returns negative values, lower is better
       
       // Boost if query matches title
       const titleLower = row.title.toLowerCase();
@@ -283,7 +335,7 @@ export class EmbeddingManager {
           syncedAt: row.synced_at
         },
         score: 1.0 / (1 + score), // Convert to 0-1 range where higher is better
-        snippet: row.snippet
+        snippet: row.snippet || ''
       };
     });
   }
