@@ -228,9 +228,26 @@ async function search(query: string, options: {
     for (const result of results) {
       const { content, score, snippet } = result;
       console.log(chalk.bold(content.title));
-      console.log(chalk.dim(`  Source: ${content.source} | Type: ${content.type}`));
-      if (content.source === 'jira' && content.metadata?.status) {
-        console.log(chalk.dim(`  Status: ${content.metadata.status} | Priority: ${content.metadata.priority || 'None'}`));
+      
+      // Build metadata line based on content source
+      if (content.source === 'jira') {
+        const parts = [];
+        if (content.metadata?.status) parts.push(`Status: ${content.metadata.status}`);
+        if (content.metadata?.priority && content.metadata.priority !== 'None') parts.push(`Priority: ${content.metadata.priority}`);
+        if (content.metadata?.assignee) parts.push(`Assignee: ${content.metadata.assignee}`);
+        if (parts.length > 0) {
+          console.log(chalk.dim(`  ${parts.join(' | ')}`));
+        }
+      } else if (content.source === 'confluence') {
+        const parts = [];
+        if (content.metadata?.spaceName) parts.push(`Space: ${content.metadata.spaceName}`);
+        if (content.metadata?.lastModified) {
+          const date = new Date(content.metadata.lastModified);
+          parts.push(`Modified: ${date.toLocaleDateString()}`);
+        }
+        if (parts.length > 0) {
+          console.log(chalk.dim(`  ${parts.join(' | ')}`));
+        }
       }
       
       // Only show snippet if it's different from the title and provides additional context
