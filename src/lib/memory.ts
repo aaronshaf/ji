@@ -41,16 +41,27 @@ export class MemoryManager {
   // Extract key facts from a successful ask session
   async extractMemory(question: string, answer: string, sourceDocIds: string[]): Promise<void> {
     try {
-      const extractPrompt = `Extract 1-2 key facts from this Q&A session for future reference. Keep each fact under 100 characters.
+      // Only extract memory for certain types of questions to reduce false memories
+      if (!this.shouldExtractMemory(question, answer)) {
+        return;
+      }
+
+      const extractPrompt = `Extract 1-2 key FACTUAL statements from this Q&A session for future reference. Only extract facts that are:
+- Clearly stated and unambiguous
+- About team ownership, system architecture, or process definitions
+- Not opinions, estimates, or speculative answers
 
 Question: ${question}
 Answer: ${answer}
 
-Extract the most important facts as brief statements. Examples:
+IMPORTANT: Only extract facts if the answer is confident and factual. If the answer contains uncertainty (like "might be", "probably", "I think"), do not extract any facts.
+
+Examples of good facts:
 - "EVAL: Canvas evaluation team, works on assessments"
 - "Decoder Ring: team ownership doc, updated 2025"
+- "Rate limiting: 1000 requests per minute for API v1"
 
-Return only the facts, one per line:`;
+Return only definitive facts, one per line (or nothing if uncertain):`;
 
       const response = await this.ollama.generate(extractPrompt);
       if (!response?.trim()) return;
@@ -61,7 +72,8 @@ Return only the facts, one per line:`;
         .filter(f => f.trim().length > 0)
         .slice(0, 2) // Max 2 facts
         .map(f => f.replace(/^[-•]\s*/, '').trim())
-        .filter(f => f.length > 10 && f.length <= 150); // Quality filter
+        .filter(f => f.length > 10 && f.length <= 150) // Quality filter
+        .filter(f => !this.containsUncertainty(f)); // Filter out uncertain statements
 
       if (facts.length === 0) return;
 
@@ -172,6 +184,184 @@ Return only the facts, one per line:`;
     const recent = (recentStmt.get(weekAgo) as any).count;
     
     return { total, recent };
+  }
+
+  // List all memories for review/correction
+  listAllMemories(limit: number = 50): MemoryEntry[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM ask_memory 
+      ORDER BY last_accessed DESC, created_at DESC 
+      LIMIT ?
+    `);
+    
+    const rows = stmt.all(limit) as any[];
+    return rows.map(row => ({
+      id: row.id,
+      questionHash: row.question_hash,
+      keyFacts: row.key_facts,
+      relevantDocIds: row.relevant_doc_ids ? row.relevant_doc_ids.split(',') : [],
+      confidence: row.confidence,
+      createdAt: row.created_at,
+      lastAccessed: row.last_accessed,
+      accessCount: row.access_count
+    }));
+  }
+
+  // Delete a specific memory by ID
+  deleteMemory(memoryId: string): boolean {
+    try {
+      // First check if the memory exists
+      const checkStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
+      const exists = checkStmt.get(memoryId);
+      
+      if (!exists) {
+        return false;
+      }
+      
+      const stmt = this.db.prepare('DELETE FROM ask_memory WHERE id = ?');
+      stmt.run(memoryId);
+      
+      // Verify deletion by checking if the memory still exists
+      const verifyStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
+      const stillExists = verifyStmt.get(memoryId);
+      
+      return !stillExists;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  // Update/correct a memory's facts
+  updateMemoryFacts(memoryId: string, newFacts: string): boolean {
+    try {
+      const stmt = this.db.prepare(`
+        UPDATE ask_memory 
+        SET key_facts = ?, last_accessed = ? 
+        WHERE id = ?
+      `);
+      const result = stmt.run(newFacts, Date.now(), memoryId);
+      return result.changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  // Search memories by content for review
+  searchMemories(searchTerm: string): MemoryEntry[] {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT * FROM ask_memory 
+        WHERE key_facts LIKE ? 
+        ORDER BY last_accessed DESC, access_count DESC
+        LIMIT 20
+      `);
+      
+      const rows = stmt.all(`%${searchTerm}%`) as any[];
+      return rows.map(row => ({
+        id: row.id,
+        questionHash: row.question_hash,
+        keyFacts: row.key_facts,
+        relevantDocIds: row.relevant_doc_ids ? row.relevant_doc_ids.split(',') : [],
+        confidence: row.confidence,
+        createdAt: row.created_at,
+        lastAccessed: row.last_accessed,
+        accessCount: row.access_count
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  // Mark memory as incorrect/low confidence
+  markMemoryAsIncorrect(memoryId: string): boolean {
+    try {
+      const stmt = this.db.prepare(`
+        UPDATE ask_memory 
+        SET confidence = 0.2, last_accessed = ? 
+        WHERE id = ?
+      `);
+      const result = stmt.run(Date.now(), memoryId);
+      return result.changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  // Manually add a memory fact (user-provided)
+  addManualMemory(fact: string, relatedTerms: string[] = []): boolean {
+    try {
+      // Create a hash based on the fact content for deduplication
+      const factHash = this.hashQuestion(fact);
+      const now = Date.now();
+      const id = `manual_${factHash}_${now}`;
+      
+      // Check if similar fact already exists (exact hash match only for manual memories)
+      const existingStmt = this.db.prepare(`
+        SELECT id FROM ask_memory 
+        WHERE question_hash = ? AND id LIKE 'manual_%'
+      `);
+      const existing = existingStmt.get(factHash);
+      
+      if (existing) {
+        // Update existing fact instead of creating duplicate
+        return this.updateMemoryFacts((existing as any).id, fact);
+      }
+      
+      const stmt = this.db.prepare(`
+        INSERT INTO ask_memory 
+        (id, question_hash, key_facts, relevant_doc_ids, confidence, created_at, last_accessed, access_count)
+        VALUES (?, ?, ?, ?, 1.0, ?, ?, 1)
+      `);
+      
+      const relatedTermsStr = relatedTerms.join(',');
+      stmt.run(id, factHash, fact, relatedTermsStr, now, now);
+      
+      // Verify insertion
+      const verifyStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
+      const inserted = verifyStmt.get(id);
+      
+      return !!inserted;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  // Helper function to check if memory should be extracted
+  private shouldExtractMemory(question: string, answer: string): boolean {
+    const lowerQuestion = question.toLowerCase();
+    const lowerAnswer = answer.toLowerCase();
+    
+    // Extract memory for specific types of questions
+    const extractionPatterns = [
+      /who is|what is.*team|team.*owns|owned by/i,
+      /how.*works|what.*does|process.*for/i,
+      /rate limit|configuration|setting/i,
+      /api.*endpoint|service.*location/i
+    ];
+    
+    const shouldExtract = extractionPatterns.some(pattern => pattern.test(lowerQuestion));
+    
+    // Don't extract if answer is uncertain
+    const uncertaintyMarkers = [
+      'not sure', 'might be', 'probably', 'i think', 'maybe', 
+      'unclear', 'uncertain', 'not certain', 'depends on'
+    ];
+    
+    const isUncertain = uncertaintyMarkers.some(marker => lowerAnswer.includes(marker));
+    
+    return shouldExtract && !isUncertain;
+  }
+
+  // Helper function to detect uncertainty in extracted facts
+  private containsUncertainty(fact: string): boolean {
+    const uncertaintyPatterns = [
+      /might|maybe|probably|possibly|perhaps/i,
+      /not sure|unclear|uncertain/i,
+      /i think|seems like|appears to/i,
+      /\?|\.\.\./
+    ];
+    
+    return uncertaintyPatterns.some(pattern => pattern.test(fact));
   }
 
   close(): void {

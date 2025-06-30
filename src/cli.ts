@@ -1058,6 +1058,106 @@ async function syncConfluence(spaceKey: string) {
   }
 }
 
+async function addMemory(fact: string) {
+  const memoryManager = new MemoryManager();
+  
+  try {
+    const success = memoryManager.addManualMemory(fact);
+    
+    if (success) {
+      console.log(chalk.green('✅ Memory added successfully!'));
+      console.log(chalk.dim(`   "${fact}"`));
+    } else {
+      console.log(chalk.yellow('⚠️  Similar memory already exists - updated instead'));
+    }
+  } catch (error) {
+    console.error(`Failed to add memory: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    memoryManager.close();
+  }
+}
+
+async function listMemories(options: { limit?: number; search?: string } = {}) {
+  const memoryManager = new MemoryManager();
+  
+  try {
+    let memories;
+    
+    if (options.search) {
+      memories = memoryManager.searchMemories(options.search);
+    } else {
+      memories = memoryManager.listAllMemories(options.limit || 20);
+    }
+    
+    if (memories.length === 0) {
+      console.log(options.search 
+        ? `No memories found matching "${options.search}"`
+        : 'No memories stored yet'
+      );
+      return;
+    }
+    
+    console.log(chalk.bold(`\n📚 Stored Memories (${memories.length})\n`));
+    
+    memories.forEach((memory, i) => {
+      const date = new Date(memory.createdAt).toLocaleDateString();
+      const accessCount = memory.accessCount > 1 ? chalk.dim(` (used ${memory.accessCount}x)`) : '';
+      
+      console.log(`${chalk.cyan((i + 1).toString().padStart(2))}. ${memory.keyFacts}`);
+      console.log(`    ${chalk.dim(`Added ${date}${accessCount} • ID: ${memory.id}`)}\n`);
+    });
+  } catch (error) {
+    console.error(`Failed to list memories: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    memoryManager.close();
+  }
+}
+
+async function deleteMemory(memoryId: string) {
+  const memoryManager = new MemoryManager();
+  
+  try {
+    const success = memoryManager.deleteMemory(memoryId);
+    
+    if (success) {
+      console.log(chalk.green('✅ Memory deleted successfully'));
+    } else {
+      console.log(chalk.yellow('⚠️  Memory not found'));
+    }
+  } catch (error) {
+    console.error(`Failed to delete memory: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    memoryManager.close();
+  }
+}
+
+async function showMemoryStats() {
+  const memoryManager = new MemoryManager();
+  
+  try {
+    const stats = memoryManager.getMemoryStats();
+    
+    console.log(chalk.bold('\n📊 Memory Statistics\n'));
+    console.log(`Total memories: ${chalk.cyan(stats.total.toString())}`);
+    console.log(`Used this week: ${chalk.cyan(stats.recent.toString())}`);
+    
+    if (stats.total > 0) {
+      const percentage = Math.round((stats.recent / stats.total) * 100);
+      console.log(`Activity rate: ${chalk.cyan(percentage + '%')}`);
+    }
+    
+    console.log(chalk.dim('\nUse `ji memories list` to view all memories'));
+  } catch (error) {
+    console.error(`Failed to get memory stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    memoryManager.close();
+  }
+}
+
 async function ask(question: string, options: {
   source?: 'jira' | 'confluence';
   limit?: number;
@@ -1783,6 +1883,11 @@ async function main() {
     console.log('  ji search <query>             - Search across all content');
     console.log('  ji search --semantic <query>  - Semantic search only');
     console.log('  ji ask "<question>"           - Ask AI about Confluence docs');
+    console.log('  ji remember "<fact>"          - Add fact to memory manually');
+    console.log('  ji memories list              - List stored memories');
+    console.log('  ji memories search <term>     - Search stored memories');
+    console.log('  ji memories delete <id>       - Delete a memory by ID');
+    console.log('  ji memories stats             - Show memory statistics');
     console.log('  ji models                     - Configure Ollama models');
     console.log('  ji embeddings regenerate      - Regenerate all embeddings');
     console.log('\nOptions:');
@@ -1891,6 +1996,29 @@ async function main() {
     };
     
     await ask(question, options);
+  } else if (command === 'remember' && args[1]) {
+    // Extract the fact from all remaining arguments
+    const fact = args.slice(1).join(' ');
+    await addMemory(fact);
+  } else if (command === 'memories' && args[1] === 'list') {
+    const limitIndex = args.indexOf('--limit');
+    const options = {
+      limit: limitIndex !== -1 ? parseInt(args[limitIndex + 1]) : undefined
+    };
+    await listMemories(options);
+  } else if (command === 'memories' && args[1] === 'search' && args[2]) {
+    const searchTerm = args.slice(2).filter(arg => !arg.startsWith('--')).join(' ');
+    const limitIndex = args.indexOf('--limit');
+    const options = {
+      search: searchTerm,
+      limit: limitIndex !== -1 ? parseInt(args[limitIndex + 1]) : undefined
+    };
+    await listMemories(options);
+  } else if (command === 'memories' && args[1] === 'delete' && args[2]) {
+    const memoryId = args[2];
+    await deleteMemory(memoryId);
+  } else if (command === 'memories' && args[1] === 'stats') {
+    await showMemoryStats();
   } else {
     console.error(`Unknown command: ${args.join(' ')}`);
     process.exit(1);
