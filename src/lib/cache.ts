@@ -38,7 +38,6 @@ export class CacheManager {
   private async generateEmbeddingsInBackground(issue: Issue): Promise<void> {
     // Spawn a detached process for embedding generation
     const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-embed', `jira:${issue.key}`], {
-      detached: true,
       stdio: ['ignore', 'ignore', 'ignore'],
       env: process.env
     });
@@ -63,6 +62,16 @@ export class CacheManager {
       LIMIT ?
     `);
     return stmt.all(limit);
+  }
+
+  async listMyOpenIssues(assigneeEmail: string): Promise<any[]> {
+    const stmt = this.db.prepare(`
+      SELECT key, project_key, summary, status, priority, assignee_name, updated
+      FROM issues
+      WHERE assignee_email = ? AND LOWER(status) NOT IN ('closed', 'done', 'resolved', 'cancelled', 'canceled', 'rejected', 'won''t do', 'duplicate', 'invalid')
+      ORDER BY updated DESC
+    `);
+    return stmt.all(assigneeEmail);
   }
 
   async getProjectLastSync(projectKey: string): Promise<Date | null> {

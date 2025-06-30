@@ -79,7 +79,7 @@ export class EmbeddingManager {
     }
 
     sql += ' LIMIT ?';
-    params.push(options?.limit || 20);
+    params.push(options?.limit || 10);
 
     const stmt = this.db.prepare(sql);
     const rows = stmt.all(...params) as any[];
