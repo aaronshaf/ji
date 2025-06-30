@@ -1496,25 +1496,28 @@ Based on the context above, please provide a helpful answer:`;
         }
       });
       console.log();
-    } else {
-      spinner.stop();
     }
     
-    
-    // Generate response with streaming
-    spinner.stop();
+    // Start spinner for response generation
+    spinner.text = 'Generating response...';
+    spinner.start();
     
     const stream = await ollama.generateStream(fullPrompt, { model: askModel });
     
     if (!stream) {
+      spinner.stop();
       console.error('Failed to generate response');
       return;
     }
+    
+    // Stop spinner once we start receiving the actual response
+    spinner.stop();
     
     // Process the stream
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     let fullResponse = '';
+    let firstChunkReceived = false;
     
     while (true) {
       const { done, value } = await reader.read();
@@ -1527,6 +1530,11 @@ Based on the context above, please provide a helpful answer:`;
         try {
           const json = JSON.parse(line) as { response?: string; done?: boolean };
           if (json.response) {
+            // Stop spinner on first actual response content
+            if (!firstChunkReceived && json.response.trim()) {
+              firstChunkReceived = true;
+              // Spinner is already stopped above, but ensure it's stopped
+            }
             process.stdout.write(json.response);
             fullResponse += json.response;
           }
