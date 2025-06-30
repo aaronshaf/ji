@@ -273,8 +273,6 @@ async function showMyIssues() {
       return;
     }
     
-    console.log(`\n📋 Your open issues (${issues.length}):\n`);
-    
     // Group by project
     const byProject: Record<string, typeof issues> = {};
     issues.forEach(issue => {
@@ -285,7 +283,8 @@ async function showMyIssues() {
     });
     
     // Display by project
-    Object.entries(byProject).forEach(([projectKey, projectIssues]) => {
+    const projectEntries = Object.entries(byProject);
+    projectEntries.forEach(([projectKey, projectIssues], index) => {
       console.log(chalk.bold.blue(`${projectKey} (${projectIssues.length} issues):`));
       
       projectIssues.forEach(issue => {
@@ -298,7 +297,10 @@ async function showMyIssues() {
         console.log(`     ${chalk.dim(`Updated ${timeStr} • Priority: ${issue.priority || 'None'}`)}`);
       });
       
-      console.log(); // Blank line between projects
+      // Only add blank line between projects, not after the last one
+      if (index < projectEntries.length - 1) {
+        console.log();
+      }
     });
     
   } catch (error) {
@@ -897,13 +899,47 @@ async function ask(question: string, options: {
       includeAll: true // Include closed issues for historical context
     });
     
-    // Sort to prioritize Confluence docs and higher scores
+    // Check if query matches document titles for boosting
+    const queryLower = question.toLowerCase();
+    const scoreWithBoost = (result: SearchResult): number => {
+      let score = result.score;
+      
+      // Boost title matches significantly
+      const titleLower = result.content.title.toLowerCase();
+      if (titleLower.includes(queryLower)) {
+        score *= 2.0;
+      }
+      // Partial title word matches
+      const queryWords = queryLower.split(/\s+/);
+      const titleWords = titleLower.split(/\s+/);
+      const wordMatches = queryWords.filter(qw => 
+        titleWords.some(tw => tw.includes(qw) || qw.includes(tw))
+      ).length;
+      if (wordMatches > 0) {
+        score *= (1 + wordMatches * 0.3);
+      }
+      
+      // Boost recent documents (within last 30 days)
+      if (result.content.updatedAt) {
+        const daysSinceUpdate = (Date.now() - result.content.updatedAt) / (1000 * 60 * 60 * 24);
+        if (daysSinceUpdate < 30) {
+          score *= (1 + (30 - daysSinceUpdate) / 60); // Up to 50% boost for very recent docs
+        }
+      }
+      
+      return score;
+    };
+    
+    // Sort with enhanced scoring
     contexts.sort((a, b) => {
       // First priority: Confluence over Jira
       if (a.content.source === 'confluence' && b.content.source === 'jira') return -1;
       if (a.content.source === 'jira' && b.content.source === 'confluence') return 1;
-      // Second priority: Higher scores
-      return b.score - a.score;
+      
+      // Second priority: Boosted scores (including title matches and recency)
+      const scoreA = scoreWithBoost(a);
+      const scoreB = scoreWithBoost(b);
+      return scoreB - scoreA;
     });
     
     // Trim to requested limit

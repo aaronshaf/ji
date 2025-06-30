@@ -175,7 +175,8 @@ export class EmbeddingManager {
     let sql = `
       SELECT 
         sc.*,
-        snippet(content_fts, 1, '<mark>', '</mark>', '...', 32) as snippet
+        snippet(content_fts, 1, '<mark>', '</mark>', '...', 32) as snippet,
+        bm25(content_fts) as rank
       FROM searchable_content sc
       JOIN content_fts ON content_fts.id = sc.id
       WHERE content_fts MATCH ?
@@ -201,30 +202,43 @@ export class EmbeddingManager {
       )`;
     }
 
-    sql += ' LIMIT ?';
+    sql += ' ORDER BY rank LIMIT ?';
     params.push(options?.limit || 10);
 
     const stmt = this.db.prepare(sql);
     const rows = stmt.all(...params) as any[];
 
-    return rows.map(row => ({
-      content: {
-        id: row.id,
-        source: row.source,
-        type: row.type,
-        title: row.title,
-        content: row.content,
-        url: row.url,
-        spaceKey: row.space_key,
-        projectKey: row.project_key,
-        metadata: JSON.parse(row.metadata || '{}'),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        syncedAt: row.synced_at
-      },
-      score: 1.0, // Fixed score for now
-      snippet: row.snippet
-    }));
+    const queryLower = query.toLowerCase();
+    
+    return rows.map(row => {
+      // Calculate score based on BM25 rank and title matches
+      let score = Math.abs(row.rank); // BM25 returns negative values, lower is better
+      
+      // Boost if query matches title
+      const titleLower = row.title.toLowerCase();
+      if (titleLower.includes(queryLower)) {
+        score *= 0.5; // Lower score is better for BM25
+      }
+      
+      return {
+        content: {
+          id: row.id,
+          source: row.source,
+          type: row.type,
+          title: row.title,
+          content: row.content,
+          url: row.url,
+          spaceKey: row.space_key,
+          projectKey: row.project_key,
+          metadata: JSON.parse(row.metadata || '{}'),
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          syncedAt: row.synced_at
+        },
+        score: 1.0 / (1 + score), // Convert to 0-1 range where higher is better
+        snippet: row.snippet
+      };
+    });
   }
 
 
