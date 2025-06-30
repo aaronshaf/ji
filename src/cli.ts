@@ -20,7 +20,7 @@ async function auth() {
     };
 
     // Test the authentication
-    console.log('\n🔄 Verifying credentials...');
+    console.log('\nVerifying credentials...');
     const client = new JiraClient(config);
     
     try {
@@ -37,17 +37,17 @@ async function auth() {
       }
 
       const user = await response.json();
-      console.log(`✅ Successfully authenticated as ${user.displayName} (${user.emailAddress})`);
+      console.log(`Successfully authenticated as ${user.displayName} (${user.emailAddress})`);
 
       // Save config after successful verification
       const configManager = new ConfigManager();
       await configManager.setConfig(config);
       configManager.close();
 
-      console.log('\n✅ Authentication saved successfully!');
+      console.log('\nAuthentication saved successfully!');
       console.log('You can now use "ji issue view <issue-key>" to view issues.');
     } catch (error) {
-      console.error(`\n❌ Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error(`\nAuthentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       console.error('Please check your credentials and try again.');
       process.exit(1);
     }
@@ -72,20 +72,20 @@ async function viewIssue(issueKey: string, options: { json?: boolean }) {
     if (options.json) {
       console.log(JSON.stringify(issue, null, 2));
     } else {
-      console.log(`\n📋 ${issue.key}: ${issue.fields.summary}`);
-      console.log(`\n🔖 Status: ${issue.fields.status.name}`);
+      console.log(`\n${issue.key}: ${issue.fields.summary}`);
+      console.log(`\nStatus: ${issue.fields.status.name}`);
       if (issue.fields.priority) {
-        console.log(`🎯 Priority: ${issue.fields.priority.name}`);
+        console.log(`Priority: ${issue.fields.priority.name}`);
       }
       if (issue.fields.assignee) {
-        console.log(`👤 Assignee: ${issue.fields.assignee.displayName}`);
+        console.log(`Assignee: ${issue.fields.assignee.displayName}`);
       }
-      console.log(`📝 Reporter: ${issue.fields.reporter.displayName}`);
-      console.log(`📅 Created: ${new Date(issue.fields.created).toLocaleString()}`);
-      console.log(`🔄 Updated: ${new Date(issue.fields.updated).toLocaleString()}`);
+      console.log(`Reporter: ${issue.fields.reporter.displayName}`);
+      console.log(`Created: ${new Date(issue.fields.created).toLocaleString()}`);
+      console.log(`Updated: ${new Date(issue.fields.updated).toLocaleString()}`);
       
       if (issue.fields.description) {
-        console.log('\n📄 Description:');
+        console.log('\nDescription:');
         console.log(formatDescription(issue.fields.description));
       }
     }
