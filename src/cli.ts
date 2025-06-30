@@ -10,6 +10,8 @@ import { confluenceToText } from './lib/confluence-converter.js';
 import { OllamaClient } from './lib/ollama.js';
 import { MemoryManager } from './lib/memory.js';
 import { SearchAnalytics } from './lib/search-analytics.js';
+import { MeilisearchAdapter } from './lib/meilisearch-adapter.js';
+import { syncToMeilisearch } from './lib/sync-meilisearch.js';
 import chalk from 'chalk';
 import ora from 'ora';
 import * as readline from 'readline/promises';
@@ -492,76 +494,25 @@ async function search(query: string, options: {
   }
 
   try {
-    const embeddingManager = new EmbeddingManager();
+    const meilisearch = new MeilisearchAdapter();
     
-    // Enhanced query processing
-    const expandedQuery = expandQueryWithSynonyms(query);
-    const intent = detectSearchIntent(query);
-    
-    let results;
-    if (options.semantic) {
-      results = await embeddingManager.searchSemantic(expandedQuery, {
-        source: options.source,
-        limit: options.limit ? options.limit * 2 : 20, // Get more for quality filtering
-        includeAll: options.includeAll
-      });
-    } else {
-      results = await embeddingManager.hybridSearch(expandedQuery, {
-        source: options.source,
-        limit: options.limit ? options.limit * 2 : 20,
-        includeAll: options.includeAll
-      });
-    }
+    // Use Meilisearch for all searches now
+    const results = await meilisearch.search(query, {
+      source: options.source,
+      limit: options.limit || 20,
+      includeAll: options.includeAll
+    });
 
     if (results.length === 0) {
       console.log('No results found.');
       return;
     }
 
-    // Enhanced result processing with quality scoring and analytics
-    const analytics = new SearchAnalytics();
-    
-    const enhancedResults = results.map(result => {
-      const qualityScore = assessContentQuality(result.content);
-      const freshnessBoost = getFreshnessBoost(result.content.updatedAt);
-      const team = getTeamFromMetadata(result.content);
-      
-      // Get analytics-based scoring
-      const popularityScore = analytics.getPopularityScore(result.content.id);
-      const clickThroughRate = analytics.getClickThroughRate(result.content.id, query);
-      const analyticsBoost = 1.0 + (popularityScore - 1.0) * 0.3 + clickThroughRate * 0.2; // Moderate boost from analytics
-      
-      // Calculate enhanced relevance score
-      let enhancedScore = result.score * qualityScore * freshnessBoost * analyticsBoost;
-      
-      // Intent-based boosting
-      if (intent === 'troubleshooting' && result.content.source === 'jira') {
-        enhancedScore *= 1.3; // Boost Jira issues for troubleshooting
-      }
-      if (intent === 'howto' && result.content.content.toLowerCase().includes('guide')) {
-        enhancedScore *= 1.2; // Boost guides for how-to queries
-      }
-      
-      // Title match boosting
-      if (result.content.title.toLowerCase().includes(query.toLowerCase())) {
-        enhancedScore *= 1.5;
-      }
-      
-      return {
-        ...result,
-        score: Math.min(enhancedScore, 1.0), // Cap at 1.0
-        qualityScore,
-        freshnessBoost,
-        team,
-        analyticsBoost
-      };
-    });
-    
-    analytics.close();
-
-    // Sort by enhanced score and apply limit
-    enhancedResults.sort((a, b) => b.score - a.score);
-    const limitedResults = enhancedResults.slice(0, options.limit || 10);
+    // Process results - Meilisearch already handles ranking
+    const limitedResults = results.map(result => ({
+      ...result,
+      team: getTeamFromMetadata(result.content)
+    }));
 
     // Display results with enhanced formatting
     console.log(chalk.dim(`Found ${results.length} results:\n`));
@@ -593,35 +544,9 @@ async function search(query: string, options: {
       
       console.log(`${paddedTitle}${padding}${scoreDisplay}`);
       
-      // Enhanced snippet with query highlighting
-      let snippet = '';
-      if (content.source === 'jira') {
-        // Extract meaningful content from Jira issues
-        const lines = content.content.split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed && !trimmed.startsWith('Status:') && !trimmed.startsWith('Priority:') && 
-              !trimmed.startsWith('Assignee:') && !trimmed.startsWith('Reporter:')) {
-            const titlePart = content.title.split(': ')[1];
-            if (!titlePart || trimmed !== titlePart) {
-              snippet = trimmed;
-              break;
-            }
-          }
-        }
-      } else {
-        // Extract first meaningful line from Confluence
-        const lines = content.content.split('\n');
-        snippet = lines.find(line => line.trim().length > 20) || lines[0] || '';
-      }
-      
-      if (snippet) {
-        const maxSnippetLength = 80;
-        if (snippet.length > maxSnippetLength) {
-          snippet = snippet.substring(0, maxSnippetLength) + '...';
-        }
-        const highlightedSnippet = highlightQueryInText(snippet, query);
-        console.log(`  ${highlightedSnippet}`);
+      // Display snippet from Meilisearch (already highlighted)
+      if (result.snippet) {
+        console.log(`  ${result.snippet}`);
       }
       
       // Minimal metadata line with clickable URL
@@ -648,8 +573,6 @@ async function search(query: string, options: {
       console.log(chalk.dim(`  ${team} • `) + timeColor(timeAgo) + chalk.cyan(` → ${fullUrl}`));
       console.log('');
     }
-
-    embeddingManager.close();
   } catch (error) {
     console.error(`Search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
@@ -1954,6 +1877,7 @@ async function main() {
     console.log('  ji memories stats             - Show memory statistics');
     console.log('  ji models                     - Configure Ollama models');
     console.log('  ji embeddings regenerate      - Regenerate all embeddings');
+    console.log('  ji index                      - Index all documents to Meilisearch');
     console.log('\nOptions:');
     console.log('  --help, -h                    - Show this help message');
     console.log('  --json, -j                    - Output as JSON');
@@ -2031,6 +1955,36 @@ async function main() {
     await search(query, options);
   } else if (command === 'embeddings' && args[1] === 'regenerate') {
     await regenerateAllEmbeddings();
+  } else if (command === 'index') {
+    const spinner = ora('Checking Meilisearch connection...').start();
+    
+    try {
+      // Check if Meilisearch is running
+      const response = await fetch('http://localhost:7700/health');
+      if (!response.ok) {
+        throw new Error('Meilisearch is not responding');
+      }
+      spinner.succeed('Meilisearch is running');
+      
+      // Run sync
+      const clean = args.includes('--clean');
+      await syncToMeilisearch({ clean });
+      
+    } catch (error: any) {
+      spinner.fail('Failed to index documents');
+      
+      if (error.message.includes('ECONNREFUSED') || error.message.includes('not responding')) {
+        console.error(chalk.red('\n❌ Meilisearch is not running!'));
+        console.error('\nTo start Meilisearch:');
+        console.error(chalk.cyan('  brew services start meilisearch'));
+        console.error('\nOr run it manually:');
+        console.error(chalk.cyan('  meilisearch'));
+      } else {
+        console.error(chalk.red('Error:'), error.message);
+      }
+      
+      process.exit(1);
+    }
   } else if (command === 'ask' && args[1]) {
     // Extract the question and options
     const questionStart = 1;

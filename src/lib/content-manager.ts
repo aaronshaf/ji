@@ -3,6 +3,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import type { Issue } from './jira-client.js';
 import { OllamaClient } from './ollama.js';
+import { MeilisearchAdapter } from './meilisearch-adapter.js';
 
 export interface SearchableContent {
   id: string;
@@ -121,6 +122,15 @@ export class ContentManager {
     `);
     
     ftsStmt.run(content.id, content.title, content.content);
+    
+    // Also index to Meilisearch
+    try {
+      const meilisearch = new MeilisearchAdapter();
+      await meilisearch.indexContent(content);
+    } catch (error) {
+      // Log but don't fail if Meilisearch is unavailable
+      console.error('Failed to index to Meilisearch:', error);
+    }
   }
 
   async searchContent(query: string, options?: {
