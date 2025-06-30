@@ -12,11 +12,19 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 - 🔐 Secure API key storage
 - 📝 Clean, intuitive command structure
 
+## Prerequisites
+
+- [Bun](https://bun.sh) (v1.0 or later)
+
 ## Installation
 
 ```bash
 bun install
-bun run build
+```
+
+To install globally:
+```bash
+bun link
 ```
 
 ## Setup
@@ -66,10 +74,11 @@ bun run lint
 
 ## Architecture
 
-- **CLI**: Built with oclif for a robust command structure
-- **Storage**: SQLite database stored in `~/.ji/` for fast local queries
+- **Runtime**: Pure Bun for lightning-fast execution
+- **Storage**: Bun's built-in SQLite database stored in `~/.ji/` for fast local queries
 - **Sync**: Background daemon (coming soon) syncs data with Jira
 - **Security**: API credentials stored securely in local SQLite database
+- **Zero Node.js dependencies**: Runs entirely on Bun
 
 ## License
 
