@@ -232,10 +232,12 @@ async function search(query: string, options: {
       if (content.source === 'jira' && content.metadata?.status) {
         console.log(chalk.dim(`  Status: ${content.metadata.status} | Priority: ${content.metadata.priority || 'None'}`));
       }
-      console.log(chalk.dim(`  Score: ${score.toFixed(3)}`));
-      // Remove <mark> tags from snippet
+      
+      // Only show snippet if it's different from the title and provides additional context
       const cleanSnippet = snippet.replace(/<mark>/g, '').replace(/<\/mark>/g, '');
-      console.log(`  ${cleanSnippet}`);
+      if (!cleanSnippet.startsWith(content.title)) {
+        console.log(chalk.dim(`  Match: ${cleanSnippet}`));
+      }
       console.log('');
     }
 
