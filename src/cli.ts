@@ -463,7 +463,7 @@ async function embedContent(contentId: string) {
   }
 }
 
-async function syncJiraProject(projectKey: string) {
+async function syncJiraProject(projectKey: string, options: { fresh?: boolean } = {}) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
   
@@ -478,6 +478,12 @@ async function syncJiraProject(projectKey: string) {
 
   try {
     console.log(`\n🔍 Syncing Jira project ${chalk.bold.blue(projectKey)}...\n`);
+    
+    // If --clean flag is set, delete existing issues first
+    if (options.fresh) {
+      console.log(chalk.yellow('🧹 Clearing existing issues for clean sync...\n'));
+      await cacheManager.deleteProjectIssues(projectKey);
+    }
     
     // Get our current sync state
     const existingIssues = await cacheManager.listIssuesByProject(projectKey);
@@ -771,6 +777,7 @@ async function main() {
     console.log('\nOptions:');
     console.log('  --json, -j                    - Output as JSON');
     console.log('  --sync, -s                    - Force sync from API');
+    console.log('  --clean                       - Clear local data before sync');
     console.log('  --source [jira|confluence]    - Filter by source');
     console.log('  --limit <n>                   - Limit results (default: 10)');
     process.exit(0);
@@ -791,7 +798,10 @@ async function main() {
     await viewIssue(issueKey, options);
   } else if (command === 'issue' && args[1] === 'sync' && args[2]) {
     const projectKey = args[2];
-    await syncJiraProject(projectKey);
+    const options = {
+      fresh: args.includes('--clean')
+    };
+    await syncJiraProject(projectKey, options);
   } else if (command === 'confluence' && args[1] === 'sync' && args[2]) {
     const spaceKey = args[2];
     await syncConfluence(spaceKey);
