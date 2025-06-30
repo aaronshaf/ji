@@ -8,7 +8,9 @@ import { EmbeddingManager, type SearchResult } from './lib/embeddings.js';
 import { ConfluenceClient } from './lib/confluence-client.js';
 import { confluenceToText } from './lib/confluence-converter.js';
 import { OllamaClient } from './lib/ollama.js';
+import { MemoryManager } from './lib/memory.js';
 import chalk from 'chalk';
+import ora from 'ora';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 
@@ -883,24 +885,47 @@ async function ask(question: string, options: {
 
   const embeddingManager = new EmbeddingManager();
   const ollama = new OllamaClient();
+  const memoryManager = new MemoryManager();
+  
+  const spinner = ora({
+    text: 'Checking memory for relevant facts...',
+    spinner: 'dots'
+  }).start();
   
   try {
     // Check if Ollama is available
     if (!await ollama.isAvailable()) {
+      spinner.stop();
       console.error('❌ Ollama is not available. Please start Ollama.');
       process.exit(1);
     }
     
-    
     // Default to Confluence-only unless explicitly including Jira or source is set to jira
     const effectiveSource = options.source || (options.includeJira ? undefined : 'confluence');
+    
+    // Round 0: Check memory for relevant facts
+    const relevantMemories = memoryManager.getRelevantMemories(question, 2);
+    if (options.verbose && relevantMemories.length > 0) {
+      console.log(chalk.dim('\ud83e\udde0 Found relevant memories:'));
+      relevantMemories.forEach(mem => {
+        console.log(chalk.dim(`  • ${mem.keyFacts}`));
+      });
+    }
     
     // Implement multi-round iterative search for better results
     const allContexts: (SearchResult & { searchRound?: number })[] = [];
     const seenIds = new Set<string>();
     
+    // Use memory to boost relevant documents
+    const memoryDocIds = new Set(relevantMemories.flatMap(m => m.relevantDocIds));
+    
+    // Collect relevant memory facts for injection into prompt
+    const memoryFacts = relevantMemories.length > 0 
+      ? relevantMemories.map(m => m.keyFacts).join(' | ') 
+      : '';
+    
     // Round 1: Broad Discovery - Generate diverse initial queries
-    if (options.verbose) console.log(chalk.dim('🔍 Round 1: Broad discovery...'));
+    spinner.text = 'Round 1: Broad discovery - generating search queries...';
     
     // Smart detection for team/project questions
     const isTeamQuestion = /\b(team|who is|what is.*team|eval team)\b/i.test(question);
@@ -931,6 +956,7 @@ Return only the queries, one per line:`;
     }
 
     // Execute Round 1 searches
+    spinner.text = `Round 1: Searching with ${round1Queries.length} queries...`;
     for (const query of round1Queries) {
       const results = await embeddingManager.hybridSearch(query, {
         source: effectiveSource,
@@ -948,7 +974,7 @@ Return only the queries, one per line:`;
 
     // Round 2: Focused Refinement - Analyze initial results for key concepts
     if (allContexts.length > 0) {
-      if (options.verbose) console.log(chalk.dim('🎯 Round 2: Focused refinement...'));
+      spinner.text = `Round 2: Focused refinement - found ${allContexts.length} documents...`;
       
       const topResults = allContexts.slice(0, 5);
       const conceptsFound = topResults.map(r => r.content.title).join(', ');
@@ -968,6 +994,7 @@ Return only the queries, one per line:`;
         if (response) {
           const round2Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 3);
           
+          spinner.text = `Round 2: Searching with ${round2Queries.length} refined queries...`;
           for (const query of round2Queries) {
             const results = await embeddingManager.hybridSearch(query, {
               source: effectiveSource,
@@ -984,13 +1011,17 @@ Return only the queries, one per line:`;
           }
         }
       } catch (error) {
-        if (options.verbose) console.error('Round 2 query generation failed:', error);
+        if (options.verbose) {
+          spinner.stop();
+          console.log(chalk.yellow('⚠️  Round 2 query generation failed'));
+          spinner.start('Round 3: Gap filling - looking for missing context...');
+        }
       }
     }
 
     // Round 3: Gap Filling - Look for missing context or prerequisites
     if (allContexts.length > 0) {
-      if (options.verbose) console.log(chalk.dim('🔗 Round 3: Gap filling...'));
+      spinner.text = 'Round 3: Gap filling - looking for missing context...';
       
       const round3Prompt = `For the question "${question}", and considering we found information about: "${allContexts.slice(0, 3).map(r => r.content.title).join(', ')}"
 
@@ -1007,6 +1038,7 @@ Return only the queries, one per line:`;
         if (response) {
           const round3Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 2);
           
+          spinner.text = `Round 3: Searching with ${round3Queries.length} gap-filling queries...`;
           for (const query of round3Queries) {
             const results = await embeddingManager.hybridSearch(query, {
               source: effectiveSource,
@@ -1023,13 +1055,21 @@ Return only the queries, one per line:`;
           }
         }
       } catch (error) {
-        if (options.verbose) console.error('Round 3 query generation failed:', error);
+        if (options.verbose) {
+          spinner.stop();
+          console.log(chalk.yellow('⚠️  Round 3 query generation failed'));
+          if (isTeamQuestion) {
+            spinner.start('Round 4: Team-specific search for organization info...');
+          } else {
+            spinner.start('Processing documents and generating response...');
+          }
+        }
       }
     }
 
     // Round 4: Team-specific targeted search (only for team questions)
     if (isTeamQuestion && allContexts.length > 0) {
-      if (options.verbose) console.log(chalk.dim('👥 Round 4: Team-specific search...'));
+      spinner.text = 'Round 4: Team-specific search for organization info...';
       
       // Look for project codes and specific team searches
       const extractedCodes = question.match(/\b[A-Z]{2,6}\b/g) || [];
@@ -1041,6 +1081,7 @@ Return only the queries, one per line:`;
         'team ownership responsibilities'
       ].filter(q => q.trim().length > 5); // Filter out short queries
 
+      spinner.text = `Round 4: Searching with ${teamSearches.slice(0, 3).length} team-specific queries...`;
       for (const query of teamSearches.slice(0, 3)) {
         const results = await embeddingManager.hybridSearch(query, {
           source: effectiveSource,
@@ -1057,13 +1098,16 @@ Return only the queries, one per line:`;
       }
     }
 
+    spinner.text = `Processing ${allContexts.length} documents and generating response...`;
+    
     if (options.verbose) {
-      console.log(chalk.dim(`📊 Search completed: ${allContexts.length} unique documents found`));
       const byRound = [1, 2, 3, 4].map(round => 
         allContexts.filter(c => c.searchRound === round).length
       );
+      spinner.stop();
+      console.log(chalk.dim(`📊 Search completed: ${allContexts.length} unique documents found`));
       console.log(chalk.dim(`   Round 1: ${byRound[0]}, Round 2: ${byRound[1]}, Round 3: ${byRound[2]}${isTeamQuestion ? `, Round 4: ${byRound[3]}` : ''}`));
-      console.log();
+      spinner.start('Processing documents and generating response...');
     }
     
     const contexts = allContexts;
@@ -1104,6 +1148,11 @@ Return only the queries, one per line:`;
         }
       }
       
+      // Boost documents that were previously helpful (memory-based)
+      if (memoryDocIds.has(result.content.id)) {
+        score *= 1.5; // 50% boost for previously helpful documents
+      }
+      
       return score;
     };
     
@@ -1141,6 +1190,7 @@ Return only the queries, one per line:`;
     const limitedContexts = filteredContexts.slice(0, options.limit || 10);
     
     if (limitedContexts.length === 0) {
+      spinner.stop();
       console.log('No relevant context found. Try syncing more data with:');
       console.log(`  ${chalk.cyan('ji confluence sync <space>')}`);
       if (options.includeJira || options.source === 'jira') {
@@ -1198,9 +1248,10 @@ If the documentation doesn't contain enough information to fully answer the ques
 Do not include any trailing whitespace or extra line breaks at the end of your response.`;
 
     const contextLabel = hasJira ? 'Context from Confluence documentation and Jira issues:' : 'Context from Confluence documentation:';
+    const memorySection = memoryFacts ? `\nKnown facts from previous conversations:\n${memoryFacts}\n` : '';
     const userPrompt = `${contextLabel}
 
-${contextStr}
+${contextStr}${memorySection}
 
 Question: ${question}
 
@@ -1209,6 +1260,7 @@ Based on the context above, please provide a helpful answer:`;
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
     
     if (options.verbose) {
+      spinner.stop();
       console.log(chalk.dim('Using context from:'));
       limitedContexts.forEach(ctx => {
         if (ctx.content.source === 'jira') {
@@ -1218,10 +1270,14 @@ Based on the context above, please provide a helpful answer:`;
         }
       });
       console.log();
+    } else {
+      spinner.stop();
     }
     
     
     // Generate response with streaming
+    spinner.stop();
+    
     const stream = await ollama.generateStream(fullPrompt, { model: options.model });
     
     if (!stream) {
@@ -1254,16 +1310,22 @@ Based on the context above, please provide a helpful answer:`;
       }
     }
     
+    // Ensure spinner is stopped
+    spinner.stop();
+    
     // Trim trailing whitespace by removing empty lines at the end
     fullResponse = fullResponse.trimEnd();
     
-    // If the response doesn't end with a newline, add one
-    if (fullResponse.length > 0 && !fullResponse.endsWith('\n')) {
-      console.log(); // Add newline after response
+    // Extract memory from successful session (async, don't wait)
+    if (fullResponse.length > 20 && limitedContexts.length > 0) {
+      const sourceDocIds = limitedContexts.slice(0, 3).map(ctx => ctx.content.id);
+      memoryManager.extractMemory(question, fullResponse, sourceDocIds).catch(() => {
+        // Silent fail - memory extraction is optional
+      });
     }
     
-    // Add source citations with single line break
-    console.log('\n' + chalk.dim('Sources:'));
+    // Add source citations with proper spacing
+    console.log('\n\nSources:');
     const confluenceSources = limitedContexts.filter(c => c.content.source === 'confluence');
     const jiraSources = limitedContexts.filter(c => c.content.source === 'jira');
     
@@ -1304,13 +1366,14 @@ Based on the context above, please provide a helpful answer:`;
       });
     }
     
-    
   } catch (error) {
-    console.error(`\n❌ Failed to answer: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    spinner.stop();
+    console.error(`❌ Failed to answer: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   } finally {
     configManager.close();
     embeddingManager.close();
+    memoryManager.close();
   }
 }
 

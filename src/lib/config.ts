@@ -108,6 +108,20 @@ export class ConfigManager {
       )
     `);
     
+    // Create ask memory table for progressive learning
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS ask_memory (
+        id TEXT PRIMARY KEY,
+        question_hash TEXT NOT NULL,
+        key_facts TEXT NOT NULL,
+        relevant_doc_ids TEXT,
+        confidence REAL DEFAULT 0.8,
+        created_at INTEGER NOT NULL,
+        last_accessed INTEGER NOT NULL,
+        access_count INTEGER DEFAULT 1
+      )
+    `);
+    
     // Run migrations for existing databases
     this.runMigrations();
     
