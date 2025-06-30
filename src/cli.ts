@@ -1192,12 +1192,6 @@ Based on the context above, please provide a helpful answer:`;
       });
     }
     
-    if (options.verbose) {
-      console.log();
-      console.log(chalk.dim('📎 Total sources used:'));
-      console.log(chalk.dim(`   ${jiraSources.length} Jira issues`));
-      console.log(chalk.dim(`   ${confluenceSources.length} Confluence pages`));
-    }
     
   } catch (error) {
     console.error(`\n❌ Failed to answer: ${error instanceof Error ? error.message : 'Unknown error'}`);
