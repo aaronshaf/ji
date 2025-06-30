@@ -355,13 +355,16 @@ async function search(query: string, options: {
       const { content, score, snippet } = result;
       
       // Add visual indicator for type
+      const scorePercent = Math.round(score * 100);
+      const scoreDisplay = chalk.gray(`[${scorePercent}%]`);
+      
       if (content.source === 'jira') {
         const statusIcon = getJiraStatusIcon(content.metadata?.status || '');
-        console.log(statusIcon + ' ' + chalk.bold(content.title));
+        console.log(statusIcon + ' ' + chalk.bold(content.title) + ' ' + scoreDisplay);
       } else if (content.source === 'confluence') {
-        console.log('📄 ' + chalk.bold(content.title));
+        console.log('📄 ' + chalk.bold(content.title) + ' ' + scoreDisplay);
       } else {
-        console.log(chalk.bold(content.title));
+        console.log(chalk.bold(content.title) + ' ' + scoreDisplay);
       }
       
       // Build metadata line based on content source
@@ -892,12 +895,81 @@ async function ask(question: string, options: {
     // Default to Confluence-only unless explicitly including Jira or source is set to jira
     const effectiveSource = options.source || (options.includeJira ? undefined : 'confluence');
     
-    // Use hybrid search - both semantic and full-text search for better results
-    const contexts = await embeddingManager.hybridSearch(question, {
-      source: effectiveSource,
-      limit: options.limit || 15, // Fetch more initially, we'll trim later
-      includeAll: true // Include closed issues for historical context
-    });
+    // Use LLM to generate better search queries
+    const queryPrompt = `Given this question: "${question}"
+
+Generate 2-3 alternative search queries that would help find relevant technical documentation. Consider:
+- Breaking down the question into key concepts
+- Technical terms, APIs, or feature names mentioned
+- Common variations or abbreviations (e.g., "auth" for "authentication")
+- Related components or systems
+
+Examples:
+Question: "how does canvas handle authentication?"
+Queries:
+canvas authentication
+auth login security
+SSO SAML OAuth canvas
+
+Question: "what is the decoder ring?"
+Queries:
+decoder ring
+team ownership alignment
+R&D product engineering structure
+
+Now generate queries for the given question. Return only the queries, one per line:`;
+
+    let searchQueries = [question]; // Default to original question
+    try {
+      const queryResponse = await ollama.generate(queryPrompt, { 
+        model: options.model || 'gemma3n:latest'
+      });
+      
+      if (queryResponse) {
+        const generatedQueries = queryResponse.trim().split('\n')
+          .filter(q => q.trim().length > 0)
+          .slice(0, 3); // Max 3 queries
+        
+        if (generatedQueries.length > 0) {
+          searchQueries = [question, ...generatedQueries]; // Include original plus generated
+        }
+      }
+    } catch (error) {
+      // If query generation fails, just use the original question
+      if (options.verbose) {
+        console.error('Failed to generate search queries:', error);
+      }
+    }
+    
+    if (options.verbose && searchQueries.length > 1) {
+      console.log(chalk.dim('Search queries:'));
+      searchQueries.forEach((q, i) => {
+        console.log(chalk.dim(`  ${i + 1}. ${q}`));
+      });
+      console.log();
+    }
+    
+    // Run searches with all queries and combine results
+    const allContexts: SearchResult[] = [];
+    const seenIds = new Set<string>();
+    
+    for (const searchQuery of searchQueries) {
+      const results = await embeddingManager.hybridSearch(searchQuery, {
+        source: effectiveSource,
+        limit: 10, // Limit per query
+        includeAll: true
+      });
+      
+      // Add unique results
+      for (const result of results) {
+        if (!seenIds.has(result.content.id)) {
+          seenIds.add(result.content.id);
+          allContexts.push(result);
+        }
+      }
+    }
+    
+    const contexts = allContexts;
     
     // Check if query matches document titles for boosting
     const queryLower = question.toLowerCase();
