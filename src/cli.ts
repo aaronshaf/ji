@@ -231,7 +231,9 @@ async function search(query: string, options: {
         console.log(chalk.dim(`  Status: ${content.metadata.status} | Priority: ${content.metadata.priority || 'None'}`));
       }
       console.log(chalk.dim(`  Score: ${score.toFixed(3)}`));
-      console.log(`  ${snippet}`);
+      // Remove <mark> tags from snippet
+      const cleanSnippet = snippet.replace(/<mark>/g, '').replace(/<\/mark>/g, '');
+      console.log(`  ${cleanSnippet}`);
       console.log('');
     }
 
