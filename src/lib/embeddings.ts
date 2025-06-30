@@ -32,6 +32,69 @@ export class EmbeddingManager {
     this.chunker = new DocumentChunker();
   }
 
+  private buildEnhancedFtsQuery(query: string): string {
+    // Enhanced FTS query processing with technical synonyms and phrase support
+    let processedQuery = query;
+    
+    // Handle quoted phrases first
+    const phraseMatches = processedQuery.match(/"([^"]+)"/g);
+    const phrases: string[] = [];
+    
+    if (phraseMatches) {
+      phraseMatches.forEach((match, index) => {
+        const placeholder = `__PHRASE_${index}__`;
+        phrases.push(match);
+        processedQuery = processedQuery.replace(match, placeholder);
+      });
+    }
+    
+    // Add technical synonyms for better matching
+    const synonymMap: Record<string, string[]> = {
+      'auth': ['authentication', 'authorization'],
+      'k8s': ['kubernetes'],
+      'db': ['database'],
+      'config': ['configuration'],
+      'deploy': ['deployment', 'release'],
+      'API': ['endpoint', 'service'],
+      'error': ['exception', 'failure', 'issue'],
+      'setup': ['configuration', 'install']
+    };
+    
+    // Expand with synonyms using OR operator
+    Object.entries(synonymMap).forEach(([term, synonyms]) => {
+      if (processedQuery.toLowerCase().includes(term.toLowerCase())) {
+        const alternatives = [term, ...synonyms].join(' OR ');
+        processedQuery = processedQuery.replace(
+          new RegExp(`\\b${term}\\b`, 'gi'),
+          `(${alternatives})`
+        );
+      }
+    });
+    
+    // Restore phrases
+    phrases.forEach((phrase, index) => {
+      const placeholder = `__PHRASE_${index}__`;
+      processedQuery = processedQuery.replace(placeholder, phrase);
+    });
+    
+    // Clean up for FTS5 compatibility while preserving quotes
+    let ftsQuery = processedQuery
+      .replace(/[-.,;:!?]/g, ' ')        // Remove problematic punctuation but keep quotes
+      .replace(/[^a-zA-Z0-9\s()"]/g, ' ') // Keep parentheses and quotes
+      .replace(/\s+/g, ' ')             // Normalize whitespace
+      .trim();
+    
+    // If no special operators, try to make it a phrase search for better precision
+    if (!ftsQuery.includes('"') && !ftsQuery.includes('(') && ftsQuery.split(' ').length > 1) {
+      const words = ftsQuery.split(' ').filter(w => w.length > 2);
+      if (words.length <= 3) { // Only for short queries
+        ftsQuery = `"${ftsQuery}" OR ${ftsQuery}`;
+      }
+    }
+    
+    return ftsQuery;
+  }
+
   async initialize(): Promise<void> {
     // No-op for now - would initialize embedding model here
   }
@@ -146,22 +209,28 @@ export class EmbeddingManager {
     // Merge and deduplicate results
     const resultMap = new Map<string, SearchResult>();
     
-    // Add semantic results with boosted scores
+    // Add semantic results with quality-enhanced scoring
     semanticResults.forEach(result => {
+      const qualityScore = this.assessContentQuality(result.content);
+      const enhancedScore = result.score * 1.5 * qualityScore; // Boost semantic matches + quality
       resultMap.set(result.content.id, {
         ...result,
-        score: result.score * 1.5 // Boost semantic matches
+        score: enhancedScore
       });
     });
     
-    // Add FTS results (lower priority)
+    // Add FTS results with quality scoring
     ftsResults.forEach(result => {
       if (!resultMap.has(result.content.id)) {
-        resultMap.set(result.content.id, result);
+        const qualityScore = this.assessContentQuality(result.content);
+        resultMap.set(result.content.id, {
+          ...result,
+          score: result.score * qualityScore
+        });
       }
     });
     
-    // Sort by score and return top results
+    // Sort by enhanced score and return top results
     const allResults = Array.from(resultMap.values())
       .sort((a, b) => b.score - a.score);
     
@@ -217,13 +286,8 @@ export class EmbeddingManager {
       WHERE content_fts MATCH ?
     `;
 
-    // Escape special characters for FTS5
-    // FTS5 has issues with quotes, parentheses, periods, commas, and other special chars
-    const ftsQuery = query
-      .replace(/[-"'().,;:!?]/g, ' ')  // Remove problematic chars
-      .replace(/[^a-zA-Z0-9\s]/g, ' ') // Remove any remaining special chars
-      .replace(/\s+/g, ' ')            // Normalize whitespace
-      .trim();
+    // Enhanced FTS query processing
+    let ftsQuery = this.buildEnhancedFtsQuery(query);
     
     if (!ftsQuery) {
       // If query becomes empty after sanitization, return empty results
@@ -344,7 +408,68 @@ export class EmbeddingManager {
 
   private generateSnippet(text: string, maxLength: number): string {
     if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength) + '...';
+    
+    // Try to find a good break point near the end
+    const truncated = text.substring(0, maxLength);
+    const lastSpace = truncated.lastIndexOf(' ');
+    const lastSentence = truncated.lastIndexOf('.');
+    const lastNewline = truncated.lastIndexOf('\n');
+    
+    // Use the best break point available
+    const breakPoint = Math.max(lastSentence, lastNewline, lastSpace);
+    if (breakPoint > maxLength * 0.7) { // Only use if it's not too far back
+      return text.substring(0, breakPoint) + '...';
+    }
+    
+    return truncated + '...';
+  }
+
+  private assessContentQuality(content: any): number {
+    let qualityScore = 1.0;
+    const text = content.content.toLowerCase();
+    
+    // Positive quality signals
+    if (text.includes('```') || text.includes('<code>') || text.includes('curl ') || 
+        text.includes('npm ') || text.includes('kubectl ') || text.includes('git ')) {
+      qualityScore += 0.2; // Has code examples
+    }
+    
+    if (text.match(/^\s*\d+\.\s/m) || text.includes('step 1') || text.includes('first,') || 
+        text.includes('then,') || text.includes('next,')) {
+      qualityScore += 0.2; // Has step-by-step instructions
+    }
+    
+    if (text.includes('screenshot') || text.includes('image') || text.includes('diagram') || 
+        text.includes('figure')) {
+      qualityScore += 0.1; // Has visual aids
+    }
+    
+    if (content.content.length > 500) {
+      qualityScore += 0.1; // Substantial content
+    }
+    
+    // Check for updated recently (freshness)
+    if (content.updated_at) {
+      const daysSinceUpdate = (Date.now() - content.updated_at) / (1000 * 60 * 60 * 24);
+      if (daysSinceUpdate < 30) qualityScore += 0.1;
+      else if (daysSinceUpdate > 365) qualityScore -= 0.1;
+    }
+    
+    // Negative quality signals
+    if (content.content.length < 100) {
+      qualityScore -= 0.3; // Too short/stub
+    }
+    
+    if (text.includes('todo') || text.includes('tbd') || text.includes('coming soon') || 
+        text.includes('placeholder')) {
+      qualityScore -= 0.2; // Incomplete content
+    }
+    
+    if (text.includes('see other') || text.includes('refer to') || text.includes('check elsewhere')) {
+      qualityScore -= 0.1; // Lacks self-contained information
+    }
+    
+    return Math.max(0.1, Math.min(2.0, qualityScore));
   }
 
   close() {
