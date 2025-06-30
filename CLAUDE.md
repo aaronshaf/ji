@@ -41,7 +41,8 @@ src/
     ├── cache.ts              # SQLite caching layer
     ├── config.ts             # Configuration & auth management
     ├── content-manager.ts    # Unified content storage
-    ├── embeddings.ts         # Search functionality (FTS5)
+    ├── embeddings.ts         # Search functionality (FTS5 + semantic)
+    ├── ollama.ts             # Ollama integration for embeddings & LLM
     ├── jira-client.ts        # Jira API client
     ├── confluence-client.ts  # Confluence API client
     └── confluence-converter.ts # Convert storage format to text
@@ -60,6 +61,8 @@ src/
 - ✅ Confluence space syncing and page viewing
 - ✅ Full-text search across all content
 - ✅ Semantic search with vector embeddings (via Ollama + mxbai-embed-large)
+- ✅ Hybrid search combining semantic and keyword matching
+- ✅ AI-powered Q&A with `ji ask` (uses Ollama + gemma3n)
 - ✅ Background refresh for instant access
 - ✅ Secure credential storage
 - ✅ `ji mine` command to show your open issues
