@@ -14,8 +14,10 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 - 🔍 Fast full-text search across Jira issues and Confluence pages
 - 🧠 Semantic search with local vector embeddings (via Ollama)
 - 🤖 AI-powered Q&A to answer questions from your knowledge base
+- 💭 Memory system for progressive learning and fact correction
 - 📚 Confluence integration with space syncing
 - 🎨 Subtle color highlighting with chalk
+- 🔗 Clickable links in search results
 
 ## Prerequisites
 
@@ -199,8 +201,9 @@ Options:
 - `--limit <n>` - Number of context documents to use (default: 10)
 - `--verbose` - Show which documents were used
 - `--model <name>` - Use a different Ollama model (default: gemma3n)
+- `--include-old` - Include documentation not modified in 3+ years
 
-The AI uses hybrid search (both semantic and keyword matching) to find the most relevant documentation and provides concise, contextual answers.
+The AI uses hybrid search (both semantic and keyword matching) to find the most relevant documentation and provides concise, contextual answers. It also learns from previous Q&A sessions, storing key facts for improved future responses.
 
 #### AI Setup
 
@@ -210,6 +213,67 @@ For AI Q&A to work, you need the language model:
 # Pull the default language model
 ollama pull gemma3n
 ```
+
+### Memory Management
+
+The AI assistant can remember facts from previous conversations and manual additions. This helps improve response accuracy over time.
+
+#### Add a fact manually
+
+```bash
+ji remember "EVAL team handles Canvas evaluation and grading systems"
+```
+
+#### List stored memories
+
+```bash
+ji memories list                  # Show recent memories
+ji memories list --limit 50       # Show more memories
+```
+
+#### Search memories
+
+```bash
+ji memories search "EVAL"         # Search for specific terms
+```
+
+#### Delete a specific memory
+
+```bash
+ji memories delete <memory-id>    # Delete by ID (shown in list)
+```
+
+#### Clear memories
+
+```bash
+ji memories clear                 # Clear only manually added memories
+ji memories clear --all           # Clear ALL memories (requires confirmation)
+```
+
+#### View memory statistics
+
+```bash
+ji memories stats                 # Show total memories and usage
+```
+
+The memory system helps correct false information by allowing you to:
+- Manually add correct facts that override auto-extracted ones
+- Delete incorrect memories that were automatically extracted
+- Clear all memories if needed to start fresh
+
+### Model Configuration
+
+Configure which Ollama models to use for AI features:
+
+```bash
+ji models
+```
+
+This interactive command lets you:
+- Auto-detect available Ollama models
+- Select which model to use for Q&A (ask command)
+- Select which model to use for embeddings (semantic search)
+- Automatically pull models if they're not installed
 
 ### Embeddings Management
 
