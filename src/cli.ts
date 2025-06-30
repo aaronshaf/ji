@@ -114,7 +114,7 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
       // Spawn a detached process for background refresh
       const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-refresh', issueKey], {
         detached: true,
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'ignore'],
         env: {
           ...process.env,
           JI_CONFIG: JSON.stringify(config)
