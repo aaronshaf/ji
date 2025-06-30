@@ -12,12 +12,14 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 - 🔐 Secure API key storage (separate from database)
 - 📝 Clean, intuitive command structure
 - 🔍 Fast full-text search across Jira issues and Confluence pages
+- 🧠 Semantic search with local vector embeddings (via Ollama)
 - 📚 Confluence integration with space syncing
 - 🎨 Subtle color highlighting with chalk
 
 ## Prerequisites
 
 - [Bun](https://bun.sh) (v1.0 or later)
+- [Ollama](https://ollama.com) (optional, for semantic search)
 
 ## Installation
 
@@ -82,10 +84,24 @@ Sync all issues from a Jira project to your local database:
 ji issue sync PROJ
 ```
 
+Clear local data and start fresh:
+```bash
+ji issue sync PROJ --clean
+```
+
 This will:
 - Fetch all issues from the specified project
 - Store them in the local SQLite database for searching
 - Show progress during the sync
+- Generate vector embeddings in background (if Ollama is available)
+
+#### Show your open issues
+
+```bash
+ji mine
+```
+
+Shows all open issues assigned to you, grouped by project.
 
 ### Confluence Commands
 
@@ -121,6 +137,11 @@ Search across all cached content (both Jira and Confluence):
 ji search "performance issues"
 ```
 
+Semantic search (finds conceptually related content):
+```bash
+ji search --semantic "authentication problems"
+```
+
 Filter by source:
 ```bash
 ji search "deployment" --source jira
@@ -133,10 +154,25 @@ ji search "bug" --limit 5
 ```
 
 Search results show:
-- Title and source (Jira/Confluence)
-- Type (issue/page)
-- Relevant metadata (status, priority for Jira issues)
-- Score and snippet with highlighted matches
+- Title with status icon (for Jira issues)
+- Relevant metadata (status, priority, assignee)
+- Content preview from descriptions
+
+#### Semantic Search Setup
+
+For semantic search to work, you need Ollama:
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull the embedding model
+ollama pull mxbai-embed-large
+
+# Ollama runs as a service automatically
+```
+
+After syncing issues, embeddings are generated in the background. Semantic search will find conceptually related content even if exact keywords don't match.
 
 ## Development
 

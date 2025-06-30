@@ -6,7 +6,7 @@ export interface EmbeddingOptions {
 
 export class OllamaClient {
   private baseUrl = 'http://127.0.0.1:11434';
-  private model = 'all-minilm:latest';
+  private model = 'mxbai-embed-large:latest';
 
   async isAvailable(): Promise<boolean> {
     try {
@@ -19,13 +19,13 @@ export class OllamaClient {
       // Check if our model is installed
       const data = await response.json() as { models?: Array<{ name: string }> };
       const hasModel = data.models?.some((m) => 
-        m.name === this.model || m.name === 'all-minilm'
+        m.name === this.model || m.name === 'mxbai-embed-large'
       );
       
       if (!hasModel) {
         console.log(`\n⚠️  Ollama model '${this.model}' not found.`);
         console.log(`   Available models:`, data.models?.map(m => m.name).join(', '));
-        console.log(`   Run: ollama pull all-minilm`);
+        console.log(`   Run: ollama pull mxbai-embed-large`);
         return false;
       }
       
