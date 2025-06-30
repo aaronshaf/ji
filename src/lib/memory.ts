@@ -364,6 +364,37 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
     return uncertaintyPatterns.some(pattern => pattern.test(fact));
   }
 
+  // Clear all manual memories (user-added ones)
+  clearManualMemories(): number {
+    try {
+      // Count before deletion
+      const countStmt = this.db.prepare("SELECT COUNT(*) as count FROM ask_memory WHERE id LIKE 'manual_%'");
+      const beforeCount = (countStmt.get() as {count: number}).count;
+      
+      const stmt = this.db.prepare("DELETE FROM ask_memory WHERE id LIKE 'manual_%'");
+      stmt.run();
+      
+      return beforeCount;
+    } catch (error) {
+      return -1; // Error indicator
+    }
+  }
+
+  // Clear ALL memories (including auto-extracted ones) - dangerous operation
+  clearAllMemories(): number {
+    try {
+      const countStmt = this.db.prepare("SELECT COUNT(*) as count FROM ask_memory");
+      const beforeCount = (countStmt.get() as {count: number}).count;
+      
+      const stmt = this.db.prepare("DELETE FROM ask_memory");
+      stmt.run();
+      
+      return beforeCount;
+    } catch (error) {
+      return -1; // Error indicator
+    }
+  }
+
   close(): void {
     this.db.close();
   }

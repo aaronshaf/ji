@@ -67,7 +67,7 @@ export class ContentManager {
       type: 'issue',
       title: `${issue.key}: ${issue.fields.summary}`,
       content: content,
-      url: `${issue.self}`,
+      url: `/browse/${issue.key}`,
       projectKey: projectKey,
       metadata: {
         status: issue.fields.status.name,
