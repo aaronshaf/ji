@@ -374,11 +374,17 @@ async function syncJiraProject(projectKey: string) {
     let jqlQuery = `project = ${projectKey} ORDER BY updated DESC`;
     
     if (lastSync) {
-      const lastSyncStr = lastSync.toISOString().replace('T', ' ').substring(0, 19);
+      // Format date for JQL: "yyyy/MM/dd HH:mm"
+      const year = lastSync.getFullYear();
+      const month = String(lastSync.getMonth() + 1).padStart(2, '0');
+      const day = String(lastSync.getDate()).padStart(2, '0');
+      const hours = String(lastSync.getHours()).padStart(2, '0');
+      const minutes = String(lastSync.getMinutes()).padStart(2, '0');
+      const lastSyncStr = `${year}/${month}/${day} ${hours}:${minutes}`;
+      
       console.log(`📅 Last sync: ${chalk.dim(new Date(lastSync).toLocaleString())}`);
       console.log(`🔄 Fetching only issues updated after this time...\n`);
       
-      // JQL date format: "2023-12-01 10:30"
       jqlQuery = `project = ${projectKey} AND updated >= "${lastSyncStr}" ORDER BY updated DESC`;
       fetchMode = 'incremental';
     } else {
@@ -390,6 +396,12 @@ async function syncJiraProject(projectKey: string) {
     
     // Fetch issues with progress
     const issues = await jiraClient.getAllProjectIssues(projectKey, (current, total) => {
+      if (total === 0) {
+        process.stdout.write(`\r📥 Fetching: ${createProgressBar(100)} 100% | 0/0 issues | Complete!      `);
+        lastProgress = 100;
+        return;
+      }
+      
       const percent = Math.round((current / total) * 100);
       const progressBar = createProgressBar(percent);
       const rate = current / ((Date.now() - startTime) / 1000);
