@@ -12,11 +12,11 @@ const IssueSchema = z.object({
     }),
     assignee: z.object({
       displayName: z.string(),
-      emailAddress: z.string().email(),
+      emailAddress: z.string().email().optional(),
     }).nullable(),
     reporter: z.object({
       displayName: z.string(),
-      emailAddress: z.string().email(),
+      emailAddress: z.string().email().optional(),
     }),
     priority: z.object({
       name: z.string(),
