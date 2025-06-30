@@ -624,12 +624,22 @@ async function search(query: string, options: {
         console.log(`  ${highlightedSnippet}`);
       }
       
-      // Minimal metadata line
+      // Minimal metadata line with clickable URL
       const timeAgo = formatTimeAgo(content.updatedAt);
       const isRecent = content.updatedAt && (Date.now() - content.updatedAt) < (7 * 24 * 60 * 60 * 1000);
       const timeColor = isRecent ? chalk.green : chalk.dim;
       
-      console.log(chalk.dim(`  ${team} • `) + timeColor(timeAgo));
+      // Build full URL for clicking
+      let fullUrl = content.url;
+      if (config && !content.url.startsWith('http')) {
+        if (content.source === 'confluence') {
+          fullUrl = `${config.jiraUrl}/wiki${content.url}`;
+        } else if (content.source === 'jira') {
+          fullUrl = `${config.jiraUrl}${content.url}`;
+        }
+      }
+      
+      console.log(chalk.dim(`  ${team} • `) + timeColor(timeAgo) + chalk.cyan(` → ${fullUrl}`));
       console.log('');
     }
 
@@ -1152,6 +1162,52 @@ async function showMemoryStats() {
     console.log(chalk.dim('\nUse `ji memories list` to view all memories'));
   } catch (error) {
     console.error(`Failed to get memory stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    memoryManager.close();
+  }
+}
+
+async function clearMemories(options: { all?: boolean } = {}) {
+  const memoryManager = new MemoryManager();
+  
+  try {
+    if (options.all) {
+      // Dangerous operation - require confirmation
+      console.log(chalk.yellow('⚠️  This will delete ALL memories (including auto-extracted ones)'));
+      console.log(chalk.yellow('   This action cannot be undone!'));
+      
+      const rl = readline.createInterface({ input, output });
+      const answer = await rl.question('Are you sure? Type "yes" to confirm: ');
+      rl.close();
+      
+      if (answer.toLowerCase() !== 'yes') {
+        console.log('Operation cancelled');
+        return;
+      }
+      
+      const count = memoryManager.clearAllMemories();
+      
+      if (count >= 0) {
+        console.log(chalk.green(`✅ Cleared ${count} memories`));
+      } else {
+        console.log(chalk.red('❌ Failed to clear memories'));
+      }
+    } else {
+      // Clear only manual memories
+      const count = memoryManager.clearManualMemories();
+      
+      if (count >= 0) {
+        console.log(chalk.green(`✅ Cleared ${count} manually added memories`));
+        if (count === 0) {
+          console.log(chalk.dim('   (No manual memories found)'));
+        }
+      } else {
+        console.log(chalk.red('❌ Failed to clear memories'));
+      }
+    }
+  } catch (error) {
+    console.error(`Failed to clear memories: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   } finally {
     memoryManager.close();
@@ -1887,6 +1943,8 @@ async function main() {
     console.log('  ji memories list              - List stored memories');
     console.log('  ji memories search <term>     - Search stored memories');
     console.log('  ji memories delete <id>       - Delete a memory by ID');
+    console.log('  ji memories clear             - Clear manually added memories');
+    console.log('  ji memories clear --all       - Clear ALL memories (dangerous)');
     console.log('  ji memories stats             - Show memory statistics');
     console.log('  ji models                     - Configure Ollama models');
     console.log('  ji embeddings regenerate      - Regenerate all embeddings');
@@ -2017,6 +2075,11 @@ async function main() {
   } else if (command === 'memories' && args[1] === 'delete' && args[2]) {
     const memoryId = args[2];
     await deleteMemory(memoryId);
+  } else if (command === 'memories' && args[1] === 'clear') {
+    const options = {
+      all: args.includes('--all')
+    };
+    await clearMemories(options);
   } else if (command === 'memories' && args[1] === 'stats') {
     await showMemoryStats();
   } else {
