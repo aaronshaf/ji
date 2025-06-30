@@ -12,6 +12,12 @@ const ConfigSchema = z.object({
 
 export type Config = z.infer<typeof ConfigSchema>;
 
+// Settings that can be configured via CLI
+export interface Settings {
+  askModel?: string;
+  embeddingModel?: string;
+}
+
 export class ConfigManager {
   private db: Database;
   private configDir: string;
@@ -240,6 +246,32 @@ export class ConfigManager {
       // If any error occurs during migration, just continue
       // The table creation will handle it
     }
+  }
+
+  // Settings management (stored in SQLite)
+  async getSetting(key: string): Promise<string | null> {
+    try {
+      const stmt = this.db.prepare('SELECT value FROM config WHERE key = ?');
+      const row = stmt.get(key) as { value: string } | undefined;
+      return row?.value || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setSetting(key: string, value: string): Promise<void> {
+    const stmt = this.db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
+    stmt.run(key, value);
+  }
+
+  async getSettings(): Promise<Settings> {
+    const askModel = await this.getSetting('askModel');
+    const embeddingModel = await this.getSetting('embeddingModel');
+    
+    return {
+      askModel: askModel || undefined,
+      embeddingModel: embeddingModel || undefined
+    };
   }
 
   close() {
