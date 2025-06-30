@@ -1,6 +1,6 @@
-# ji - Jira CLI
+# ji - Jira & Confluence CLI
 
-A fast, modern CLI for Jira built with Bun and TypeScript. Features local SQLite caching with background sync for instant access to your Jira data.
+A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Features local SQLite caching with background sync for instant access to your data.
 
 Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 
@@ -9,10 +9,11 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 - 🚀 Built with Bun for lightning-fast performance
 - 💾 Local SQLite caching for offline access and instant queries
 - 🔄 Automatic background refresh keeps data up-to-date
-- 🔐 Secure API key storage
+- 🔐 Secure API key storage (separate from database)
 - 📝 Clean, intuitive command structure
-- 🔍 Fast full-text search with SQLite FTS5
-- 🤖 Extensible architecture ready for vector search
+- 🔍 Fast full-text search across Jira issues and Confluence pages
+- 📚 Confluence integration with space syncing
+- 🎨 Subtle color highlighting with chalk
 
 ## Prerequisites
 
@@ -31,20 +32,24 @@ bun link
 
 ## Setup
 
-First, authenticate with your Jira instance:
+First, authenticate with your Atlassian instance:
 
 ```bash
 ji auth
 ```
 
 You'll need:
-- Your Jira instance URL (e.g., `https://company.atlassian.net`)
+- Your Atlassian instance URL (e.g., `https://company.atlassian.net`)
 - Your email address
-- A Jira API token (create one at https://id.atlassian.com/manage-profile/security/api-tokens)
+- An Atlassian API token (create one at https://id.atlassian.com/manage-profile/security/api-tokens)
+
+The authentication credentials are stored securely in `~/.ji/auth.json` with 600 permissions, separate from the database so you can recreate the SQLite database without re-authenticating.
 
 ## Usage
 
-### View an issue
+### Jira Commands
+
+#### View an issue
 
 ```bash
 ji issue view PROJ-123
@@ -69,14 +74,39 @@ Combine options:
 ji issue view PROJ-123 --sync --json
 ```
 
+### Confluence Commands
+
+#### Sync a Confluence space
+
+Sync all pages from a Confluence space to your local database:
+
+```bash
+ji confluence sync <space-key>
+```
+
+This will:
+- Fetch all pages from the specified space
+- Convert Confluence storage format to plain text
+- Store pages in the local SQLite database for searching
+- Show progress during the sync
+
+#### View a Confluence page
+
+```bash
+ji confluence view <page-id>
+```
+
+View as JSON:
+```bash
+ji confluence view <page-id> --json
+```
+
 ### Search
 
-Search across all cached content (hybrid search by default):
+Search across all cached content (both Jira and Confluence):
 ```bash
 ji search "performance issues"
 ```
-
-Note: Semantic search currently falls back to keyword search. Vector embeddings coming soon with a Bun-compatible solution.
 
 Filter by source:
 ```bash
@@ -88,6 +118,12 @@ Limit results:
 ```bash
 ji search "bug" --limit 5
 ```
+
+Search results show:
+- Title and source (Jira/Confluence)
+- Type (issue/page)
+- Relevant metadata (status, priority for Jira issues)
+- Score and snippet with highlighted matches
 
 ## Development
 
@@ -111,10 +147,11 @@ bun run lint
 ## Architecture
 
 - **Runtime**: Pure Bun for lightning-fast execution
-- **Storage**: Bun's built-in SQLite database stored in `~/.ji/` for fast local queries
-- **Search**: SQLite FTS5 for full-text search, vector embeddings infrastructure ready
-- **Sync**: Background processes for data refresh and embedding generation
-- **Security**: API credentials stored securely in local SQLite database
+- **Storage**: Bun's built-in SQLite database stored in `~/.ji/data.db`
+- **Authentication**: Credentials stored separately in `~/.ji/auth.json` (600 permissions)
+- **Search**: SQLite FTS5 for full-text search across all content
+- **Sync**: Background processes for data refresh
+- **Security**: API credentials stored securely, never committed to git
 - **Zero Node.js dependencies**: Runs entirely on Bun
 
 ## License
