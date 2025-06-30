@@ -65,6 +65,16 @@ export class CacheManager {
     return stmt.all(limit);
   }
 
+  async getProjectLastSync(projectKey: string): Promise<Date | null> {
+    const stmt = this.db.prepare(`
+      SELECT MAX(synced_at) as last_sync
+      FROM issues
+      WHERE project_key = ?
+    `);
+    const result = stmt.get(projectKey) as any;
+    return result?.last_sync ? new Date(result.last_sync) : null;
+  }
+
   private extractDescription(description: any): string {
     if (typeof description === 'string') {
       return description;
