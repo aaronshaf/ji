@@ -5,6 +5,8 @@ import { JiraClient } from './lib/jira-client.js';
 import { CacheManager } from './lib/cache.js';
 import { ContentManager } from './lib/content-manager.js';
 import { EmbeddingManager } from './lib/embeddings.js';
+import { ConfluenceClient } from './lib/confluence-client.js';
+import { confluenceToText } from './lib/confluence-converter.js';
 import chalk from 'chalk';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
@@ -268,6 +270,84 @@ async function embedContent(contentId: string) {
   }
 }
 
+async function syncConfluence(spaceKey: string) {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  const confluenceClient = new ConfluenceClient(config);
+  const contentManager = new ContentManager();
+
+  try {
+    // First verify the space exists
+    console.log(`Fetching space information for ${chalk.bold(spaceKey)}...`);
+    const space = await confluenceClient.getSpace(spaceKey);
+    console.log(`Found space: ${chalk.bold(space.name)}`);
+
+    // Fetch all pages with progress
+    console.log('\nSyncing pages...');
+    const pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
+      process.stdout.write(`\rProgress: ${current}/${total} pages`);
+    });
+    console.log(''); // New line after progress
+
+    if (pages.length === 0) {
+      console.log('No pages found in this space.');
+      return;
+    }
+
+    console.log(`\nProcessing ${pages.length} pages...`);
+    
+    // Save each page to the content manager
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      process.stdout.write(`\rProcessing: ${i + 1}/${pages.length} - ${page.title.substring(0, 50)}${page.title.length > 50 ? '...' : ''}`);
+
+      // Convert storage format to plain text
+      const plainText = confluenceToText(page.body?.storage?.value || '');
+      
+      // Extract metadata
+      const metadata = {
+        spaceKey: page.space.key,
+        spaceName: page.space.name,
+        version: page.version.number,
+        lastModified: page.version.when,
+        webUrl: page._links.webui
+      };
+
+      // Save to content manager
+      await contentManager.saveContent({
+        id: `confluence:${page.id}`,
+        source: 'confluence',
+        type: 'page',
+        title: page.title,
+        content: plainText,
+        url: page._links.webui,
+        spaceKey: page.space.key,
+        metadata,
+        updatedAt: new Date(page.version.when).getTime(),
+        syncedAt: Date.now()
+      });
+    }
+
+    console.log(''); // New line after progress
+    console.log(chalk.green(`\n✓ Successfully synced ${pages.length} pages from ${space.name}`));
+    console.log(`\nYou can now search these pages with: ${chalk.dim('ji search <query>')}`);
+    console.log(`Or filter by source: ${chalk.dim('ji search --source confluence <query>')}`);
+
+  } catch (error) {
+    console.error(`\nSync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    configManager.close();
+    contentManager.close();
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   
@@ -289,15 +369,16 @@ async function main() {
   if (args.length === 0) {
     console.log('ji - Jira & Confluence CLI\n');
     console.log('Usage:');
-    console.log('  ji auth                     - Set up authentication');
-    console.log('  ji issue view <key>         - View an issue');
-    console.log('  ji search <query>           - Search across all content');
-    console.log('  ji search --semantic <query> - Semantic search only');
+    console.log('  ji auth                       - Set up authentication');
+    console.log('  ji issue view <key>           - View an issue');
+    console.log('  ji confluence sync <space>    - Sync Confluence space');
+    console.log('  ji search <query>             - Search across all content');
+    console.log('  ji search --semantic <query>  - Semantic search only');
     console.log('\nOptions:');
-    console.log('  --json, -j                  - Output as JSON');
-    console.log('  --sync, -s                  - Force sync from API');
-    console.log('  --source [jira|confluence]  - Filter by source');
-    console.log('  --limit <n>                 - Limit results (default: 20)');
+    console.log('  --json, -j                    - Output as JSON');
+    console.log('  --sync, -s                    - Force sync from API');
+    console.log('  --source [jira|confluence]    - Filter by source');
+    console.log('  --limit <n>                   - Limit results (default: 20)');
     process.exit(0);
   }
 
@@ -312,6 +393,9 @@ async function main() {
       sync: args.includes('--sync') || args.includes('-s')
     };
     await viewIssue(issueKey, options);
+  } else if (command === 'confluence' && args[1] === 'sync' && args[2]) {
+    const spaceKey = args[2];
+    await syncConfluence(spaceKey);
   } else if (command === 'search' && args[1]) {
     const queryStart = args.includes('--semantic') ? 2 : 1;
     const query = args.slice(queryStart).filter(arg => !arg.startsWith('--')).join(' ');
