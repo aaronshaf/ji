@@ -5,6 +5,7 @@ import { JiraClient } from './lib/jira-client.js';
 import { CacheManager } from './lib/cache.js';
 import { ContentManager } from './lib/content-manager.js';
 import { EmbeddingManager } from './lib/embeddings.js';
+import chalk from 'chalk';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 
@@ -40,14 +41,14 @@ async function auth() {
       }
 
       const user = await response.json();
-      console.log(`Successfully authenticated as ${user.displayName} (${user.emailAddress})`);
+      console.log(chalk.green(`Successfully authenticated as ${user.displayName} (${user.emailAddress})`));
 
       // Save config after successful verification
       const configManager = new ConfigManager();
       await configManager.setConfig(config);
       configManager.close();
 
-      console.log('\nAuthentication saved successfully!');
+      console.log(chalk.green('\nAuthentication saved successfully!'));
       console.log('You can now use "ji issue view <issue-key>" to view issues.');
     } catch (error) {
       console.error(`\nAuthentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -93,20 +94,20 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
     if (options.json) {
       console.log(JSON.stringify(issue, null, 2));
     } else {
-      console.log(`\n${issue.key}: ${issue.fields.summary}`);
-      console.log(`\nStatus: ${issue.fields.status.name}`);
+      console.log(`\n${chalk.bold(issue.key)}: ${issue.fields.summary}`);
+      console.log(`\n${chalk.dim('Status:')} ${issue.fields.status.name}`);
       if (issue.fields.priority) {
-        console.log(`Priority: ${issue.fields.priority.name}`);
+        console.log(`${chalk.dim('Priority:')} ${issue.fields.priority.name}`);
       }
       if (issue.fields.assignee) {
-        console.log(`Assignee: ${issue.fields.assignee.displayName}`);
+        console.log(`${chalk.dim('Assignee:')} ${issue.fields.assignee.displayName}`);
       }
-      console.log(`Reporter: ${issue.fields.reporter.displayName}`);
-      console.log(`Created: ${new Date(issue.fields.created).toLocaleString()}`);
-      console.log(`Updated: ${new Date(issue.fields.updated).toLocaleString()}`);
+      console.log(`${chalk.dim('Reporter:')} ${issue.fields.reporter.displayName}`);
+      console.log(`${chalk.dim('Created:')} ${new Date(issue.fields.created).toLocaleString()}`);
+      console.log(`${chalk.dim('Updated:')} ${new Date(issue.fields.updated).toLocaleString()}`);
       
       if (issue.fields.description) {
-        console.log('\nDescription:');
+        console.log(`\n${chalk.dim('Description:')}`);
         console.log(formatDescription(issue.fields.description));
       }
     }
@@ -224,12 +225,12 @@ async function search(query: string, options: {
 
     for (const result of results) {
       const { content, score, snippet } = result;
-      console.log(`${content.title}`);
-      console.log(`  Source: ${content.source} | Type: ${content.type}`);
+      console.log(chalk.bold(content.title));
+      console.log(chalk.dim(`  Source: ${content.source} | Type: ${content.type}`));
       if (content.source === 'jira' && content.metadata?.status) {
-        console.log(`  Status: ${content.metadata.status} | Priority: ${content.metadata.priority || 'None'}`);
+        console.log(chalk.dim(`  Status: ${content.metadata.status} | Priority: ${content.metadata.priority || 'None'}`));
       }
-      console.log(`  Score: ${score.toFixed(3)}`);
+      console.log(chalk.dim(`  Score: ${score.toFixed(3)}`));
       console.log(`  ${snippet}`);
       console.log('');
     }
