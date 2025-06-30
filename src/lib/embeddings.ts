@@ -127,7 +127,7 @@ export class EmbeddingManager {
     const threshold = 0.3; // Lowered threshold - all-minilm might have lower similarities
     return results
       .filter(r => r.score >= threshold)
-      .slice(0, options?.limit || 20);
+      .slice(0, options?.limit || 10);
   }
 
   async hybridSearch(query: string, options?: {
@@ -135,7 +135,7 @@ export class EmbeddingManager {
     limit?: number;
     includeAll?: boolean;
   }): Promise<SearchResult[]> {
-    const limit = options?.limit || 20;
+    const limit = options?.limit || 10;
     
     // Get both semantic and FTS results
     const [semanticResults, ftsResults] = await Promise.all([
@@ -162,9 +162,44 @@ export class EmbeddingManager {
     });
     
     // Sort by score and return top results
-    return Array.from(resultMap.values())
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
+    const allResults = Array.from(resultMap.values())
+      .sort((a, b) => b.score - a.score);
+    
+    // If no source filter, ensure we get a mix of both sources
+    if (!options?.source && allResults.length > 0) {
+      const confluenceResults = allResults.filter(r => r.content.source === 'confluence');
+      const jiraResults = allResults.filter(r => r.content.source === 'jira');
+      
+      // If we have both types, try to include at least some from each
+      if (confluenceResults.length > 0 && jiraResults.length > 0) {
+        const balancedResults: SearchResult[] = [];
+        let confIndex = 0, jiraIndex = 0;
+        
+        // Alternate between sources, but still respect score order within each source
+        while (balancedResults.length < limit && (confIndex < confluenceResults.length || jiraIndex < jiraResults.length)) {
+          // Add confluence result if available and we haven't exceeded half the limit
+          if (confIndex < confluenceResults.length && balancedResults.filter(r => r.content.source === 'confluence').length < Math.ceil(limit / 2)) {
+            balancedResults.push(confluenceResults[confIndex++]);
+          }
+          
+          // Add jira result if available and we haven't filled up
+          if (jiraIndex < jiraResults.length && balancedResults.length < limit) {
+            balancedResults.push(jiraResults[jiraIndex++]);
+          }
+          
+          // If we've reached our confluence limit but still have space, fill with jira
+          if (balancedResults.filter(r => r.content.source === 'confluence').length >= Math.ceil(limit / 2)) {
+            while (balancedResults.length < limit && jiraIndex < jiraResults.length) {
+              balancedResults.push(jiraResults[jiraIndex++]);
+            }
+          }
+        }
+        
+        return balancedResults;
+      }
+    }
+    
+    return allResults.slice(0, limit);
   }
 
   private async searchFTS(query: string, options?: {
@@ -205,7 +240,7 @@ export class EmbeddingManager {
     }
 
     sql += ' ORDER BY rank LIMIT ?';
-    params.push(options?.limit || 20);
+    params.push(options?.limit || 10);
 
     const stmt = this.db.prepare(sql);
     const rows = stmt.all(...params) as any[];
