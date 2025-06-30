@@ -34,6 +34,40 @@ export class ConfigManager {
         value TEXT NOT NULL
       )
     `);
+    
+    // Create projects table
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS projects (
+        key TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+      )
+    `);
+    
+    // Create issues table with proper relations
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS issues (
+        key TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        status TEXT NOT NULL,
+        priority TEXT,
+        assignee_name TEXT,
+        assignee_email TEXT,
+        reporter_name TEXT NOT NULL,
+        reporter_email TEXT NOT NULL,
+        created INTEGER NOT NULL,
+        updated INTEGER NOT NULL,
+        description TEXT,
+        raw_data TEXT NOT NULL,
+        synced_at INTEGER NOT NULL,
+        FOREIGN KEY (project_key) REFERENCES projects(key)
+      )
+    `);
+    
+    // Create indexes for common queries
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_key)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_issues_updated ON issues(updated DESC)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_issues_assignee ON issues(assignee_email)`);
   }
 
   async getConfig(): Promise<Config | null> {
