@@ -104,9 +104,14 @@ export class ContentManager {
       content.syncedAt
     );
 
-    // Also insert into FTS table
+    // Also update FTS table
+    // First delete existing entry
+    const deleteFtsStmt = this.db.prepare('DELETE FROM content_fts WHERE id = ?');
+    deleteFtsStmt.run(content.id);
+    
+    // Then insert new entry
     const ftsStmt = this.db.prepare(`
-      INSERT OR REPLACE INTO content_fts (id, title, content)
+      INSERT INTO content_fts (id, title, content)
       VALUES (?, ?, ?)
     `);
     
