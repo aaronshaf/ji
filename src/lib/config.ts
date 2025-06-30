@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
@@ -13,7 +13,7 @@ const ConfigSchema = z.object({
 export type Config = z.infer<typeof ConfigSchema>;
 
 export class ConfigManager {
-  private db: Database.Database;
+  private db: Database;
   private configDir: string;
 
   constructor() {
@@ -28,7 +28,7 @@ export class ConfigManager {
   }
 
   private initDB() {
-    this.db.exec(`
+    this.db.run(`
       CREATE TABLE IF NOT EXISTS config (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -58,17 +58,12 @@ export class ConfigManager {
     const validated = ConfigSchema.parse(config);
     
     const stmt = this.db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
-    const insertMany = this.db.transaction((entries: [string, string][]) => {
-      for (const [key, value] of entries) {
-        stmt.run(key, value);
-      }
-    });
-
-    insertMany([
-      ['jiraUrl', validated.jiraUrl],
-      ['email', validated.email],
-      ['apiToken', validated.apiToken],
-    ]);
+    
+    this.db.transaction(() => {
+      stmt.run('jiraUrl', validated.jiraUrl);
+      stmt.run('email', validated.email);
+      stmt.run('apiToken', validated.apiToken);
+    })();
   }
 
   close() {

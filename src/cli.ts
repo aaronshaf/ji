@@ -1,0 +1,140 @@
+#!/usr/bin/env bun
+import { parseArgs } from "util";
+import { ConfigManager } from './lib/config.js';
+import { JiraClient } from './lib/jira-client.js';
+import * as readline from 'readline/promises';
+import { stdin as input, stdout as output } from 'process';
+
+async function auth() {
+  const rl = readline.createInterface({ input, output });
+
+  try {
+    const jiraUrl = await rl.question('Jira URL (e.g., https://company.atlassian.net): ');
+    const email = await rl.question('Email: ');
+    const apiToken = await rl.question('API Token: ');
+
+    const configManager = new ConfigManager();
+    await configManager.setConfig({
+      jiraUrl: jiraUrl.endsWith('/') ? jiraUrl.slice(0, -1) : jiraUrl,
+      email,
+      apiToken,
+    });
+
+    console.log('✅ Authentication saved successfully!');
+    console.log('\nYou can now use "ji issue view <issue-key>" to view issues.');
+    
+    configManager.close();
+  } finally {
+    rl.close();
+  }
+}
+
+async function viewIssue(issueKey: string, options: { json?: boolean }) {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  try {
+    const client = new JiraClient(config);
+    const issue = await client.getIssue(issueKey);
+
+    if (options.json) {
+      console.log(JSON.stringify(issue, null, 2));
+    } else {
+      console.log(`\n📋 ${issue.key}: ${issue.fields.summary}`);
+      console.log(`\n🔖 Status: ${issue.fields.status.name}`);
+      if (issue.fields.priority) {
+        console.log(`🎯 Priority: ${issue.fields.priority.name}`);
+      }
+      if (issue.fields.assignee) {
+        console.log(`👤 Assignee: ${issue.fields.assignee.displayName}`);
+      }
+      console.log(`📝 Reporter: ${issue.fields.reporter.displayName}`);
+      console.log(`📅 Created: ${new Date(issue.fields.created).toLocaleString()}`);
+      console.log(`🔄 Updated: ${new Date(issue.fields.updated).toLocaleString()}`);
+      
+      if (issue.fields.description) {
+        console.log('\n📄 Description:');
+        console.log(formatDescription(issue.fields.description));
+      }
+    }
+  } catch (error) {
+    console.error(`Failed to fetch issue: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    configManager.close();
+  }
+}
+
+function formatDescription(description: any): string {
+  if (typeof description === 'string') {
+    return description;
+  }
+  
+  // Handle Atlassian Document Format (ADF)
+  if (description?.content) {
+    return parseADF(description);
+  }
+  
+  return 'No description available';
+}
+
+function parseADF(doc: any): string {
+  let text = '';
+  
+  const parseNode = (node: any): string => {
+    if (node.type === 'text') {
+      return node.text || '';
+    }
+    
+    if (node.content) {
+      return node.content.map((n: any) => parseNode(n)).join('');
+    }
+    
+    if (node.type === 'paragraph') {
+      return '\n' + (node.content?.map((n: any) => parseNode(n)).join('') || '') + '\n';
+    }
+    
+    return '';
+  };
+  
+  if (doc.content) {
+    text = doc.content.map((node: any) => parseNode(node)).join('');
+  }
+  
+  return text.trim();
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  
+  if (args.length === 0) {
+    console.log('ji - Jira CLI\n');
+    console.log('Usage:');
+    console.log('  ji auth                    - Set up authentication');
+    console.log('  ji issue view <key>        - View an issue');
+    console.log('  ji issue view <key> --json - View an issue as JSON');
+    process.exit(0);
+  }
+
+  const command = args[0];
+
+  if (command === 'auth') {
+    await auth();
+  } else if (command === 'issue' && args[1] === 'view' && args[2]) {
+    const issueKey = args[2];
+    const options = {
+      json: args.includes('--json') || args.includes('-j')
+    };
+    await viewIssue(issueKey, options);
+  } else {
+    console.error(`Unknown command: ${args.join(' ')}`);
+    process.exit(1);
+  }
+}
+
+main().catch(console.error);
