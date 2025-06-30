@@ -167,6 +167,24 @@ export class ConfigManager {
 
   private runMigrations() {
     try {
+      // Add content_hash columns if they don't exist
+      const contentTableInfo = this.db.prepare(`PRAGMA table_info(searchable_content)`).all() as any[];
+      const hasContentHash = contentTableInfo.some((col: any) => col.name === 'content_hash');
+      
+      if (!hasContentHash) {
+        console.log('Migrating database: Adding content hash tracking...');
+        this.db.run(`ALTER TABLE searchable_content ADD COLUMN content_hash TEXT`);
+      }
+      
+      // Add embedding tracking columns to embeddings table
+      const embeddingTableInfo = this.db.prepare(`PRAGMA table_info(content_embeddings)`).all() as any[];
+      const hasEmbeddingHash = embeddingTableInfo.some((col: any) => col.name === 'embedding_hash');
+      
+      if (!hasEmbeddingHash) {
+        this.db.run(`ALTER TABLE content_embeddings ADD COLUMN embedding_hash TEXT`);
+        this.db.run(`ALTER TABLE content_embeddings ADD COLUMN generated_at INTEGER`);
+      }
+      
       // Check if reporter_email has NOT NULL constraint
       const tableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as any[];
       const reporterEmailCol = tableInfo.find((col: any) => col.name === 'reporter_email');

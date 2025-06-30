@@ -7,6 +7,7 @@ import { ContentManager } from './lib/content-manager.js';
 import { EmbeddingManager } from './lib/embeddings.js';
 import { ConfluenceClient } from './lib/confluence-client.js';
 import { confluenceToText } from './lib/confluence-converter.js';
+import { OllamaClient } from './lib/ollama.js';
 import chalk from 'chalk';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
@@ -463,6 +464,57 @@ async function embedContent(contentId: string) {
   }
 }
 
+async function generateEmbeddingsInBackground() {
+  const contentManager = new ContentManager();
+  const ollama = new OllamaClient();
+  
+  try {
+    // Check if Ollama is available
+    if (!await ollama.isAvailable()) {
+      return;
+    }
+    
+    // Get content needing embeddings
+    const items = await contentManager.getContentNeedingEmbeddings(50);
+    
+    if (items.length === 0) {
+      return;
+    }
+    
+    console.log(`\n🧠 Updating embeddings in background...`);
+    
+    // Spawn a background process to generate embeddings
+    const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-embed-batch'], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+      env: { ...process.env }
+    });
+    
+    proc.unref();
+  } finally {
+    contentManager.close();
+  }
+}
+
+async function generateEmbeddingsBatch() {
+  const contentManager = new ContentManager();
+  const ollama = new OllamaClient();
+  
+  try {
+    const items = await contentManager.getContentNeedingEmbeddings(100);
+    
+    let processed = 0;
+    for (const item of items) {
+      const embedding = await ollama.generateEmbedding(item.content);
+      if (embedding) {
+        await contentManager.saveEmbedding(item.id, embedding, item.content_hash);
+        processed++;
+      }
+    }
+  } finally {
+    contentManager.close();
+  }
+}
+
 async function syncJiraProject(projectKey: string, options: { fresh?: boolean } = {}) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
@@ -603,6 +655,9 @@ async function syncJiraProject(projectKey: string, options: { fresh?: boolean } 
     console.log(`💡 Next steps:`);
     console.log(`   • Search all issues: ${chalk.cyan('ji search <query>')}`);
     console.log(`   • View an issue: ${chalk.cyan('ji issue view <issue-key>')}\n`);
+    
+    // Generate embeddings in background after sync
+    await generateEmbeddingsInBackground();
 
   } catch (error) {
     console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -763,7 +818,13 @@ async function main() {
     process.exit(0);
   }
   
-  if (args.length === 0) {
+  // Handle internal batch embedding command (hidden from users)
+  if (args[0] === 'internal-embed-batch') {
+    await generateEmbeddingsBatch();
+    process.exit(0);
+  }
+  
+  function showHelp() {
     console.log('ji - Jira & Confluence CLI\n');
     console.log('Usage:');
     console.log('  ji auth                       - Set up authentication');
@@ -775,11 +836,16 @@ async function main() {
     console.log('  ji search <query>             - Search across all content');
     console.log('  ji search --semantic <query>  - Semantic search only');
     console.log('\nOptions:');
+    console.log('  --help, -h                    - Show this help message');
     console.log('  --json, -j                    - Output as JSON');
     console.log('  --sync, -s                    - Force sync from API');
     console.log('  --clean                       - Clear local data before sync');
     console.log('  --source [jira|confluence]    - Filter by source');
     console.log('  --limit <n>                   - Limit results (default: 10)');
+  }
+  
+  if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+    showHelp();
     process.exit(0);
   }
 
