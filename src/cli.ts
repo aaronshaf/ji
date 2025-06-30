@@ -9,6 +9,7 @@ import { ConfluenceClient } from './lib/confluence-client.js';
 import { confluenceToText } from './lib/confluence-converter.js';
 import { OllamaClient } from './lib/ollama.js';
 import { MemoryManager } from './lib/memory.js';
+import { SearchAnalytics } from './lib/search-analytics.js';
 import chalk from 'chalk';
 import ora from 'ora';
 import * as readline from 'readline/promises';
@@ -517,14 +518,21 @@ async function search(query: string, options: {
       return;
     }
 
-    // Enhanced result processing with quality scoring
+    // Enhanced result processing with quality scoring and analytics
+    const analytics = new SearchAnalytics();
+    
     const enhancedResults = results.map(result => {
       const qualityScore = assessContentQuality(result.content);
       const freshnessBoost = getFreshnessBoost(result.content.updatedAt);
       const team = getTeamFromMetadata(result.content);
       
+      // Get analytics-based scoring
+      const popularityScore = analytics.getPopularityScore(result.content.id);
+      const clickThroughRate = analytics.getClickThroughRate(result.content.id, query);
+      const analyticsBoost = 1.0 + (popularityScore - 1.0) * 0.3 + clickThroughRate * 0.2; // Moderate boost from analytics
+      
       // Calculate enhanced relevance score
-      let enhancedScore = result.score * qualityScore * freshnessBoost;
+      let enhancedScore = result.score * qualityScore * freshnessBoost * analyticsBoost;
       
       // Intent-based boosting
       if (intent === 'troubleshooting' && result.content.source === 'jira') {
@@ -544,9 +552,12 @@ async function search(query: string, options: {
         score: Math.min(enhancedScore, 1.0), // Cap at 1.0
         qualityScore,
         freshnessBoost,
-        team
+        team,
+        analyticsBoost
       };
     });
+    
+    analytics.close();
 
     // Sort by enhanced score and apply limit
     enhancedResults.sort((a, b) => b.score - a.score);
@@ -554,6 +565,20 @@ async function search(query: string, options: {
 
     // Display results with enhanced formatting
     console.log(chalk.dim(`Found ${results.length} results:\n`));
+
+    // Track search results being viewed
+    const searchAnalytics = new SearchAnalytics();
+    limitedResults.forEach(result => {
+      searchAnalytics.recordInteraction({
+        query,
+        resultId: result.content.id,
+        resultTitle: result.content.title,
+        resultScore: result.score,
+        interactionType: 'view',
+        timestamp: Date.now()
+      });
+    });
+    searchAnalytics.close();
 
     for (const result of limitedResults) {
       const { content, score, team } = result;
