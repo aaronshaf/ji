@@ -9,7 +9,7 @@ export class CacheManager {
   private contentManager: ContentManager;
 
   constructor() {
-    const dbPath = join(homedir(), '.ji', 'config.db');
+    const dbPath = join(homedir(), '.ji', 'data.db');
     this.db = new Database(dbPath);
     this.contentManager = new ContentManager();
   }

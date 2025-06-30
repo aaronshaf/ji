@@ -26,7 +26,7 @@ export class EmbeddingManager {
   private chunker: DocumentChunker;
 
   constructor() {
-    const dbPath = join(homedir(), '.ji', 'config.db');
+    const dbPath = join(homedir(), '.ji', 'data.db');
     this.db = new Database(dbPath);
     this.chunker = new DocumentChunker();
   }
