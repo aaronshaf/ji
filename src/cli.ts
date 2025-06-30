@@ -314,6 +314,168 @@ async function showMyIssues() {
   }
 }
 
+// Technical synonyms for query expansion
+const TECHNICAL_SYNONYMS: Record<string, string[]> = {
+  'auth': ['authentication', 'authorization', 'SSO', 'SAML', 'OAuth', 'login', 'token', 'credentials'],
+  'deploy': ['deployment', 'release', 'ship', 'publish', 'CI/CD', 'pipeline', 'rollout'],
+  'error': ['exception', 'failure', 'bug', 'issue', 'problem', 'troubleshoot', 'debug'],
+  'API': ['endpoint', 'REST', 'GraphQL', 'service', 'integration', 'webhook', 'microservice'],
+  'db': ['database', 'SQL', 'NoSQL', 'schema', 'migration', 'query'],
+  'k8s': ['kubernetes', 'container', 'pod', 'cluster', 'helm', 'kubectl'],
+  'config': ['configuration', 'settings', 'environment', 'variables', 'properties'],
+  'test': ['testing', 'spec', 'unit test', 'integration test', 'e2e', 'TDD']
+};
+
+const TECHNICAL_ABBREVIATIONS: Record<string, string> = {
+  'k8s': 'kubernetes',
+  'db': 'database',
+  'env': 'environment',
+  'config': 'configuration',
+  'auth': 'authentication',
+  'creds': 'credentials',
+  'repo': 'repository',
+  'docs': 'documentation'
+};
+
+function expandQueryWithSynonyms(query: string): string {
+  let expandedQuery = query;
+  
+  // Expand abbreviations
+  Object.entries(TECHNICAL_ABBREVIATIONS).forEach(([abbrev, full]) => {
+    const regex = new RegExp(`\\b${abbrev}\\b`, 'gi');
+    expandedQuery = expandedQuery.replace(regex, `${abbrev} ${full}`);
+  });
+  
+  // Add synonyms for known technical terms
+  Object.entries(TECHNICAL_SYNONYMS).forEach(([term, synonyms]) => {
+    if (query.toLowerCase().includes(term.toLowerCase())) {
+      expandedQuery += ' ' + synonyms.slice(0, 3).join(' '); // Add top 3 synonyms
+    }
+  });
+  
+  return expandedQuery;
+}
+
+function detectSearchIntent(query: string): 'troubleshooting' | 'howto' | 'conceptual' | 'general' {
+  const lowerQuery = query.toLowerCase();
+  
+  if (lowerQuery.includes('error') || lowerQuery.includes('broken') || lowerQuery.includes('issue') || 
+      lowerQuery.includes('problem') || lowerQuery.includes('fix') || lowerQuery.includes('debug')) {
+    return 'troubleshooting';
+  }
+  
+  if (lowerQuery.includes('how to') || lowerQuery.includes('tutorial') || lowerQuery.includes('guide') ||
+      lowerQuery.includes('setup') || lowerQuery.includes('install') || lowerQuery.includes('configure')) {
+    return 'howto';
+  }
+  
+  if (lowerQuery.includes('what is') || lowerQuery.includes('explain') || lowerQuery.includes('overview') ||
+      lowerQuery.includes('introduction') || lowerQuery.includes('concept')) {
+    return 'conceptual';
+  }
+  
+  return 'general';
+}
+
+function assessContentQuality(content: any): number {
+  let qualityScore = 1.0;
+  const text = content.content.toLowerCase();
+  
+  // Positive quality signals
+  if (text.includes('```') || text.includes('code>') || text.includes('curl ') || text.includes('npm ') || text.includes('kubectl ')) {
+    qualityScore += 0.2; // Has code examples
+  }
+  
+  if (text.match(/^\s*\d+\.\s/m) || text.includes('step 1') || text.includes('first,') || text.includes('then,')) {
+    qualityScore += 0.2; // Has step-by-step instructions
+  }
+  
+  if (text.includes('screenshot') || text.includes('image') || text.includes('diagram')) {
+    qualityScore += 0.1; // Has visual aids
+  }
+  
+  if (content.content.length > 500) {
+    qualityScore += 0.1; // Substantial content
+  }
+  
+  // Negative quality signals
+  if (content.content.length < 100) {
+    qualityScore -= 0.3; // Too short/stub
+  }
+  
+  if (text.includes('todo') || text.includes('tbd') || text.includes('coming soon')) {
+    qualityScore -= 0.2; // Incomplete content
+  }
+  
+  if (text.includes('see other') || text.includes('refer to') || text.includes('check elsewhere')) {
+    qualityScore -= 0.1; // Lacks self-contained information
+  }
+  
+  return Math.max(0.1, Math.min(2.0, qualityScore));
+}
+
+function getFreshnessBoost(updatedAt: number | undefined): number {
+  if (!updatedAt) return 0.8;
+  
+  const daysSinceUpdate = (Date.now() - updatedAt) / (1000 * 60 * 60 * 24);
+  
+  if (daysSinceUpdate < 7) return 1.5;      // Very fresh
+  if (daysSinceUpdate < 30) return 1.2;     // Recent
+  if (daysSinceUpdate < 90) return 1.0;     // Acceptable
+  if (daysSinceUpdate < 365) return 0.9;    // Getting old
+  return 0.7;                               // Stale
+}
+
+function highlightQueryInText(text: string, query: string): string {
+  const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  let highlightedText = text;
+  
+  words.forEach(word => {
+    const regex = new RegExp(`(${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    highlightedText = highlightedText.replace(regex, chalk.cyan('$1'));
+  });
+  
+  return highlightedText;
+}
+
+function formatTimeAgo(timestamp: number | undefined): string {
+  if (!timestamp) return 'unknown';
+  
+  const now = Date.now();
+  const diff = now - timestamp;
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor(diff / (1000 * 60));
+  
+  if (days > 365) return `${Math.floor(days / 365)} year${Math.floor(days / 365) !== 1 ? 's' : ''} ago`;
+  if (days > 30) return `${Math.floor(days / 30)} month${Math.floor(days / 30) !== 1 ? 's' : ''} ago`;
+  if (days > 0) return `${days} day${days !== 1 ? 's' : ''} ago`;
+  if (hours > 0) return `${hours} hour${hours !== 1 ? 's' : ''} ago`;
+  if (minutes > 0) return `${minutes} minute${minutes !== 1 ? 's' : ''} ago`;
+  return 'just now';
+}
+
+function getScoreColor(score: number): (text: string) => string {
+  if (score >= 90) return chalk.green;
+  if (score >= 75) return chalk.yellow;
+  if (score >= 60) return chalk.dim.yellow;
+  return chalk.dim;
+}
+
+function getTeamFromMetadata(content: any): string {
+  // Try to extract team from metadata
+  if (content.metadata?.spaceName) {
+    return content.metadata.spaceName;
+  }
+  if (content.metadata?.assignee) {
+    return content.metadata.assignee.split('@')[0]; // Simple team extraction
+  }
+  if (content.spaceKey) {
+    return content.spaceKey;
+  }
+  return 'Unknown';
+}
+
 async function search(query: string, options: { 
   semantic?: boolean, 
   source?: 'jira' | 'confluence',
@@ -331,17 +493,21 @@ async function search(query: string, options: {
   try {
     const embeddingManager = new EmbeddingManager();
     
+    // Enhanced query processing
+    const expandedQuery = expandQueryWithSynonyms(query);
+    const intent = detectSearchIntent(query);
+    
     let results;
     if (options.semantic) {
-      results = await embeddingManager.searchSemantic(query, {
+      results = await embeddingManager.searchSemantic(expandedQuery, {
         source: options.source,
-        limit: options.limit,
+        limit: options.limit ? options.limit * 2 : 20, // Get more for quality filtering
         includeAll: options.includeAll
       });
     } else {
-      results = await embeddingManager.hybridSearch(query, {
+      results = await embeddingManager.hybridSearch(expandedQuery, {
         source: options.source,
-        limit: options.limit,
+        limit: options.limit ? options.limit * 2 : 20,
         includeAll: options.includeAll
       });
     }
@@ -351,94 +517,94 @@ async function search(query: string, options: {
       return;
     }
 
-    console.log(`\nFound ${results.length} results:\n`);
+    // Enhanced result processing with quality scoring
+    const enhancedResults = results.map(result => {
+      const qualityScore = assessContentQuality(result.content);
+      const freshnessBoost = getFreshnessBoost(result.content.updatedAt);
+      const team = getTeamFromMetadata(result.content);
+      
+      // Calculate enhanced relevance score
+      let enhancedScore = result.score * qualityScore * freshnessBoost;
+      
+      // Intent-based boosting
+      if (intent === 'troubleshooting' && result.content.source === 'jira') {
+        enhancedScore *= 1.3; // Boost Jira issues for troubleshooting
+      }
+      if (intent === 'howto' && result.content.content.toLowerCase().includes('guide')) {
+        enhancedScore *= 1.2; // Boost guides for how-to queries
+      }
+      
+      // Title match boosting
+      if (result.content.title.toLowerCase().includes(query.toLowerCase())) {
+        enhancedScore *= 1.5;
+      }
+      
+      return {
+        ...result,
+        score: Math.min(enhancedScore, 1.0), // Cap at 1.0
+        qualityScore,
+        freshnessBoost,
+        team
+      };
+    });
 
-    for (const result of results) {
-      const { content, score, snippet } = result;
-      
-      // Add visual indicator for type
+    // Sort by enhanced score and apply limit
+    enhancedResults.sort((a, b) => b.score - a.score);
+    const limitedResults = enhancedResults.slice(0, options.limit || 10);
+
+    // Display results with enhanced formatting
+    console.log(chalk.dim(`Found ${results.length} results:\n`));
+
+    for (const result of limitedResults) {
+      const { content, score, team } = result;
       const scorePercent = Math.round(score * 100);
-      const scoreDisplay = chalk.gray(`[${scorePercent}%]`);
+      const scoreColor = getScoreColor(scorePercent);
       
-      if (content.source === 'jira') {
-        const statusIcon = getJiraStatusIcon(content.metadata?.status || '');
-        console.log(statusIcon + ' ' + chalk.bold(content.title) + ' ' + scoreDisplay);
-      } else if (content.source === 'confluence') {
-        console.log('📄 ' + chalk.bold(content.title) + ' ' + scoreDisplay);
-      } else {
-        console.log(chalk.bold(content.title) + ' ' + scoreDisplay);
-      }
+      // Clean title formatting
+      const title = chalk.bold(content.title);
+      const scoreDisplay = scoreColor(`${scorePercent}%`);
+      const paddedTitle = title.length > 60 ? title.substring(0, 57) + '...' : title;
+      const padding = ' '.repeat(Math.max(0, 65 - title.length));
       
-      // Build metadata line based on content source
-      if (content.source === 'jira') {
-        const parts = [];
-        if (content.metadata?.status) parts.push(`Status: ${content.metadata.status}`);
-        if (content.metadata?.priority && content.metadata.priority !== 'None') parts.push(`Priority: ${content.metadata.priority}`);
-        if (content.metadata?.assignee) parts.push(`Assignee: ${content.metadata.assignee}`);
-        if (parts.length > 0) {
-          console.log(chalk.dim(`  ${parts.join(' | ')}`));
-        }
-      } else if (content.source === 'confluence') {
-        const parts = [];
-        if (content.metadata?.spaceName) parts.push(`Space: ${content.metadata.spaceName}`);
-        if (content.metadata?.lastModified) {
-          const date = new Date(content.metadata.lastModified);
-          parts.push(`Modified: ${date.toLocaleDateString()}`);
-        }
-        if (parts.length > 0) {
-          console.log(chalk.dim(`  ${parts.join(' | ')}`));
-        }
-      }
+      console.log(`${paddedTitle}${padding}${scoreDisplay}`);
       
-      // Show content preview
+      // Enhanced snippet with query highlighting
+      let snippet = '';
       if (content.source === 'jira') {
-        // The content is structured with metadata first, then description
-        const contentLines = content.content.split('\n');
-        let inDescription = false;
-        let descriptionLine = '';
-        
-        for (const line of contentLines) {
+        // Extract meaningful content from Jira issues
+        const lines = content.content.split('\n');
+        for (const line of lines) {
           const trimmed = line.trim();
-          if (!trimmed) continue;
-          
-          // Skip metadata lines
-          if (trimmed.startsWith('Status:') || 
-              trimmed.startsWith('Priority:') || 
-              trimmed.startsWith('Assignee:') || 
-              trimmed.startsWith('Reporter:')) {
-            continue;
-          }
-          
-          // Skip the summary line (which is the title without the issue key)
-          const summaryPart = content.title.split(': ')[1]; // Get part after "ISSUE-123: "
-          if (summaryPart && trimmed === summaryPart) {
-            continue;
-          }
-          
-          // This should be the description
-          descriptionLine = trimmed;
-          break;
-        }
-        
-        if (descriptionLine && descriptionLine.length > 0) {
-          if (descriptionLine.length > 80) {
-            console.log(`  ${descriptionLine.substring(0, 80)}...`);
-          } else {
-            console.log(`  ${descriptionLine}`);
+          if (trimmed && !trimmed.startsWith('Status:') && !trimmed.startsWith('Priority:') && 
+              !trimmed.startsWith('Assignee:') && !trimmed.startsWith('Reporter:')) {
+            const titlePart = content.title.split(': ')[1];
+            if (!titlePart || trimmed !== titlePart) {
+              snippet = trimmed;
+              break;
+            }
           }
         }
-      } else if (content.source === 'confluence') {
-        // For Confluence, show first non-empty line of content
-        const firstLine = content.content.split('\n').find(line => line.trim().length > 0);
-        if (firstLine && firstLine.trim().length > 0) {
-          const preview = firstLine.trim();
-          if (preview.length > 80) {
-            console.log(chalk.dim(`  ${preview.substring(0, 80)}...`));
-          } else {
-            console.log(chalk.dim(`  ${preview}`));
-          }
-        }
+      } else {
+        // Extract first meaningful line from Confluence
+        const lines = content.content.split('\n');
+        snippet = lines.find(line => line.trim().length > 20) || lines[0] || '';
       }
+      
+      if (snippet) {
+        const maxSnippetLength = 80;
+        if (snippet.length > maxSnippetLength) {
+          snippet = snippet.substring(0, maxSnippetLength) + '...';
+        }
+        const highlightedSnippet = highlightQueryInText(snippet, query);
+        console.log(`  ${highlightedSnippet}`);
+      }
+      
+      // Minimal metadata line
+      const timeAgo = formatTimeAgo(content.updatedAt);
+      const isRecent = content.updatedAt && (Date.now() - content.updatedAt) < (7 * 24 * 60 * 60 * 1000);
+      const timeColor = isRecent ? chalk.green : chalk.dim;
+      
+      console.log(chalk.dim(`  ${team} • `) + timeColor(timeAgo));
       console.log('');
     }
 
