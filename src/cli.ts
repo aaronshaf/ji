@@ -887,7 +887,6 @@ async function ask(question: string, options: {
       process.exit(1);
     }
     
-    console.log('🤔 Searching for relevant context...\n');
     
     // Default to Confluence-only unless explicitly including Jira or source is set to jira
     const effectiveSource = options.source || (options.includeJira ? undefined : 'confluence');
@@ -984,11 +983,13 @@ async function ask(question: string, options: {
       ? `You are a helpful assistant with access to a software team's Confluence documentation and Jira issues.
 Focus primarily on the Confluence documentation when answering questions.
 Be thorough but concise. Reference page titles and issue keys when relevant.
-If the context doesn't contain enough information to fully answer the question, say so.`
+If the context doesn't contain enough information to fully answer the question, say so.
+Do not include any trailing whitespace or extra line breaks at the end of your response.`
       : `You are a helpful assistant with access to a software team's Confluence documentation.
 Answer questions based on the provided documentation. Be thorough but concise.
 Reference specific page titles when relevant.
-If the documentation doesn't contain enough information to fully answer the question, say so.`;
+If the documentation doesn't contain enough information to fully answer the question, say so.
+Do not include any trailing whitespace or extra line breaks at the end of your response.`;
 
     const contextLabel = hasJira ? 'Context from Confluence documentation and Jira issues:' : 'Context from Confluence documentation:';
     const userPrompt = `${contextLabel}
@@ -1013,7 +1014,6 @@ Based on the context above, please provide a helpful answer:`;
       console.log();
     }
     
-    console.log('🤖 Generating answer...\n');
     
     // Generate response with streaming
     const stream = await ollama.generateStream(fullPrompt, { model: options.model });
@@ -1026,6 +1026,7 @@ Based on the context above, please provide a helpful answer:`;
     // Process the stream
     const reader = stream.getReader();
     const decoder = new TextDecoder();
+    let fullResponse = '';
     
     while (true) {
       const { done, value } = await reader.read();
@@ -1039,6 +1040,7 @@ Based on the context above, please provide a helpful answer:`;
           const json = JSON.parse(line) as { response?: string; done?: boolean };
           if (json.response) {
             process.stdout.write(json.response);
+            fullResponse += json.response;
           }
         } catch {
           // Skip invalid JSON lines
@@ -1046,13 +1048,35 @@ Based on the context above, please provide a helpful answer:`;
       }
     }
     
-    // Only add newline if we actually output something
-    console.log('');
+    // Trim any trailing whitespace from the response
+    const responseLines = fullResponse.split('\n');
+    while (responseLines.length > 0 && responseLines[responseLines.length - 1].trim() === '') {
+      responseLines.pop();
+    }
+    
+    // Add source citations
+    console.log('\n\n' + chalk.dim('Sources:'));
+    const confluenceSources = limitedContexts.filter(c => c.content.source === 'confluence');
+    const jiraSources = limitedContexts.filter(c => c.content.source === 'jira');
+    
+    if (confluenceSources.length > 0) {
+      confluenceSources.slice(0, 3).forEach((ctx, i) => {
+        console.log(chalk.dim(`${i + 1}. ${ctx.content.title}`) + chalk.cyan(` → ${ctx.content.url}`));
+      });
+    }
+    
+    if (jiraSources.length > 0 && options.includeJira) {
+      jiraSources.slice(0, 2).forEach((ctx, i) => {
+        const issueKey = ctx.content.id.replace('jira:', '');
+        console.log(chalk.dim(`${confluenceSources.length + i + 1}. ${issueKey}: ${ctx.content.title}`) + chalk.cyan(` → ${ctx.content.url}`));
+      });
+    }
     
     if (options.verbose) {
-      console.log(chalk.dim('📎 Sources used:'));
-      console.log(chalk.dim(`   ${limitedContexts.filter(c => c.content.source === 'jira').length} Jira issues`));
-      console.log(chalk.dim(`   ${limitedContexts.filter(c => c.content.source === 'confluence').length} Confluence pages`));
+      console.log();
+      console.log(chalk.dim('📎 Total sources used:'));
+      console.log(chalk.dim(`   ${jiraSources.length} Jira issues`));
+      console.log(chalk.dim(`   ${confluenceSources.length} Confluence pages`));
     }
     
   } catch (error) {
