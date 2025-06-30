@@ -232,9 +232,15 @@ async function saveIssuesBatch(
       if (error.message?.includes('database is locked')) {
         // Wait and retry
         await new Promise(resolve => setTimeout(resolve, 200));
-        await cacheManager.saveIssue(issue);
-        await contentManager.saveJiraIssue(issue);
+        try {
+          await cacheManager.saveIssue(issue);
+          await contentManager.saveJiraIssue(issue);
+        } catch (retryError: any) {
+          console.error(`\n❌ Failed to save ${issue.key} after retry: ${retryError.message}`);
+          throw retryError;
+        }
       } else {
+        console.error(`\n❌ Failed to save ${issue.key}: ${error.message}`);
         throw error;
       }
     }
@@ -435,13 +441,67 @@ async function syncJiraProject(projectKey: string) {
       jqlQuery = `project = ${projectKey} AND updated >= "${lastSyncStr}" ORDER BY updated DESC`;
       fetchMode = 'incremental';
     } else {
-      console.log(`📋 First sync - fetching all issues...\n`);
+      console.log(`📋 First sync - will fetch all issues in batches...\n`);
+      fetchMode = 'full';
     }
     
     const startTime = Date.now();
-    let lastProgress = 0;
     
-    // Fetch issues with progress
+    // For full sync, do it in batches right away
+    if (fetchMode === 'full') {
+      // Get total count first
+      const countResult = await jiraClient.searchIssues(
+        `project = ${projectKey}`,
+        { maxResults: 0 }
+      );
+      
+      const totalIssues = countResult.total;
+      console.log(`📊 Total issues in project: ${totalIssues}\n`);
+      
+      if (totalIssues === 0) {
+        console.log(chalk.yellow('⚠️  No issues found in this project.'));
+        return;
+      }
+      
+      // Sync in batches
+      let syncedCount = 0;
+      let startAt = 0;
+      const batchSize = 100;
+      
+      while (startAt < totalIssues) {
+        const batchResult = await jiraClient.searchIssues(
+          `project = ${projectKey} ORDER BY key ASC`,
+          { startAt, maxResults: batchSize }
+        );
+        
+        if (batchResult.issues.length > 0) {
+          console.log(`📦 Processing batch ${Math.floor(startAt / batchSize) + 1}: ${batchResult.issues.length} issues...`);
+          await saveIssuesBatch(batchResult.issues, cacheManager, contentManager);
+          syncedCount += batchResult.issues.length;
+        }
+        
+        startAt += batchSize;
+        
+        const percent = Math.round((syncedCount / totalIssues) * 100);
+        console.log(`📊 Overall progress: ${percent}% | Synced ${syncedCount}/${totalIssues} issues\n`);
+      }
+      
+      const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(chalk.green(`✅ Successfully synced ${syncedCount} issues from ${projectKey} in ${totalTime}s\n`));
+      
+      // Get total count for verification
+      const totalProjectIssues = await cacheManager.listIssuesByProject(projectKey);
+      console.log(chalk.dim(`   Total issues in local database: ${totalProjectIssues.length}\n`));
+      
+      console.log(`💡 Next steps:`);
+      console.log(`   • Search all issues: ${chalk.cyan('ji search <query>')}`);
+      console.log(`   • View an issue: ${chalk.cyan('ji issue view <issue-key>')}\n`);
+      
+      return;
+    }
+    
+    // For incremental sync, fetch recently updated issues
+    let lastProgress = 0;
     const issues = await jiraClient.getAllProjectIssues(projectKey, (current, total) => {
       if (total === 0) {
         process.stdout.write(`\r📥 Fetching: ${createProgressBar(100)} 100% | 0/0 issues | Complete!      `);
