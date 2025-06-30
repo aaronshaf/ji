@@ -262,11 +262,16 @@ export class ContentManager {
   }
 
   async saveEmbedding(contentId: string, embedding: Float32Array, contentHash: string): Promise<void> {
+    // First delete any existing embeddings for this content
+    const deleteStmt = this.db.prepare('DELETE FROM content_embeddings WHERE content_id = ?');
+    deleteStmt.run(contentId);
+    
+    // Then insert the new embedding
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO content_embeddings (
+      INSERT INTO content_embeddings (
         content_id, embedding, chunk_index, model, 
         embedding_hash, generated_at, created_at
-      ) VALUES (?, ?, 0, 'all-minilm:latest', ?, ?, ?)
+      ) VALUES (?, ?, 0, 'mxbai-embed-large:latest', ?, ?, ?)
     `);
     
     const now = Date.now();

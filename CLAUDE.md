@@ -59,12 +59,15 @@ src/
 - ✅ Jira issue viewing with caching
 - ✅ Confluence space syncing and page viewing
 - ✅ Full-text search across all content
+- ✅ Semantic search with vector embeddings (via Ollama + mxbai-embed-large)
 - ✅ Background refresh for instant access
 - ✅ Secure credential storage
+- ✅ `ji mine` command to show your open issues
+- ✅ `--clean` flag for fresh sync
 
 ## Future Features
 
-- Vector embeddings for semantic search (needs Bun-compatible solution)
 - More Jira commands (create, update issues)
 - Confluence page creation/editing
 - Watch mode for real-time updates
+- Batch operations (bulk update issues)

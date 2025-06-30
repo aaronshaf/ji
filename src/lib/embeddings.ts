@@ -53,6 +53,7 @@ export class EmbeddingManager {
       return this.searchFTS(query, options);
     }
     
+    
     // Generate embedding for query
     const queryEmbedding = await ollama.generateEmbedding(query);
     if (!queryEmbedding) {
@@ -109,7 +110,7 @@ export class EmbeddingManager {
     results.sort((a, b) => b.score - a.score);
     
     // Filter out low scores and apply limit
-    const threshold = 0.5; // Minimum similarity score
+    const threshold = 0.3; // Lowered threshold - all-minilm might have lower similarities
     return results
       .filter(r => r.score >= threshold)
       .slice(0, options?.limit || 10);
