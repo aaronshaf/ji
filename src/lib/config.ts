@@ -99,36 +99,10 @@ export class ConfigManager {
     // Create FTS5 virtual table for full-text search
     this.db.run(`
       CREATE VIRTUAL TABLE IF NOT EXISTS content_fts USING fts5(
-        id UNINDEXED,
+        id,
         title,
-        content,
-        content=searchable_content
+        content
       )
-    `);
-    
-    // Create triggers to keep FTS in sync
-    this.db.run(`
-      CREATE TRIGGER IF NOT EXISTS searchable_content_ai 
-      AFTER INSERT ON searchable_content BEGIN
-        INSERT INTO content_fts(id, title, content) 
-        VALUES (new.id, new.title, new.content);
-      END
-    `);
-    
-    this.db.run(`
-      CREATE TRIGGER IF NOT EXISTS searchable_content_ad 
-      AFTER DELETE ON searchable_content BEGIN
-        DELETE FROM content_fts WHERE id = old.id;
-      END
-    `);
-    
-    this.db.run(`
-      CREATE TRIGGER IF NOT EXISTS searchable_content_au 
-      AFTER UPDATE ON searchable_content BEGIN
-        UPDATE content_fts 
-        SET title = new.title, content = new.content 
-        WHERE id = new.id;
-      END
     `);
     
     // Create indexes

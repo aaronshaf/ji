@@ -65,8 +65,7 @@ export class EmbeddingManager {
     let sql = `
       SELECT 
         sc.*,
-        snippet(content_fts, 1, '<mark>', '</mark>', '...', 32) as snippet,
-        bm25(content_fts) as rank
+        snippet(content_fts, 1, '<mark>', '</mark>', '...', 32) as snippet
       FROM searchable_content sc
       JOIN content_fts ON content_fts.id = sc.id
       WHERE content_fts MATCH ?
@@ -79,7 +78,7 @@ export class EmbeddingManager {
       params.push(options.source);
     }
 
-    sql += ' ORDER BY rank LIMIT ?';
+    sql += ' LIMIT ?';
     params.push(options?.limit || 20);
 
     const stmt = this.db.prepare(sql);
@@ -100,7 +99,7 @@ export class EmbeddingManager {
         updatedAt: row.updated_at,
         syncedAt: row.synced_at
       },
-      score: -row.rank, // BM25 returns negative scores
+      score: 1.0, // Fixed score for now
       snippet: row.snippet
     }));
   }

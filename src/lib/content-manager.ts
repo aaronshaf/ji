@@ -103,6 +103,14 @@ export class ContentManager {
       content.updatedAt || null,
       content.syncedAt
     );
+
+    // Also insert into FTS table
+    const ftsStmt = this.db.prepare(`
+      INSERT OR REPLACE INTO content_fts (id, title, content)
+      VALUES (?, ?, ?)
+    `);
+    
+    ftsStmt.run(content.id, content.title, content.content);
   }
 
   async searchContent(query: string, options?: {
