@@ -1070,13 +1070,15 @@ Based on the context above, please provide a helpful answer:`;
       }
     }
     
-    // Trim any trailing whitespace from the response
-    const responseLines = fullResponse.split('\n');
-    while (responseLines.length > 0 && responseLines[responseLines.length - 1].trim() === '') {
-      responseLines.pop();
+    // Trim trailing whitespace by removing empty lines at the end
+    fullResponse = fullResponse.trimEnd();
+    
+    // If the response doesn't end with a newline, add one
+    if (fullResponse.length > 0 && !fullResponse.endsWith('\n')) {
+      console.log(); // Add newline after response
     }
     
-    // Add source citations
+    // Add source citations with single line break
     console.log('\n' + chalk.dim('Sources:'));
     const confluenceSources = limitedContexts.filter(c => c.content.source === 'confluence');
     const jiraSources = limitedContexts.filter(c => c.content.source === 'jira');
