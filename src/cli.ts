@@ -189,6 +189,16 @@ function parseADF(doc: any): string {
   return text.trim();
 }
 
+function getJiraStatusIcon(status: string): string {
+  const lowerStatus = status.toLowerCase();
+  if (lowerStatus === 'done' || lowerStatus === 'closed' || lowerStatus === 'resolved') return '✅';
+  if (lowerStatus === 'in progress' || lowerStatus === 'in development') return '🔄';
+  if (lowerStatus === 'blocked') return '🚫';
+  if (lowerStatus === 'feedback' || lowerStatus === 'review') return '👀';
+  if (lowerStatus === 'todo' || lowerStatus === 'open' || lowerStatus === 'new') return '📋';
+  return '🔵';
+}
+
 async function search(query: string, options: { 
   semantic?: boolean, 
   source?: 'jira' | 'confluence',
@@ -230,21 +240,7 @@ async function search(query: string, options: {
       
       // Add visual indicator for type
       if (content.source === 'jira') {
-        // Get status emoji based on status
-        let statusIcon = '🔵'; // default
-        const status = content.metadata?.status?.toLowerCase();
-        if (status === 'done' || status === 'closed' || status === 'resolved') {
-          statusIcon = '✅';
-        } else if (status === 'in progress' || status === 'in development') {
-          statusIcon = '🔄';
-        } else if (status === 'blocked') {
-          statusIcon = '🚫';
-        } else if (status === 'feedback' || status === 'review') {
-          statusIcon = '👀';
-        } else if (status === 'todo' || status === 'open' || status === 'new') {
-          statusIcon = '📋';
-        }
-        
+        const statusIcon = getJiraStatusIcon(content.metadata?.status || '');
         console.log(statusIcon + ' ' + chalk.bold(content.title));
       } else if (content.source === 'confluence') {
         console.log('📄 ' + chalk.bold(content.title));
@@ -370,39 +366,113 @@ async function syncJiraProject(projectKey: string) {
   const contentManager = new ContentManager();
 
   try {
-    console.log(`Fetching issues for project ${chalk.bold(projectKey)}...`);
+    console.log(`\n🔍 Connecting to Jira project ${chalk.bold.blue(projectKey)}...\n`);
     
-    // Fetch all issues with progress
-    console.log('\nSyncing issues...');
+    // Check last sync time
+    const lastSync = await cacheManager.getProjectLastSync(projectKey);
+    let fetchMode = 'all';
+    let jqlQuery = `project = ${projectKey} ORDER BY updated DESC`;
+    
+    if (lastSync) {
+      const lastSyncStr = lastSync.toISOString().replace('T', ' ').substring(0, 19);
+      console.log(`📅 Last sync: ${chalk.dim(new Date(lastSync).toLocaleString())}`);
+      console.log(`🔄 Fetching only issues updated after this time...\n`);
+      
+      // JQL date format: "2023-12-01 10:30"
+      jqlQuery = `project = ${projectKey} AND updated >= "${lastSyncStr}" ORDER BY updated DESC`;
+      fetchMode = 'incremental';
+    } else {
+      console.log(`📋 First sync - fetching all issues...\n`);
+    }
+    
+    const startTime = Date.now();
+    let lastProgress = 0;
+    
+    // Fetch issues with progress
     const issues = await jiraClient.getAllProjectIssues(projectKey, (current, total) => {
-      process.stdout.write(`\rProgress: ${current}/${total} issues`);
-    });
+      const percent = Math.round((current / total) * 100);
+      const progressBar = createProgressBar(percent);
+      const rate = current / ((Date.now() - startTime) / 1000);
+      
+      process.stdout.write(`\r📥 Fetching: ${progressBar} ${percent}% | ${current}/${total} issues | ${rate.toFixed(0)} issues/sec`);
+      lastProgress = percent;
+    }, jqlQuery);
+    
+    if (lastProgress < 100) {
+      const progressBar = createProgressBar(100);
+      process.stdout.write(`\r📥 Fetching: ${progressBar} 100% | ${issues.length}/${issues.length} issues | Complete!      `);
+    }
     console.log(''); // New line after progress
 
     if (issues.length === 0) {
-      console.log('No issues found in this project.');
+      if (fetchMode === 'incremental') {
+        console.log(chalk.green('\n✅ All issues are up to date!'));
+        const existingCount = await cacheManager.listIssuesByProject(projectKey);
+        console.log(chalk.dim(`\n   ${existingCount.length} issues already synced for ${projectKey}\n`));
+      } else {
+        console.log(chalk.yellow('\n⚠️  No issues found in this project.'));
+      }
       return;
     }
 
-    console.log(`\nProcessing ${issues.length} issues...`);
+    console.log(`\n💾 Saving ${issues.length} issues to local database...\n`);
+    
+    const saveStartTime = Date.now();
+    
+    // Group issues by type for summary
+    const issueTypes: Record<string, number> = {};
+    const issueStatuses: Record<string, number> = {};
     
     // Save each issue
     for (let i = 0; i < issues.length; i++) {
       const issue = issues[i];
-      process.stdout.write(`\rProcessing: ${i + 1}/${issues.length} - ${issue.key}: ${issue.fields.summary.substring(0, 50)}${issue.fields.summary.length > 50 ? '...' : ''}`);
+      const percent = Math.round(((i + 1) / issues.length) * 100);
+      const progressBar = createProgressBar(percent);
+      
+      // Count types and statuses
+      const status = issue.fields.status.name;
+      issueStatuses[status] = (issueStatuses[status] || 0) + 1;
+      
+      process.stdout.write(`\r💾 Saving: ${progressBar} ${percent}% | ${i + 1}/${issues.length} | ${issue.key}`);
 
       // Save to cache and content manager
       await cacheManager.saveIssue(issue);
       await contentManager.saveJiraIssue(issue);
     }
-
-    console.log(''); // New line after progress
-    console.log(chalk.green(`\n✓ Successfully synced ${issues.length} issues from ${projectKey}`));
-    console.log(`\nYou can now search these issues with: ${chalk.dim('ji search <query>')}`);
-    console.log(`Or view specific issues: ${chalk.dim('ji issue view <issue-key>')}`);
+    
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log('\n'); // New lines after progress
+    
+    // Show summary
+    if (fetchMode === 'incremental') {
+      console.log(chalk.green(`✅ Successfully updated ${issues.length} issues from ${projectKey} in ${totalTime}s\n`));
+    } else {
+      console.log(chalk.green(`✅ Successfully synced ${issues.length} issues from ${projectKey} in ${totalTime}s\n`));
+    }
+    
+    // Get total count for project
+    const totalProjectIssues = await cacheManager.listIssuesByProject(projectKey);
+    console.log(chalk.dim(`   Total issues in local database: ${totalProjectIssues.length}\n`));
+    
+    // Show status breakdown only if we have a decent number of issues
+    if (issues.length > 5) {
+      console.log(chalk.bold('📊 Status breakdown (updated issues):'));
+      Object.entries(issueStatuses)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .forEach(([status, count]) => {
+          const icon = getJiraStatusIcon(status);
+          console.log(`   ${icon} ${status}: ${count}`);
+        });
+    }
+    
+    console.log(`\n💡 Next steps:`);
+    console.log(`   • Search all issues: ${chalk.cyan('ji search <query>')}`);
+    console.log(`   • Search ${projectKey} issues: ${chalk.cyan(`ji search "project:${projectKey} AND <query>"`)}`);
+    console.log(`   • View an issue: ${chalk.cyan('ji issue view <issue-key>')}\n`);
 
   } catch (error) {
-    console.error(`\nSync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   } finally {
     configManager.close();
@@ -410,6 +480,14 @@ async function syncJiraProject(projectKey: string) {
     contentManager.close();
   }
 }
+
+function createProgressBar(percent: number): string {
+  const width = 30;
+  const filled = Math.round((percent / 100) * width);
+  const empty = width - filled;
+  return chalk.green('█'.repeat(filled)) + chalk.gray('░'.repeat(empty));
+}
+
 
 async function syncConfluence(spaceKey: string) {
   const configManager = new ConfigManager();

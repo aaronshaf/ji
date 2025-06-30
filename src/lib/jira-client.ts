@@ -105,17 +105,17 @@ export class JiraClient {
     };
   }
 
-  async getAllProjectIssues(projectKey: string, onProgress?: (current: number, total: number) => void): Promise<Issue[]> {
+  async getAllProjectIssues(projectKey: string, onProgress?: (current: number, total: number) => void, jql?: string): Promise<Issue[]> {
     const allIssues: Issue[] = [];
     let startAt = 0;
     const maxResults = 100; // Max allowed by Jira API
     let total = 0;
 
-    // JQL to get all issues from a project
-    const jql = `project = ${projectKey} ORDER BY updated DESC`;
+    // Use provided JQL or default to all project issues
+    const searchJql = jql || `project = ${projectKey} ORDER BY updated DESC`;
 
     while (true) {
-      const result = await this.searchIssues(jql, {
+      const result = await this.searchIssues(searchJql, {
         startAt,
         maxResults,
       });
