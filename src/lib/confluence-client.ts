@@ -95,7 +95,7 @@ export class ConfluenceClient {
     start?: number;
     limit?: number;
     expand?: string[];
-  }): Promise<PageListResponseSchema['_type']> {
+  }): Promise<z.infer<typeof PageListResponseSchema>> {
     const params = new URLSearchParams({
       start: (options?.start || 0).toString(),
       limit: (options?.limit || 25).toString(),

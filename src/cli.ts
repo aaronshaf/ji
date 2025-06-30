@@ -43,7 +43,12 @@ async function auth() {
       }
 
       const user = await response.json();
-      console.log(chalk.green(`Successfully authenticated as ${user.displayName} (${user.emailAddress})`));
+      // Type guard for the user object
+      if (typeof user === 'object' && user !== null && 'displayName' in user && 'emailAddress' in user) {
+        console.log(chalk.green(`Successfully authenticated as ${user.displayName} (${user.emailAddress})`));
+      } else {
+        console.log(chalk.green('Successfully authenticated'));
+      }
 
       // Save config after successful verification
       const configManager = new ConfigManager();
@@ -118,7 +123,6 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
     if (fromCache && !options.sync) {
       // Spawn a detached process for background refresh
       const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-refresh', issueKey], {
-        detached: true,
         stdio: ['ignore', 'ignore', 'ignore'],
         env: {
           ...process.env,
@@ -215,13 +219,14 @@ async function saveIssuesBatch(
     const now = Date.now();
     if (now - lastUpdateTime >= updateInterval || i === issues.length - 1) {
       const percent = Math.round(((i + 1) / issues.length) * 100);
-      const progressBar = createProgressBar(percent);
+      const progressBar = createProgressBar(percent, 20); // Smaller progress bar
       const rate = (i + 1) / ((now - startTime) / 1000);
-      const summary = issue.fields.summary.length > 40 
-        ? issue.fields.summary.substring(0, 40) + '...' 
-        : issue.fields.summary;
       
-      process.stdout.write(`\r💾 Saving: ${progressBar} ${percent}% | ${i + 1}/${issues.length} | ${rate.toFixed(0)}/sec | ${issue.key}: ${summary}`);
+      // Keep output under 80 chars
+      const statusLine = `💾 ${progressBar} ${percent}% | ${i + 1}/${issues.length} | ${rate.toFixed(0)}/s | ${issue.key}`;
+      
+      // Clear the line and write new status
+      process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
       lastUpdateTime = now;
     }
     
@@ -247,6 +252,62 @@ async function saveIssuesBatch(
   }
   
   console.log(''); // New line after progress
+}
+
+async function showMyIssues() {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  const cacheManager = new CacheManager();
+  
+  try {
+    const issues = await cacheManager.listMyOpenIssues(config.email);
+    
+    if (issues.length === 0) {
+      console.log('No open issues assigned to you.');
+      return;
+    }
+    
+    console.log(`\n📋 Your open issues (${issues.length}):\n`);
+    
+    // Group by project
+    const byProject: Record<string, typeof issues> = {};
+    issues.forEach(issue => {
+      if (!byProject[issue.project_key]) {
+        byProject[issue.project_key] = [];
+      }
+      byProject[issue.project_key].push(issue);
+    });
+    
+    // Display by project
+    Object.entries(byProject).forEach(([projectKey, projectIssues]) => {
+      console.log(chalk.bold.blue(`${projectKey} (${projectIssues.length} issues):`));
+      
+      projectIssues.forEach(issue => {
+        const statusIcon = getJiraStatusIcon(issue.status);
+        const updated = new Date(issue.updated);
+        const daysAgo = Math.floor((Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24));
+        const timeStr = daysAgo === 0 ? 'today' : daysAgo === 1 ? 'yesterday' : `${daysAgo}d ago`;
+        
+        console.log(`  ${statusIcon} ${chalk.bold(issue.key)}: ${issue.summary}`);
+        console.log(`     ${chalk.dim(`Updated ${timeStr} • Priority: ${issue.priority || 'None'}`)}`);
+      });
+      
+      console.log(); // Blank line between projects
+    });
+    
+  } catch (error) {
+    console.error(`Failed to retrieve issues: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    cacheManager.close();
+    configManager.close();
+  }
 }
 
 async function search(query: string, options: { 
@@ -416,227 +477,125 @@ async function syncJiraProject(projectKey: string) {
   const contentManager = new ContentManager();
 
   try {
-    console.log(`\n🔍 Connecting to Jira project ${chalk.bold.blue(projectKey)}...\n`);
+    console.log(`\n🔍 Syncing Jira project ${chalk.bold.blue(projectKey)}...\n`);
     
-    // Check last sync time and existing issues
-    const lastSync = await cacheManager.getProjectLastSync(projectKey);
-    const existingIssueKeys = await cacheManager.getProjectIssueKeys(projectKey);
-    let fetchMode = 'all';
-    let jqlQuery = `project = ${projectKey} ORDER BY updated DESC`;
+    // Get our current sync state
+    const existingIssues = await cacheManager.listIssuesByProject(projectKey);
+    const existingCount = existingIssues.length;
     
-    if (lastSync && existingIssueKeys.length > 0) {
-      // Format date for JQL: "yyyy/MM/dd HH:mm"
-      const year = lastSync.getFullYear();
-      const month = String(lastSync.getMonth() + 1).padStart(2, '0');
-      const day = String(lastSync.getDate()).padStart(2, '0');
-      const hours = String(lastSync.getHours()).padStart(2, '0');
-      const minutes = String(lastSync.getMinutes()).padStart(2, '0');
-      const lastSyncStr = `${year}/${month}/${day} ${hours}:${minutes}`;
-      
-      console.log(`📅 Last sync: ${chalk.dim(new Date(lastSync).toLocaleString())}`);
-      console.log(`📊 Issues in database: ${chalk.dim(existingIssueKeys.length.toString())}`);
-      console.log(`🔄 Checking for updates and new issues...\n`);
-      
-      // First, get updated issues
-      jqlQuery = `project = ${projectKey} AND updated >= "${lastSyncStr}" ORDER BY updated DESC`;
-      fetchMode = 'incremental';
+    if (existingCount === 0) {
+      console.log(`📋 First sync - fetching newest issues first...\n`);
     } else {
-      console.log(`📋 First sync - will fetch all issues in batches...\n`);
-      fetchMode = 'full';
+      console.log(`📊 Issues in database: ${chalk.dim(existingCount.toString())}`);
+      
+      // Find newest and oldest modified dates
+      let newestModified = new Date(0);
+      let oldestModified = new Date();
+      
+      existingIssues.forEach(issue => {
+        const updated = new Date(issue.updated);
+        if (updated > newestModified) newestModified = updated;
+        if (updated < oldestModified) oldestModified = updated;
+      });
+      
+      console.log(`📅 Newest: ${chalk.dim(newestModified.toLocaleString())}`);
+      console.log(`📅 Oldest: ${chalk.dim(oldestModified.toLocaleString())}\n`);
     }
     
     const startTime = Date.now();
+    const batchSize = 100;
+    let totalSynced = 0;
     
-    // For full sync, do it in batches right away
-    if (fetchMode === 'full') {
-      // Get total count first
-      const countResult = await jiraClient.searchIssues(
-        `project = ${projectKey}`,
-        { maxResults: 0 }
-      );
-      
-      const totalIssues = countResult.total;
-      console.log(`📊 Total issues in project: ${totalIssues}\n`);
-      
-      if (totalIssues === 0) {
-        console.log(chalk.yellow('⚠️  No issues found in this project.'));
-        return;
-      }
-      
-      // Sync in batches
-      let syncedCount = 0;
-      let startAt = 0;
-      const batchSize = 100;
-      
-      while (startAt < totalIssues) {
-        const batchResult = await jiraClient.searchIssues(
-          `project = ${projectKey} ORDER BY key ASC`,
-          { startAt, maxResults: batchSize }
-        );
-        
-        if (batchResult.issues.length > 0) {
-          console.log(`📦 Processing batch ${Math.floor(startAt / batchSize) + 1}: ${batchResult.issues.length} issues...`);
-          await saveIssuesBatch(batchResult.issues, cacheManager, contentManager);
-          syncedCount += batchResult.issues.length;
-        }
-        
-        startAt += batchSize;
-        
-        const percent = Math.round((syncedCount / totalIssues) * 100);
-        console.log(`📊 Overall progress: ${percent}% | Synced ${syncedCount}/${totalIssues} issues\n`);
-      }
-      
-      const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(chalk.green(`✅ Successfully synced ${syncedCount} issues from ${projectKey} in ${totalTime}s\n`));
-      
-      // Get total count for verification
-      const totalProjectIssues = await cacheManager.listIssuesByProject(projectKey);
-      console.log(chalk.dim(`   Total issues in local database: ${totalProjectIssues.length}\n`));
-      
-      console.log(`💡 Next steps:`);
-      console.log(`   • Search all issues: ${chalk.cyan('ji search <query>')}`);
-      console.log(`   • View an issue: ${chalk.cyan('ji issue view <issue-key>')}\n`);
-      
-      return;
-    }
+    // Helper to format JQL date
+    const formatJqlDate = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${year}/${month}/${day} ${hours}:${minutes}`;
+    };
     
-    // For incremental sync, fetch recently updated issues
-    let lastProgress = 0;
-    const issues = await jiraClient.getAllProjectIssues(projectKey, (current, total) => {
-      if (total === 0) {
-        process.stdout.write(`\r📥 Fetching: ${createProgressBar(100)} 100% | 0/0 issues | Complete!      `);
-        lastProgress = 100;
-        return;
-      }
+    // If we have existing issues, check for newer ones first
+    if (existingCount > 0) {
+      const newestModified = existingIssues.reduce((max, issue) => {
+        const updated = new Date(issue.updated);
+        return updated > max ? updated : max;
+      }, new Date(0));
       
-      const percent = Math.round((current / total) * 100);
-      const progressBar = createProgressBar(percent);
-      const rate = current / ((Date.now() - startTime) / 1000);
+      const newerJql = `project = ${projectKey} AND updated > "${formatJqlDate(newestModified)}" ORDER BY updated DESC`;
       
-      process.stdout.write(`\r📥 Fetching: ${progressBar} ${percent}% | ${current}/${total} issues | ${rate.toFixed(0)} issues/sec`);
-      lastProgress = percent;
-    }, jqlQuery);
-    
-    if (lastProgress < 100) {
-      const progressBar = createProgressBar(100);
-      process.stdout.write(`\r📥 Fetching: ${progressBar} 100% | ${issues.length}/${issues.length} issues | Complete!      `);
-    }
-    console.log(''); // New line after progress
-
-    // Save the updated issues we already have
-    if (issues.length > 0) {
-      console.log(`\n💾 Saving ${issues.length} updated issues...\n`);
-      await saveIssuesBatch(issues, cacheManager, contentManager);
-    }
-    
-    // For incremental sync, check and sync missing issues in batches
-    if (fetchMode === 'incremental' && existingIssueKeys.length > 0) {
-      console.log(`\n🔎 Checking for missing issues...\n`);
+      // Check how many newer issues exist
+      const newerCount = await jiraClient.searchIssues(newerJql, { maxResults: 0 });
       
-      // Get total count
-      const countResult = await jiraClient.searchIssues(
-        `project = ${projectKey}`,
-        { maxResults: 0 }
-      );
-      
-      const totalJiraIssues = countResult.total;
-      const totalLocalIssues = existingIssueKeys.length;
-      
-      if (totalJiraIssues > totalLocalIssues) {
-        console.log(`📊 Remote: ${totalJiraIssues} issues | Local: ${totalLocalIssues} issues`);
-        console.log(`🔍 Incrementally syncing ${totalJiraIssues - totalLocalIssues} missing issues...\n`);
+      if (newerCount.total > 0) {
+        console.log(`🆕 Found ${newerCount.total} newer issues to sync...\n`);
         
-        const localKeysSet = new Set(existingIssueKeys);
-        let syncedCount = 0;
+        // Fetch all newer issues (they're recent, so shouldn't be too many)
         let startAt = 0;
-        const batchSize = 100;
-        
-        // Fetch and sync in batches
-        while (startAt < totalJiraIssues) {
-          // Fetch next batch
-          const batchResult = await jiraClient.searchIssues(
-            `project = ${projectKey} ORDER BY key ASC`,
-            { startAt, maxResults: batchSize }
-          );
+        while (startAt < newerCount.total) {
+          const batch = await jiraClient.searchIssues(newerJql, { startAt, maxResults: batchSize });
           
-          // Filter to only missing issues in this batch
-          const missingInBatch = batchResult.issues.filter(issue => !localKeysSet.has(issue.key));
-          
-          if (missingInBatch.length > 0) {
-            // Save this batch immediately
-            console.log(`📦 Processing batch ${Math.floor(startAt / batchSize) + 1}: ${missingInBatch.length} new issues...`);
-            await saveIssuesBatch(missingInBatch, cacheManager, contentManager);
-            syncedCount += missingInBatch.length;
-            
-            // Add to our local set so we don't re-sync
-            missingInBatch.forEach(issue => localKeysSet.add(issue.key));
+          if (batch.issues.length > 0) {
+            await saveIssuesBatch(batch.issues, cacheManager, contentManager);
+            totalSynced += batch.issues.length;
           }
           
           startAt += batchSize;
-          
-          // Show overall progress
-          const percent = Math.round((startAt / totalJiraIssues) * 100);
-          console.log(`📊 Overall progress: ${percent}% | Synced ${syncedCount} new issues so far\n`);
-          
-          // Stop if we've found all missing issues
-          if (syncedCount >= totalJiraIssues - totalLocalIssues) {
-            break;
-          }
         }
-        
-        console.log(chalk.green(`✅ Incremental sync complete! Added ${syncedCount} missing issues\n`));
-      } else {
-        console.log(chalk.green(`✅ No missing issues found\n`));
+      }
+    }
+    
+    // Now work backwards from either the oldest we have, or from newest if first sync
+    let continueSync = true;
+    let currentOldest = existingCount > 0 
+      ? existingIssues.reduce((min, issue) => {
+          const updated = new Date(issue.updated);
+          return updated < min ? updated : min;
+        }, new Date())
+      : new Date(); // Start from now if first sync
+    
+    while (continueSync) {
+      // Get batch of issues older than our current oldest
+      const olderJql = `project = ${projectKey} AND updated < "${formatJqlDate(currentOldest)}" ORDER BY updated DESC`;
+      
+      const batch = await jiraClient.searchIssues(olderJql, { startAt: 0, maxResults: batchSize });
+      
+      if (batch.issues.length === 0) {
+        // No more older issues
+        continueSync = false;
+        break;
       }
       
-      return; // Exit early for incremental sync
+      console.log(`📦 Fetching batch: ${batch.issues.length} issues older than ${currentOldest.toLocaleDateString()}...`);
+      
+      await saveIssuesBatch(batch.issues, cacheManager, contentManager);
+      totalSynced += batch.issues.length;
+      
+      // Update our oldest date for next iteration
+      const batchOldest = batch.issues.reduce((min, issue) => {
+        const updated = new Date(issue.fields.updated);
+        return updated < min ? updated : min;
+      }, currentOldest);
+      
+      currentOldest = batchOldest;
+      
+      // If we got less than a full batch, we're probably near the end
+      if (batch.issues.length < batchSize) {
+        console.log(`\n📍 Reached older issues (got ${batch.issues.length} in last batch)\n`);
+        continueSync = false;
+      }
     }
-    
-    // For full sync, save all issues
-    if (issues.length === 0) {
-      console.log(chalk.yellow('\n⚠️  No issues found in this project.'));
-      return;
-    }
-
-    console.log(`\n💾 Saving ${issues.length} issues to local database...\n`);
-    
-    const saveStartTime = Date.now();
-    
-    // Save all issues using batch function
-    await saveIssuesBatch(issues, cacheManager, contentManager);
-    
-    // Group issues by type for summary
-    const issueStatuses: Record<string, number> = {};
-    issues.forEach(issue => {
-      const status = issue.fields.status.name;
-      issueStatuses[status] = (issueStatuses[status] || 0) + 1;
-    });
     
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log('\n'); // New lines after progress
+    console.log(chalk.green(`\n✅ Sync complete! Added/updated ${totalSynced} issues in ${totalTime}s\n`));
     
-    // Show summary
-    console.log(chalk.green(`✅ Successfully synced ${issues.length} issues from ${projectKey} in ${totalTime}s\n`));
+    // Get final count
+    const finalCount = await cacheManager.listIssuesByProject(projectKey);
+    console.log(chalk.dim(`   Total issues in local database: ${finalCount.length}\n`));
     
-    // Get total count for project
-    const totalProjectIssues = await cacheManager.listIssuesByProject(projectKey);
-    console.log(chalk.dim(`   Total issues in local database: ${totalProjectIssues.length}\n`));
-    
-    // Show status breakdown only if we have a decent number of issues
-    if (issues.length > 5) {
-      console.log(chalk.bold('📊 Status breakdown (synced issues):'));
-      Object.entries(issueStatuses)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .forEach(([status, count]) => {
-          const icon = getJiraStatusIcon(status);
-          console.log(`   ${icon} ${status}: ${count}`);
-        });
-    }
-    
-    console.log(`\n💡 Next steps:`);
+    console.log(`💡 Next steps:`);
     console.log(`   • Search all issues: ${chalk.cyan('ji search <query>')}`);
-    console.log(`   • Search ${projectKey} issues: ${chalk.cyan(`ji search "project:${projectKey} AND <query>"`)}`);
     console.log(`   • View an issue: ${chalk.cyan('ji issue view <issue-key>')}\n`);
 
   } catch (error) {
@@ -649,8 +608,7 @@ async function syncJiraProject(projectKey: string) {
   }
 }
 
-function createProgressBar(percent: number): string {
-  const width = 30;
+function createProgressBar(percent: number, width: number = 30): string {
   const filled = Math.round((percent / 100) * width);
   const empty = width - filled;
   return chalk.green('█'.repeat(filled)) + chalk.gray('░'.repeat(empty));
@@ -803,6 +761,7 @@ async function main() {
     console.log('ji - Jira & Confluence CLI\n');
     console.log('Usage:');
     console.log('  ji auth                       - Set up authentication');
+    console.log('  ji mine                       - Show your open issues');
     console.log('  ji issue view <key>           - View an issue');
     console.log('  ji issue sync <project>       - Sync all issues from a project');
     console.log('  ji confluence sync <space>    - Sync Confluence space');
@@ -813,7 +772,7 @@ async function main() {
     console.log('  --json, -j                    - Output as JSON');
     console.log('  --sync, -s                    - Force sync from API');
     console.log('  --source [jira|confluence]    - Filter by source');
-    console.log('  --limit <n>                   - Limit results (default: 20)');
+    console.log('  --limit <n>                   - Limit results (default: 10)');
     process.exit(0);
   }
 
@@ -821,6 +780,8 @@ async function main() {
 
   if (command === 'auth') {
     await auth();
+  } else if (command === 'mine') {
+    await showMyIssues();
   } else if (command === 'issue' && args[1] === 'view' && args[2]) {
     const issueKey = args[2];
     const options = {
@@ -847,9 +808,18 @@ async function main() {
     const sourceIndex = args.indexOf('--source');
     const limitIndex = args.indexOf('--limit');
     
+    // Properly type the source option
+    let source: 'jira' | 'confluence' | undefined;
+    if (sourceIndex !== -1 && args[sourceIndex + 1]) {
+      const sourceValue = args[sourceIndex + 1];
+      if (sourceValue === 'jira' || sourceValue === 'confluence') {
+        source = sourceValue;
+      }
+    }
+    
     const options = {
       semantic: args.includes('--semantic'),
-      source: sourceIndex !== -1 && args[sourceIndex + 1] as 'jira' | 'confluence' | undefined,
+      source,
       limit: limitIndex !== -1 ? parseInt(args[limitIndex + 1]) : undefined
     };
     
