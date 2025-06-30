@@ -868,6 +868,7 @@ async function ask(question: string, options: {
   verbose?: boolean;
   model?: string;
   includeJira?: boolean;
+  includeOld?: boolean;
 }) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
@@ -941,20 +942,41 @@ async function ask(question: string, options: {
       return scoreB - scoreA;
     });
     
-    // Trim to requested limit
-    const limitedContexts = contexts.slice(0, options.limit || 10);
+    // Filter out old documents unless includeOld is specified
+    let filteredContexts = contexts;
+    if (!options.includeOld) {
+      const threeYearsAgo = Date.now() - (3 * 365 * 24 * 60 * 60 * 1000);
+      filteredContexts = contexts.filter(ctx => {
+        // Always include Jira issues regardless of age
+        if (ctx.content.source === 'jira') return true;
+        
+        // For Confluence, check if it's been modified within 3 years
+        if (ctx.content.updatedAt && ctx.content.updatedAt > threeYearsAgo) {
+          return true;
+        }
+        
+        // If no updatedAt date available, exclude it to be safe
+        return false;
+      });
+    }
     
-    if (contexts.length === 0) {
+    // Trim to requested limit
+    const limitedContexts = filteredContexts.slice(0, options.limit || 10);
+    
+    if (limitedContexts.length === 0) {
       console.log('No relevant context found. Try syncing more data with:');
       console.log(`  ${chalk.cyan('ji confluence sync <space>')}`);
       if (options.includeJira || options.source === 'jira') {
         console.log(`  ${chalk.cyan('ji issue sync <project>')}`);
       }
+      if (!options.includeOld && filteredContexts.length < contexts.length) {
+        console.log(`  ${chalk.cyan('ji ask "<question>" --include-old')} to search older documentation`);
+      }
       return;
     }
     
     // Build context string for the prompt
-    const contextStr = contexts.map((ctx, i) => {
+    const contextStr = limitedContexts.map((ctx, i) => {
       const { content } = ctx;
       let contextBlock = `[${i + 1}] `;
       
@@ -1065,7 +1087,15 @@ Based on the context above, please provide a helpful answer:`;
         const fullUrl = ctx.content.url.startsWith('http') 
           ? ctx.content.url 
           : `${config.jiraUrl}/wiki${ctx.content.url}`;
-        console.log(chalk.dim(`${i + 1}. ${ctx.content.title}`) + chalk.cyan(` → ${fullUrl}`));
+        
+        // Format the modified date
+        let dateStr = '';
+        if (ctx.content.updatedAt) {
+          const date = new Date(ctx.content.updatedAt);
+          dateStr = ` (modified ${date.toLocaleDateString()})`;
+        }
+        
+        console.log(chalk.dim(`${i + 1}. ${ctx.content.title}${dateStr}`) + chalk.cyan(` → ${fullUrl}`));
       });
     }
     
@@ -1076,7 +1106,15 @@ Based on the context above, please provide a helpful answer:`;
         const fullUrl = ctx.content.url.startsWith('http') 
           ? ctx.content.url 
           : `${config.jiraUrl}${ctx.content.url}`;
-        console.log(chalk.dim(`${confluenceSources.length + i + 1}. ${issueKey}: ${ctx.content.title}`) + chalk.cyan(` → ${fullUrl}`));
+        
+        // Format the modified date
+        let dateStr = '';
+        if (ctx.content.updatedAt) {
+          const date = new Date(ctx.content.updatedAt);
+          dateStr = ` (updated ${date.toLocaleDateString()})`;
+        }
+        
+        console.log(chalk.dim(`${confluenceSources.length + i + 1}. ${issueKey}: ${ctx.content.title}${dateStr}`) + chalk.cyan(` → ${fullUrl}`));
       });
     }
     
@@ -1190,6 +1228,7 @@ async function main() {
     console.log('  --verbose, -v                 - Show additional details');
     console.log('  --model <name>                - LLM model for ask (default: gemma3n)');
     console.log('  --include-jira                - Include Jira issues in ask results');
+    console.log('  --include-old                 - Include docs not modified in 3+ years');
   }
   
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
@@ -1275,7 +1314,8 @@ async function main() {
       limit: limitIndex !== -1 ? parseInt(args[limitIndex + 1]) : undefined,
       verbose: args.includes('--verbose') || args.includes('-v'),
       model: modelIndex !== -1 ? args[modelIndex + 1] : undefined,
-      includeJira: args.includes('--include-jira')
+      includeJira: args.includes('--include-jira'),
+      includeOld: args.includes('--include-old')
     };
     
     await ask(question, options);
