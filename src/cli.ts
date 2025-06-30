@@ -313,7 +313,8 @@ async function showMyIssues() {
 async function search(query: string, options: { 
   semantic?: boolean, 
   source?: 'jira' | 'confluence',
-  limit?: number 
+  limit?: number,
+  includeAll?: boolean
 }) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
@@ -330,12 +331,14 @@ async function search(query: string, options: {
     if (options.semantic) {
       results = await embeddingManager.searchSemantic(query, {
         source: options.source,
-        limit: options.limit
+        limit: options.limit,
+        includeAll: options.includeAll
       });
     } else {
       results = await embeddingManager.hybridSearch(query, {
         source: options.source,
-        limit: options.limit
+        limit: options.limit,
+        includeAll: options.includeAll
       });
     }
 
@@ -510,6 +513,82 @@ async function generateEmbeddingsBatch() {
       }
     }
   } finally {
+    contentManager.close();
+  }
+}
+
+async function regenerateAllEmbeddings() {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  const contentManager = new ContentManager();
+  const ollama = new OllamaClient();
+  
+  try {
+    // Check if Ollama is available
+    if (!await ollama.isAvailable()) {
+      console.error('❌ Ollama is not available. Please start Ollama and install mxbai-embed-large.');
+      process.exit(1);
+    }
+    
+    // Get total count
+    const totalCount = contentManager.db.prepare('SELECT COUNT(*) as count FROM searchable_content').get() as {count: number};
+    console.log(`\n🧠 Regenerating embeddings for ${totalCount.count} items...\n`);
+    
+    // Clear existing embeddings
+    contentManager.db.run('DELETE FROM content_embeddings');
+    console.log('🧹 Cleared old embeddings\n');
+    
+    // Process in batches
+    let offset = 0;
+    const batchSize = 50;
+    let totalProcessed = 0;
+    
+    while (offset < totalCount.count) {
+      const items = contentManager.db.prepare(`
+        SELECT id, content, content_hash 
+        FROM searchable_content 
+        LIMIT ? OFFSET ?
+      `).all(batchSize, offset) as Array<{id: string, content: string, content_hash: string}>;
+      
+      if (items.length === 0) break;
+      
+      const batchNum = Math.floor(offset / batchSize) + 1;
+      
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const embedding = await ollama.generateEmbedding(item.content);
+        
+        if (embedding) {
+          await contentManager.saveEmbedding(item.id, embedding, item.content_hash || '');
+          totalProcessed++;
+        }
+        
+        // Update progress
+        const percent = Math.round(((offset + i + 1) / totalCount.count) * 100);
+        const progressBar = createProgressBar(percent, 20);
+        const statusLine = `🧠 ${progressBar} ${percent}% | ${offset + i + 1}/${totalCount.count} | Batch ${batchNum}`;
+        process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
+      }
+      
+      offset += batchSize;
+    }
+    
+    console.log(); // New line after progress
+    console.log(chalk.green(`\n✅ Successfully generated ${totalProcessed} embeddings!\n`));
+    console.log(`💡 You can now use semantic search:`);
+    console.log(`   ${chalk.cyan('ji search --semantic "your query"')}\n`);
+    
+  } catch (error) {
+    console.error(`\n❌ Failed to generate embeddings: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    configManager.close();
     contentManager.close();
   }
 }
@@ -834,6 +913,7 @@ async function main() {
     console.log('  ji confluence view <page-id>  - View Confluence page');
     console.log('  ji search <query>             - Search across all content');
     console.log('  ji search --semantic <query>  - Semantic search only');
+    console.log('  ji embeddings regenerate      - Regenerate all embeddings');
     console.log('\nOptions:');
     console.log('  --help, -h                    - Show this help message');
     console.log('  --json, -j                    - Output as JSON');
@@ -841,6 +921,7 @@ async function main() {
     console.log('  --clean                       - Clear local data before sync');
     console.log('  --source [jira|confluence]    - Filter by source');
     console.log('  --limit <n>                   - Limit results (default: 10)');
+    console.log('  --all                         - Include closed/resolved issues');
   }
   
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
@@ -895,10 +976,13 @@ async function main() {
     const options = {
       semantic: args.includes('--semantic'),
       source,
-      limit: limitIndex !== -1 ? parseInt(args[limitIndex + 1]) : undefined
+      limit: limitIndex !== -1 ? parseInt(args[limitIndex + 1]) : undefined,
+      includeAll: args.includes('--all')
     };
     
     await search(query, options);
+  } else if (command === 'embeddings' && args[1] === 'regenerate') {
+    await regenerateAllEmbeddings();
   } else {
     console.error(`Unknown command: ${args.join(' ')}`);
     process.exit(1);

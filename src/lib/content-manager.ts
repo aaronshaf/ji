@@ -20,7 +20,7 @@ export interface SearchableContent {
 }
 
 export class ContentManager {
-  private db: Database;
+  public db: Database;
 
   constructor() {
     const dbPath = join(homedir(), '.ji', 'data.db');

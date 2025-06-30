@@ -137,6 +137,11 @@ Search across all cached content (both Jira and Confluence):
 ji search "performance issues"
 ```
 
+By default, closed/resolved/done issues are excluded. To include all issues:
+```bash
+ji search "performance issues" --all
+```
+
 Semantic search (finds conceptually related content):
 ```bash
 ji search --semantic "authentication problems"
@@ -144,8 +149,8 @@ ji search --semantic "authentication problems"
 
 Filter by source:
 ```bash
-ji search "deployment" --source jira
-ji search "api documentation" --source confluence
+ji search "deployment" --source jira              # Only Jira issues
+ji search "api documentation" --source confluence  # Only Confluence pages
 ```
 
 Limit results:

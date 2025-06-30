@@ -44,6 +44,7 @@ export class EmbeddingManager {
   async searchSemantic(query: string, options?: {
     source?: 'jira' | 'confluence';
     limit?: number;
+    includeAll?: boolean;
   }): Promise<SearchResult[]> {
     const ollama = new OllamaClient();
     
@@ -76,6 +77,19 @@ export class EmbeddingManager {
     if (options?.source) {
       sql += ' AND sc.source = ?';
       params.push(options.source);
+    }
+    
+    // By default, exclude closed/done issues unless includeAll is true
+    if (!options?.includeAll) {
+      sql += ` AND (
+        sc.source != 'jira' 
+        OR sc.metadata NOT LIKE '%"status":"Closed"%'
+        AND sc.metadata NOT LIKE '%"status":"Done"%'
+        AND sc.metadata NOT LIKE '%"status":"Resolved"%'
+        AND sc.metadata NOT LIKE '%"status":"Cancelled"%'
+        AND sc.metadata NOT LIKE '%"status":"Rejected"%'
+        AND sc.metadata NOT LIKE '%"status":"Won''t Do"%'
+      )`;
     }
     
     const stmt = this.db.prepare(sql);
@@ -119,6 +133,7 @@ export class EmbeddingManager {
   async hybridSearch(query: string, options?: {
     source?: 'jira' | 'confluence';
     limit?: number;
+    includeAll?: boolean;
   }): Promise<SearchResult[]> {
     const limit = options?.limit || 10;
     
@@ -155,6 +170,7 @@ export class EmbeddingManager {
   private async searchFTS(query: string, options?: {
     source?: 'jira' | 'confluence';
     limit?: number;
+    includeAll?: boolean;
   }): Promise<SearchResult[]> {
     let sql = `
       SELECT 
@@ -170,6 +186,19 @@ export class EmbeddingManager {
     if (options?.source) {
       sql += ' AND sc.source = ?';
       params.push(options.source);
+    }
+    
+    // By default, exclude closed/done issues unless includeAll is true
+    if (!options?.includeAll) {
+      sql += ` AND (
+        sc.source != 'jira' 
+        OR sc.metadata NOT LIKE '%"status":"Closed"%'
+        AND sc.metadata NOT LIKE '%"status":"Done"%'
+        AND sc.metadata NOT LIKE '%"status":"Resolved"%'
+        AND sc.metadata NOT LIKE '%"status":"Cancelled"%'
+        AND sc.metadata NOT LIKE '%"status":"Rejected"%'
+        AND sc.metadata NOT LIKE '%"status":"Won''t Do"%'
+      )`;
     }
 
     sql += ' LIMIT ?';
