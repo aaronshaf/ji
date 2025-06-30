@@ -72,6 +72,67 @@ export class OllamaClient {
     return embeddings;
   }
 
+  async generate(prompt: string, options?: { model?: string }): Promise<string> {
+    const model = options?.model || 'gemma3n:latest';
+    
+    try {
+      const response = await fetch(`${this.baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          prompt,
+          stream: false,
+          options: {
+            temperature: 0.7,
+            top_p: 0.9,
+          }
+        })
+      });
+
+      if (!response.ok) {
+        console.error(`Ollama generation failed: ${response.statusText}`);
+        return '';
+      }
+
+      const data = await response.json() as { response: string };
+      return data.response;
+    } catch (error) {
+      console.error('Failed to generate response:', error);
+      return '';
+    }
+  }
+
+  async generateStream(prompt: string, options?: { model?: string }): Promise<ReadableStream<Uint8Array> | null> {
+    const model = options?.model || 'gemma3n:latest';
+    
+    try {
+      const response = await fetch(`${this.baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          prompt,
+          stream: true,
+          options: {
+            temperature: 0.7,
+            top_p: 0.9,
+          }
+        })
+      });
+
+      if (!response.ok) {
+        console.error(`Ollama generation failed: ${response.statusText}`);
+        return null;
+      }
+
+      return response.body;
+    } catch (error) {
+      console.error('Failed to generate response:', error);
+      return null;
+    }
+  }
+
   // Helper to convert embedding to/from storage format
   static embeddingToBuffer(embedding: Float32Array): Buffer {
     return Buffer.from(embedding.buffer);
