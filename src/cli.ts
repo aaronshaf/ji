@@ -230,9 +230,24 @@ async function search(query: string, options: {
       
       // Add visual indicator for type
       if (content.source === 'jira') {
-        console.log(chalk.blue('●') + ' ' + chalk.bold(content.title));
+        // Get status emoji based on status
+        let statusIcon = '🔵'; // default
+        const status = content.metadata?.status?.toLowerCase();
+        if (status === 'done' || status === 'closed' || status === 'resolved') {
+          statusIcon = '✅';
+        } else if (status === 'in progress' || status === 'in development') {
+          statusIcon = '🔄';
+        } else if (status === 'blocked') {
+          statusIcon = '🚫';
+        } else if (status === 'feedback' || status === 'review') {
+          statusIcon = '👀';
+        } else if (status === 'todo' || status === 'open' || status === 'new') {
+          statusIcon = '📋';
+        }
+        
+        console.log(statusIcon + ' ' + chalk.bold(content.title));
       } else if (content.source === 'confluence') {
-        console.log(chalk.green('▪') + ' ' + chalk.bold(content.title));
+        console.log('📄 ' + chalk.bold(content.title));
       } else {
         console.log(chalk.bold(content.title));
       }
@@ -248,13 +263,14 @@ async function search(query: string, options: {
         }
       } else if (content.source === 'confluence') {
         const parts = [];
-        parts.push('📄 Page'); // Add page indicator
         if (content.metadata?.spaceName) parts.push(`Space: ${content.metadata.spaceName}`);
         if (content.metadata?.lastModified) {
           const date = new Date(content.metadata.lastModified);
           parts.push(`Modified: ${date.toLocaleDateString()}`);
         }
-        console.log(chalk.dim(`  ${parts.join(' | ')}`));
+        if (parts.length > 0) {
+          console.log(chalk.dim(`  ${parts.join(' | ')}`));
+        }
       }
       
       // Show content preview
