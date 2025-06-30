@@ -895,86 +895,156 @@ async function ask(question: string, options: {
     // Default to Confluence-only unless explicitly including Jira or source is set to jira
     const effectiveSource = options.source || (options.includeJira ? undefined : 'confluence');
     
-    // Use LLM to generate better search queries
-    const queryPrompt = `Given this question: "${question}"
+    // Implement multi-round iterative search for better results
+    const allContexts: (SearchResult & { searchRound?: number })[] = [];
+    const seenIds = new Set<string>();
+    
+    // Round 1: Broad Discovery - Generate diverse initial queries
+    if (options.verbose) console.log(chalk.dim('🔍 Round 1: Broad discovery...'));
+    
+    const round1Prompt = `Given this question: "${question}"
 
-Generate 2-3 alternative search queries that would help find relevant technical documentation. Consider:
-- Breaking down the question into key concepts
-- Technical terms, APIs, or feature names mentioned
-- Common variations or abbreviations (e.g., "auth" for "authentication")
-- Related components or systems
+Generate 3-4 diverse search queries for finding relevant technical documentation. Focus on:
+- Direct keywords from the question
+- Technical terms and abbreviations  
+- Related concepts and components
+- Different ways to phrase the same question
 
-Examples:
-Question: "how does canvas handle authentication?"
-Queries:
-canvas authentication
-auth login security
-SSO SAML OAuth canvas
+Return only the queries, one per line:`;
 
-Question: "what is the decoder ring?"
-Queries:
-decoder ring
-team ownership alignment
-R&D product engineering structure
-
-Now generate queries for the given question. Return only the queries, one per line:`;
-
-    let searchQueries = [question]; // Default to original question
+    let round1Queries = [question];
     try {
-      const queryResponse = await ollama.generate(queryPrompt, { 
-        model: options.model || 'gemma3n:latest'
-      });
-      
-      if (queryResponse) {
-        const generatedQueries = queryResponse.trim().split('\n')
-          .filter(q => q.trim().length > 0)
-          .slice(0, 3); // Max 3 queries
-        
-        if (generatedQueries.length > 0) {
-          searchQueries = [question, ...generatedQueries]; // Include original plus generated
+      const response = await ollama.generate(round1Prompt, { model: options.model || 'gemma3n:latest' });
+      if (response) {
+        const generated = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 4);
+        if (generated.length > 0) {
+          round1Queries = [question, ...generated];
         }
       }
     } catch (error) {
-      // If query generation fails, just use the original question
-      if (options.verbose) {
-        console.error('Failed to generate search queries:', error);
-      }
+      if (options.verbose) console.error('Round 1 query generation failed:', error);
     }
-    
-    if (options.verbose && searchQueries.length > 1) {
-      console.log(chalk.dim('Search queries:'));
-      searchQueries.forEach((q, i) => {
-        console.log(chalk.dim(`  ${i + 1}. ${q}`));
-      });
-      console.log();
-    }
-    
-    // Run searches with all queries and combine results
-    const allContexts: SearchResult[] = [];
-    const seenIds = new Set<string>();
-    
-    for (const searchQuery of searchQueries) {
-      const results = await embeddingManager.hybridSearch(searchQuery, {
+
+    // Execute Round 1 searches
+    for (const query of round1Queries) {
+      const results = await embeddingManager.hybridSearch(query, {
         source: effectiveSource,
-        limit: 10, // Limit per query
+        limit: 8,
         includeAll: true
       });
       
-      // Add unique results
       for (const result of results) {
         if (!seenIds.has(result.content.id)) {
           seenIds.add(result.content.id);
-          allContexts.push(result);
+          allContexts.push({ ...result, searchRound: 1 });
         }
       }
+    }
+
+    // Round 2: Focused Refinement - Analyze initial results for key concepts
+    if (allContexts.length > 0) {
+      if (options.verbose) console.log(chalk.dim('🎯 Round 2: Focused refinement...'));
+      
+      const topResults = allContexts.slice(0, 5);
+      const conceptsFound = topResults.map(r => r.content.title).join(', ');
+      
+      const round2Prompt = `Based on these initial search results: "${conceptsFound}"
+
+For the question "${question}", generate 2-3 more targeted search queries focusing on:
+- Specific technical terms or APIs mentioned in the results
+- Implementation details or "how-to" aspects
+- Configuration or setup information
+- Related troubleshooting or best practices
+
+Return only the queries, one per line:`;
+
+      try {
+        const response = await ollama.generate(round2Prompt, { model: options.model || 'gemma3n:latest' });
+        if (response) {
+          const round2Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 3);
+          
+          for (const query of round2Queries) {
+            const results = await embeddingManager.hybridSearch(query, {
+              source: effectiveSource,
+              limit: 6,
+              includeAll: true
+            });
+            
+            for (const result of results) {
+              if (!seenIds.has(result.content.id)) {
+                seenIds.add(result.content.id);
+                allContexts.push({ ...result, searchRound: 2 });
+              }
+            }
+          }
+        }
+      } catch (error) {
+        if (options.verbose) console.error('Round 2 query generation failed:', error);
+      }
+    }
+
+    // Round 3: Gap Filling - Look for missing context or prerequisites
+    if (allContexts.length > 0) {
+      if (options.verbose) console.log(chalk.dim('🔗 Round 3: Gap filling...'));
+      
+      const round3Prompt = `For the question "${question}", and considering we found information about: "${allContexts.slice(0, 3).map(r => r.content.title).join(', ')}"
+
+Generate 1-2 queries to find missing context such as:
+- Prerequisites or dependencies
+- Overview or getting started information  
+- Related tools or integrations
+- Common issues or limitations
+
+Return only the queries, one per line:`;
+
+      try {
+        const response = await ollama.generate(round3Prompt, { model: options.model || 'gemma3n:latest' });
+        if (response) {
+          const round3Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 2);
+          
+          for (const query of round3Queries) {
+            const results = await embeddingManager.hybridSearch(query, {
+              source: effectiveSource,
+              limit: 4,
+              includeAll: true
+            });
+            
+            for (const result of results) {
+              if (!seenIds.has(result.content.id)) {
+                seenIds.add(result.content.id);
+                allContexts.push({ ...result, searchRound: 3 });
+              }
+            }
+          }
+        }
+      } catch (error) {
+        if (options.verbose) console.error('Round 3 query generation failed:', error);
+      }
+    }
+
+    if (options.verbose) {
+      console.log(chalk.dim(`📊 Search completed: ${allContexts.length} unique documents found`));
+      const byRound = [1, 2, 3].map(round => 
+        allContexts.filter(c => c.searchRound === round).length
+      );
+      console.log(chalk.dim(`   Round 1: ${byRound[0]}, Round 2: ${byRound[1]}, Round 3: ${byRound[2]}`));
+      console.log();
     }
     
     const contexts = allContexts;
     
     // Check if query matches document titles for boosting
     const queryLower = question.toLowerCase();
-    const scoreWithBoost = (result: SearchResult): number => {
+    const scoreWithBoost = (result: SearchResult & { searchRound?: number }): number => {
       let score = result.score;
+      
+      // Boost earlier search rounds (higher confidence)
+      if (result.searchRound === 1) {
+        score *= 1.2; // 20% boost for round 1 results
+      } else if (result.searchRound === 2) {
+        score *= 1.1; // 10% boost for round 2 results
+      }
+      // Round 3 gets no boost (gap-filling results)
       
       // Boost title matches significantly
       const titleLower = result.content.title.toLowerCase();
