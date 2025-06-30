@@ -546,7 +546,36 @@ async function search(query: string, options: {
       
       // Display snippet from Meilisearch (already highlighted)
       if (result.snippet) {
-        console.log(`  ${result.snippet}`);
+        // Clean up the snippet: decode HTML entities and excessive whitespace
+        let cleanSnippet = result.snippet
+          .replace(/&rsquo;/g, "'") // Replace right single quote
+          .replace(/&quot;/g, '"') // Replace quotes
+          .replace(/&amp;/g, '&') // Replace ampersand
+          .replace(/&lt;/g, '<') // Replace less than
+          .replace(/&gt;/g, '>') // Replace greater than
+          .replace(/&hellip;/g, '...') // Replace ellipsis
+          .replace(/<mark>/g, chalk.yellow.bold('')) // Highlight marks
+          .replace(/<\/mark>/g, chalk.reset(''))
+          .replace(/\s+/g, ' ') // Normalize whitespace
+          .trim();
+        
+        // Truncate to reasonable length
+        const maxSnippetLength = 150;
+        if (cleanSnippet.length > maxSnippetLength) {
+          cleanSnippet = cleanSnippet.substring(0, maxSnippetLength) + '...';
+        }
+        
+        console.log(chalk.dim(`  ${cleanSnippet}`));
+      }
+      
+      // Show metadata for Jira issues
+      if (content.source === 'jira' && content.metadata) {
+        const meta = content.metadata as any;
+        const status = meta.status || 'Unknown';
+        const priority = meta.priority || 'Unassigned';
+        const reporter = meta.reporter || 'Unknown';
+        
+        console.log(chalk.dim(`  Status: ${status} • Priority: ${priority} • Reporter: ${reporter}`));
       }
       
       // Minimal metadata line with clickable URL
