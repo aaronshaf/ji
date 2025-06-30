@@ -250,10 +250,43 @@ async function search(query: string, options: {
         }
       }
       
-      // Only show snippet if it's different from the title and provides additional context
-      const cleanSnippet = snippet.replace(/<mark>/g, '').replace(/<\/mark>/g, '');
-      if (!cleanSnippet.startsWith(content.title)) {
-        console.log(chalk.dim(`  Match: ${cleanSnippet}`));
+      // For Jira issues, try to extract description
+      if (content.source === 'jira') {
+        // The content is structured with metadata first, then description
+        const contentLines = content.content.split('\n');
+        let inDescription = false;
+        let descriptionLine = '';
+        
+        for (const line of contentLines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          
+          // Skip metadata lines
+          if (trimmed.startsWith('Status:') || 
+              trimmed.startsWith('Priority:') || 
+              trimmed.startsWith('Assignee:') || 
+              trimmed.startsWith('Reporter:')) {
+            continue;
+          }
+          
+          // Skip the summary line (which is the title without the issue key)
+          const summaryPart = content.title.split(': ')[1]; // Get part after "ISSUE-123: "
+          if (summaryPart && trimmed === summaryPart) {
+            continue;
+          }
+          
+          // This should be the description
+          descriptionLine = trimmed;
+          break;
+        }
+        
+        if (descriptionLine && descriptionLine.length > 0) {
+          if (descriptionLine.length > 100) {
+            console.log(`  ${descriptionLine.substring(0, 100)}...`);
+          } else {
+            console.log(`  ${descriptionLine}`);
+          }
+        }
       }
       console.log('');
     }
