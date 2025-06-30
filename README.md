@@ -7,7 +7,7 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 ## Features
 
 - 🚀 Built with Bun for lightning-fast performance
-- 💾 Local SQLite database for offline access and instant queries
+- 💾 Local SQLite caching for offline access and instant queries
 - 🔄 Background daemon syncs data automatically
 - 🔐 Secure API key storage
 - 📝 Clean, intuitive command structure
@@ -51,6 +51,18 @@ ji issue view PROJ-123
 View as JSON:
 ```bash
 ji issue view PROJ-123 --json
+ji issue view PROJ-123 -j
+```
+
+Force sync from API (bypass cache):
+```bash
+ji issue view PROJ-123 --sync
+ji issue view PROJ-123 -s
+```
+
+Combine options:
+```bash
+ji issue view PROJ-123 --sync --json
 ```
 
 ## Development
