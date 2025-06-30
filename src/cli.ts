@@ -69,25 +69,25 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
 
   try {
     let issue = null;
+    let fromCache = false;
     
     // Try cache first unless --sync is specified
     if (!options.sync) {
       issue = await cacheManager.getIssue(issueKey);
       if (issue) {
-        if (!options.json) {
-          console.log('(cached)');
-        }
+        fromCache = true;
       }
     }
     
-    // Fetch from API if not in cache or if --sync
+    // If no cached data or --sync, fetch from API
     if (!issue) {
       const client = new JiraClient(config);
       issue = await client.getIssue(issueKey);
-      // Save to cache
       await cacheManager.saveIssue(issue);
+      fromCache = false;
     }
 
+    // Display the issue
     if (options.json) {
       console.log(JSON.stringify(issue, null, 2));
     } else {
@@ -108,11 +108,31 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
         console.log(formatDescription(issue.fields.description));
       }
     }
+
+    // Background refresh if we showed cached data
+    if (fromCache && !options.sync) {
+      // Don't await - let it run in background
+      refreshInBackground(issueKey, config);
+    }
   } catch (error) {
     console.error(`Failed to fetch issue: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   } finally {
     configManager.close();
+    cacheManager.close();
+  }
+}
+
+async function refreshInBackground(issueKey: string, config: any) {
+  const cacheManager = new CacheManager();
+  try {
+    const client = new JiraClient(config);
+    const freshIssue = await client.getIssue(issueKey);
+    await cacheManager.saveIssue(freshIssue);
+  } catch (error) {
+    // Silently fail - this is a background refresh
+    console.error(`Background refresh failed for ${issueKey}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  } finally {
     cacheManager.close();
   }
 }
