@@ -227,7 +227,15 @@ async function search(query: string, options: {
 
     for (const result of results) {
       const { content, score, snippet } = result;
-      console.log(chalk.bold(content.title));
+      
+      // Add visual indicator for type
+      if (content.source === 'jira') {
+        console.log(chalk.blue('●') + ' ' + chalk.bold(content.title));
+      } else if (content.source === 'confluence') {
+        console.log(chalk.green('▪') + ' ' + chalk.bold(content.title));
+      } else {
+        console.log(chalk.bold(content.title));
+      }
       
       // Build metadata line based on content source
       if (content.source === 'jira') {
@@ -240,17 +248,16 @@ async function search(query: string, options: {
         }
       } else if (content.source === 'confluence') {
         const parts = [];
+        parts.push('📄 Page'); // Add page indicator
         if (content.metadata?.spaceName) parts.push(`Space: ${content.metadata.spaceName}`);
         if (content.metadata?.lastModified) {
           const date = new Date(content.metadata.lastModified);
           parts.push(`Modified: ${date.toLocaleDateString()}`);
         }
-        if (parts.length > 0) {
-          console.log(chalk.dim(`  ${parts.join(' | ')}`));
-        }
+        console.log(chalk.dim(`  ${parts.join(' | ')}`));
       }
       
-      // For Jira issues, try to extract description
+      // Show content preview
       if (content.source === 'jira') {
         // The content is structured with metadata first, then description
         const contentLines = content.content.split('\n');
@@ -285,6 +292,17 @@ async function search(query: string, options: {
             console.log(`  ${descriptionLine.substring(0, 80)}...`);
           } else {
             console.log(`  ${descriptionLine}`);
+          }
+        }
+      } else if (content.source === 'confluence') {
+        // For Confluence, show first non-empty line of content
+        const firstLine = content.content.split('\n').find(line => line.trim().length > 0);
+        if (firstLine && firstLine.trim().length > 0) {
+          const preview = firstLine.trim();
+          if (preview.length > 80) {
+            console.log(chalk.dim(`  ${preview.substring(0, 80)}...`));
+          } else {
+            console.log(chalk.dim(`  ${preview}`));
           }
         }
       }
