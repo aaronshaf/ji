@@ -218,7 +218,17 @@ export class EmbeddingManager {
     `;
 
     // Escape special characters for FTS5
-    const ftsQuery = query.replace(/[-]/g, ' ');
+    // FTS5 has issues with quotes, parentheses, and other special chars
+    const ftsQuery = query
+      .replace(/[-"'()]/g, ' ')  // Remove problematic chars
+      .replace(/\s+/g, ' ')      // Normalize whitespace
+      .trim();
+    
+    if (!ftsQuery) {
+      // If query becomes empty after sanitization, return empty results
+      return [];
+    }
+    
     const params: any[] = [ftsQuery];
 
     if (options?.source) {
