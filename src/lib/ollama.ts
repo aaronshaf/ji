@@ -5,13 +5,16 @@ export interface EmbeddingOptions {
 }
 
 export class OllamaClient {
-  private baseUrl = 'http://localhost:11434';
+  private baseUrl = 'http://127.0.0.1:11434';
   private model = 'all-minilm:latest';
 
   async isAvailable(): Promise<boolean> {
     try {
       const response = await fetch(`${this.baseUrl}/api/tags`);
-      if (!response.ok) return false;
+      if (!response.ok) {
+        console.error(`Ollama API returned ${response.status}`);
+        return false;
+      }
       
       // Check if our model is installed
       const data = await response.json() as { models?: Array<{ name: string }> };
@@ -21,12 +24,14 @@ export class OllamaClient {
       
       if (!hasModel) {
         console.log(`\n⚠️  Ollama model '${this.model}' not found.`);
+        console.log(`   Available models:`, data.models?.map(m => m.name).join(', '));
         console.log(`   Run: ollama pull all-minilm`);
         return false;
       }
       
       return true;
-    } catch {
+    } catch (error) {
+      console.error('Failed to connect to Ollama:', error);
       return false;
     }
   }

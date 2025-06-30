@@ -221,10 +221,9 @@ async function saveIssuesBatch(
     if (now - lastUpdateTime >= updateInterval || i === issues.length - 1) {
       const percent = Math.round(((i + 1) / issues.length) * 100);
       const progressBar = createProgressBar(percent, 20); // Smaller progress bar
-      const rate = (i + 1) / ((now - startTime) / 1000);
       
       // Keep output under 80 chars
-      const statusLine = `💾 ${progressBar} ${percent}% | ${i + 1}/${issues.length} | ${rate.toFixed(0)}/s | ${issue.key}`;
+      const statusLine = `💾 ${progressBar} ${percent}% | ${issue.key}`;
       
       // Clear the line and write new status
       process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
