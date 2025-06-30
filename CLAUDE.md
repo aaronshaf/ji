@@ -3,11 +3,10 @@
 ## Project Overview
 
 This is a Jira CLI tool built with:
-- Bun (runtime and package manager)
+- Bun (runtime, package manager, and SQLite provider)
 - TypeScript
-- oclif (CLI framework)
-- better-sqlite3 (local storage)
 - zod (schema validation)
+- Zero Node.js dependencies
 
 ## Key Design Decisions
 
@@ -32,13 +31,9 @@ bun test
 ### Project Structure:
 ```
 src/
-├── bin/          # CLI entry point
-├── commands/     # oclif commands
-│   ├── auth.ts   # Authentication setup
-│   └── issue/    # Issue-related commands
-│       └── view.ts
+├── cli.ts        # Main CLI entry point
 ├── lib/          # Shared libraries
-│   ├── config.ts # Configuration management
+│   ├── config.ts # Configuration management (uses Bun SQLite)
 │   └── jira-client.ts
 └── daemon/       # Background sync daemon (TBD)
 ```
