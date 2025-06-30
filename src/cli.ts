@@ -1055,7 +1055,7 @@ Based on the context above, please provide a helpful answer:`;
     }
     
     // Add source citations
-    console.log('\n\n' + chalk.dim('Sources:'));
+    console.log('\n' + chalk.dim('Sources:'));
     const confluenceSources = limitedContexts.filter(c => c.content.source === 'confluence');
     const jiraSources = limitedContexts.filter(c => c.content.source === 'jira');
     
