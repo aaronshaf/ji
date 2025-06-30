@@ -57,7 +57,7 @@ export class ConfigManager {
         assignee_name TEXT,
         assignee_email TEXT,
         reporter_name TEXT NOT NULL,
-        reporter_email TEXT NOT NULL,
+        reporter_email TEXT,
         created INTEGER NOT NULL,
         updated INTEGER NOT NULL,
         description TEXT,
@@ -107,6 +107,9 @@ export class ConfigManager {
         content
       )
     `);
+    
+    // Run migrations for existing databases
+    this.runMigrations();
     
     // Create indexes
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_key)`);
@@ -160,6 +163,51 @@ export class ConfigManager {
     
     // Set file permissions to 600 (read/write for owner only)
     chmodSync(this.authFile, 0o600);
+  }
+
+  private runMigrations() {
+    try {
+      // Check if reporter_email has NOT NULL constraint
+      const tableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as any[];
+      const reporterEmailCol = tableInfo.find((col: any) => col.name === 'reporter_email');
+      
+      if (reporterEmailCol && reporterEmailCol.notnull === 1) {
+        console.log('Migrating database: Making reporter_email nullable...');
+        
+        // SQLite doesn't support ALTER COLUMN, so we need to recreate the table
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS issues_new (
+            key TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT,
+            assignee_name TEXT,
+            assignee_email TEXT,
+            reporter_name TEXT NOT NULL,
+            reporter_email TEXT,
+            created INTEGER NOT NULL,
+            updated INTEGER NOT NULL,
+            description TEXT,
+            raw_data TEXT NOT NULL,
+            synced_at INTEGER NOT NULL,
+            FOREIGN KEY (project_key) REFERENCES projects(key)
+          )
+        `);
+        
+        // Copy data
+        this.db.run(`INSERT INTO issues_new SELECT * FROM issues`);
+        
+        // Drop old table and rename new one
+        this.db.run(`DROP TABLE issues`);
+        this.db.run(`ALTER TABLE issues_new RENAME TO issues`);
+        
+        console.log('Migration complete!');
+      }
+    } catch (error) {
+      // If any error occurs during migration, just continue
+      // The table creation will handle it
+    }
   }
 
   close() {
