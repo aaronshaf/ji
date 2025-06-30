@@ -348,6 +348,52 @@ async function syncConfluence(spaceKey: string) {
   }
 }
 
+async function viewConfluencePage(pageId: string, options: { json?: boolean }) {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  const confluenceClient = new ConfluenceClient(config);
+
+  try {
+    // Fetch the page
+    const page = await confluenceClient.getPage(pageId);
+
+    if (options.json) {
+      console.log(JSON.stringify(page, null, 2));
+    } else {
+      console.log(`\n${chalk.bold(page.title)}`);
+      console.log(`\n${chalk.dim('Space:')} ${page.space.name} (${page.space.key})`);
+      console.log(`${chalk.dim('Version:')} ${page.version.number}`);
+      console.log(`${chalk.dim('Last modified:')} ${new Date(page.version.when).toLocaleString()}`);
+      console.log(`${chalk.dim('URL:')} ${page._links.webui}`);
+      
+      if (page.body?.view?.value) {
+        console.log(`\n${chalk.dim('Content (HTML):')}`)
+        // Show a preview of the HTML content
+        const preview = page.body.view.value.substring(0, 500).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        console.log(preview + (page.body.view.value.length > 500 ? '...' : ''));
+        console.log(chalk.dim('\n(Use --json to see full content)'));
+      } else if (page.body?.storage?.value) {
+        console.log(`\n${chalk.dim('Content:')}`)
+        const plainText = confluenceToText(page.body.storage.value);
+        console.log(plainText.substring(0, 500) + (plainText.length > 500 ? '...' : ''));
+        console.log(chalk.dim('\n(Use --json to see full content)'));
+      }
+    }
+
+  } catch (error) {
+    console.error(`Failed to fetch page: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    configManager.close();
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   
@@ -372,6 +418,7 @@ async function main() {
     console.log('  ji auth                       - Set up authentication');
     console.log('  ji issue view <key>           - View an issue');
     console.log('  ji confluence sync <space>    - Sync Confluence space');
+    console.log('  ji confluence view <page-id>  - View Confluence page');
     console.log('  ji search <query>             - Search across all content');
     console.log('  ji search --semantic <query>  - Semantic search only');
     console.log('\nOptions:');
@@ -396,6 +443,12 @@ async function main() {
   } else if (command === 'confluence' && args[1] === 'sync' && args[2]) {
     const spaceKey = args[2];
     await syncConfluence(spaceKey);
+  } else if (command === 'confluence' && args[1] === 'view' && args[2]) {
+    const pageId = args[2];
+    const options = {
+      json: args.includes('--json') || args.includes('-j')
+    };
+    await viewConfluencePage(pageId, options);
   } else if (command === 'search' && args[1]) {
     const queryStart = args.includes('--semantic') ? 2 : 1;
     const query = args.slice(queryStart).filter(arg => !arg.startsWith('--')).join(' ');
