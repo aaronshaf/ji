@@ -887,6 +887,41 @@ async function ask(question: string, options: {
   const ollama = new OllamaClient();
   const memoryManager = new MemoryManager();
   
+  // Get configured model or detect available model
+  const settings = await configManager.getSettings();
+  let askModel = settings.askModel || options.model;
+  
+  if (!askModel) {
+    // No model configured, try to find a suitable one
+    try {
+      const response = await fetch('http://127.0.0.1:11434/api/tags');
+      const data = await response.json() as { models?: Array<{ name: string }> };
+      
+      if (data.models && data.models.length > 0) {
+        // Try to find common good models, fallback to first available
+        const preferredModels = ['llama3.1', 'qwen2.5', 'gemma2', 'llama3', 'mistral'];
+        const availableModels = data.models.map(m => m.name);
+        
+        askModel = preferredModels.find(preferred => 
+          availableModels.some(available => available.includes(preferred))
+        ) || availableModels[0];
+        
+        console.log(chalk.yellow(`⚠️  No ask model configured. Using: ${askModel}`));
+        console.log(chalk.dim(`   Run 'ji models' to configure your preferred model.\n`));
+      } else {
+        console.error('No models found in Ollama.');
+        console.log('Pull a model first:');
+        console.log(chalk.cyan('  ollama pull llama3.1'));
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Could not connect to Ollama or no models available.');
+      console.log('Make sure Ollama is running and has models installed:');
+      console.log(chalk.cyan('  ollama pull llama3.1'));
+      process.exit(1);
+    }
+  }
+  
   const spinner = ora({
     text: 'Checking memory for relevant facts...',
     spinner: 'dots'
@@ -944,7 +979,7 @@ Return only the queries, one per line:`;
 
     let round1Queries = [question];
     try {
-      const response = await ollama.generate(round1Prompt, { model: options.model || 'gemma3n:latest' });
+      const response = await ollama.generate(round1Prompt, { model: askModel });
       if (response) {
         const generated = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 4);
         if (generated.length > 0) {
@@ -990,7 +1025,7 @@ For the question "${question}", generate 2-3 more targeted search queries focusi
 Return only the queries, one per line:`;
 
       try {
-        const response = await ollama.generate(round2Prompt, { model: options.model || 'gemma3n:latest' });
+        const response = await ollama.generate(round2Prompt, { model: askModel });
         if (response) {
           const round2Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 3);
           
@@ -1034,7 +1069,7 @@ Generate 1-2 queries to find missing context such as:
 Return only the queries, one per line:`;
 
       try {
-        const response = await ollama.generate(round3Prompt, { model: options.model || 'gemma3n:latest' });
+        const response = await ollama.generate(round3Prompt, { model: askModel });
         if (response) {
           const round3Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 2);
           
@@ -1278,7 +1313,7 @@ Based on the context above, please provide a helpful answer:`;
     // Generate response with streaming
     spinner.stop();
     
-    const stream = await ollama.generateStream(fullPrompt, { model: options.model });
+    const stream = await ollama.generateStream(fullPrompt, { model: askModel });
     
     if (!stream) {
       console.error('Failed to generate response');
@@ -1377,6 +1412,96 @@ Based on the context above, please provide a helpful answer:`;
   }
 }
 
+async function configureModels() {
+  const configManager = new ConfigManager();
+  const ollama = new OllamaClient();
+  const rl = readline.createInterface({ input, output });
+  
+  try {
+    // Check if Ollama is available
+    if (!await ollama.isAvailable()) {
+      console.error('❌ Ollama is not available. Please start Ollama first.');
+      process.exit(1);
+    }
+    
+    console.log(chalk.bold('\n🤖 Configure Ollama Models'));
+    console.log('Let\'s set up which models to use for different operations.\n');
+    
+    // Get available models from Ollama
+    console.log('Fetching available models from Ollama...');
+    const response = await fetch('http://127.0.0.1:11434/api/tags');
+    const data = await response.json() as { models?: Array<{ name: string; size: number; modified_at: string }> };
+    
+    if (!data.models || data.models.length === 0) {
+      console.log(chalk.yellow('⚠️  No models found in Ollama.'));
+      console.log('Pull some models first:');
+      console.log(chalk.cyan('  ollama pull llama3.1'));
+      console.log(chalk.cyan('  ollama pull qwen2.5'));
+      console.log(chalk.cyan('  ollama pull gemma2'));
+      process.exit(1);
+    }
+    
+    const models = data.models.map(m => m.name).sort();
+    
+    console.log(chalk.green(`Found ${models.length} models:\n`));
+    models.forEach((model, i) => {
+      console.log(`  ${i + 1}. ${model}`);
+    });
+    
+    const currentSettings = await configManager.getSettings();
+    
+    // Configure ask model
+    console.log(chalk.bold('\n💬 Ask Model (for Q&A responses)'));
+    if (currentSettings.askModel) {
+      console.log(chalk.dim(`Current: ${currentSettings.askModel}`));
+    }
+    console.log('Choose a model for generating responses to questions:');
+    
+    const askChoice = await rl.question('Enter model number (or press Enter to keep current): ');
+    if (askChoice.trim() && askChoice.trim() !== '0') {
+      const modelIndex = parseInt(askChoice) - 1;
+      if (modelIndex >= 0 && modelIndex < models.length) {
+        await configManager.setSetting('askModel', models[modelIndex]);
+        console.log(chalk.green(`✓ Set ask model to: ${models[modelIndex]}`));
+      } else {
+        console.log(chalk.red('Invalid choice, keeping current setting.'));
+      }
+    }
+    
+    // Configure embedding model
+    console.log(chalk.bold('\n🔍 Embedding Model (for semantic search)'));
+    if (currentSettings.embeddingModel) {
+      console.log(chalk.dim(`Current: ${currentSettings.embeddingModel}`));
+    }
+    console.log('Choose a model for generating embeddings (recommend: mxbai-embed-large):');
+    
+    const embedChoice = await rl.question('Enter model number (or press Enter to keep current): ');
+    if (embedChoice.trim() && embedChoice.trim() !== '0') {
+      const modelIndex = parseInt(embedChoice) - 1;
+      if (modelIndex >= 0 && modelIndex < models.length) {
+        await configManager.setSetting('embeddingModel', models[modelIndex]);
+        console.log(chalk.green(`✓ Set embedding model to: ${models[modelIndex]}`));
+      } else {
+        console.log(chalk.red('Invalid choice, keeping current setting.'));
+      }
+    }
+    
+    // Show final configuration
+    const finalSettings = await configManager.getSettings();
+    console.log(chalk.bold('\n🎉 Configuration Complete!'));
+    console.log(`Ask model: ${chalk.cyan(finalSettings.askModel || 'auto-detect')}`);
+    console.log(`Embedding model: ${chalk.cyan(finalSettings.embeddingModel || 'mxbai-embed-large (default)')}`);
+    console.log('\nYou can run this command again anytime to change these settings.');
+    
+  } catch (error) {
+    console.error(`Failed to configure models: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    rl.close();
+    configManager.close();
+  }
+}
+
 async function viewConfluencePage(pageId: string, options: { json?: boolean }) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
@@ -1459,6 +1584,7 @@ async function main() {
     console.log('  ji search <query>             - Search across all content');
     console.log('  ji search --semantic <query>  - Semantic search only');
     console.log('  ji ask "<question>"           - Ask AI about Confluence docs');
+    console.log('  ji models                     - Configure Ollama models');
     console.log('  ji embeddings regenerate      - Regenerate all embeddings');
     console.log('\nOptions:');
     console.log('  --help, -h                    - Show this help message');
@@ -1484,6 +1610,10 @@ async function main() {
   if (command === 'auth') {
     await auth();
   } else if (command === 'mine') {
+    await showMyIssues();
+  } else if (command === 'models') {
+    await configureModels();
+  } else if (command === 'mine_fallback') {
     await showMyIssues();
   } else if (command === 'issue' && args[1] === 'view' && args[2]) {
     const issueKey = args[2];

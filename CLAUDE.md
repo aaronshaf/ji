@@ -33,6 +33,33 @@ bun run lint
 bun test
 ```
 
+### Advanced Code Analysis Tools:
+
+**ast-grep** - Available for complex code transformations and analysis:
+
+```bash
+# Find all function calls to a specific API
+ast-grep --pattern 'ollama.generate($$$)' src/
+
+# Find and replace model parameter patterns
+ast-grep --pattern 'model: options.model || "gemma3n:latest"' --rewrite 'model: askModel' src/
+
+# Find all async functions that don't have proper error handling
+ast-grep --pattern 'async function $NAME($$$) { $$$ }' src/ | ast-grep --pattern 'try { $$$ }' --invert-match
+
+# Find TypeScript interface definitions
+ast-grep --pattern 'interface $NAME { $$$ }' src/
+
+# Locate all database query patterns
+ast-grep --pattern 'this.db.prepare($QUERY)' src/
+```
+
+Use ast-grep when you need to:
+- Find complex code patterns across the entire codebase
+- Perform structural code transformations
+- Analyze function call patterns or API usage
+- Refactor code with precision (safer than regex)
+
 ### Project Structure:
 ```
 src/
