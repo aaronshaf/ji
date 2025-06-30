@@ -356,6 +356,61 @@ async function embedContent(contentId: string) {
   }
 }
 
+async function syncJiraProject(projectKey: string) {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  const jiraClient = new JiraClient(config);
+  const cacheManager = new CacheManager();
+  const contentManager = new ContentManager();
+
+  try {
+    console.log(`Fetching issues for project ${chalk.bold(projectKey)}...`);
+    
+    // Fetch all issues with progress
+    console.log('\nSyncing issues...');
+    const issues = await jiraClient.getAllProjectIssues(projectKey, (current, total) => {
+      process.stdout.write(`\rProgress: ${current}/${total} issues`);
+    });
+    console.log(''); // New line after progress
+
+    if (issues.length === 0) {
+      console.log('No issues found in this project.');
+      return;
+    }
+
+    console.log(`\nProcessing ${issues.length} issues...`);
+    
+    // Save each issue
+    for (let i = 0; i < issues.length; i++) {
+      const issue = issues[i];
+      process.stdout.write(`\rProcessing: ${i + 1}/${issues.length} - ${issue.key}: ${issue.fields.summary.substring(0, 50)}${issue.fields.summary.length > 50 ? '...' : ''}`);
+
+      // Save to cache and content manager
+      await cacheManager.saveIssue(issue);
+      await contentManager.saveJiraIssue(issue);
+    }
+
+    console.log(''); // New line after progress
+    console.log(chalk.green(`\n✓ Successfully synced ${issues.length} issues from ${projectKey}`));
+    console.log(`\nYou can now search these issues with: ${chalk.dim('ji search <query>')}`);
+    console.log(`Or view specific issues: ${chalk.dim('ji issue view <issue-key>')}`);
+
+  } catch (error) {
+    console.error(`\nSync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    configManager.close();
+    cacheManager.close();
+    contentManager.close();
+  }
+}
+
 async function syncConfluence(spaceKey: string) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
@@ -503,6 +558,7 @@ async function main() {
     console.log('Usage:');
     console.log('  ji auth                       - Set up authentication');
     console.log('  ji issue view <key>           - View an issue');
+    console.log('  ji issue sync <project>       - Sync all issues from a project');
     console.log('  ji confluence sync <space>    - Sync Confluence space');
     console.log('  ji confluence view <page-id>  - View Confluence page');
     console.log('  ji search <query>             - Search across all content');
@@ -526,6 +582,9 @@ async function main() {
       sync: args.includes('--sync') || args.includes('-s')
     };
     await viewIssue(issueKey, options);
+  } else if (command === 'issue' && args[1] === 'sync' && args[2]) {
+    const projectKey = args[2];
+    await syncJiraProject(projectKey);
   } else if (command === 'confluence' && args[1] === 'sync' && args[2]) {
     const spaceKey = args[2];
     await syncConfluence(spaceKey);

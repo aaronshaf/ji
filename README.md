@@ -74,6 +74,19 @@ Combine options:
 ji issue view PROJ-123 --sync --json
 ```
 
+#### Sync all issues from a project
+
+Sync all issues from a Jira project to your local database:
+
+```bash
+ji issue sync PROJ
+```
+
+This will:
+- Fetch all issues from the specified project
+- Store them in the local SQLite database for searching
+- Show progress during the sync
+
 ### Confluence Commands
 
 #### Sync a Confluence space
