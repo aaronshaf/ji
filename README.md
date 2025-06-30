@@ -13,13 +13,14 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 - 📝 Clean, intuitive command structure
 - 🔍 Fast full-text search across Jira issues and Confluence pages
 - 🧠 Semantic search with local vector embeddings (via Ollama)
+- 🤖 AI-powered Q&A to answer questions from your knowledge base
 - 📚 Confluence integration with space syncing
 - 🎨 Subtle color highlighting with chalk
 
 ## Prerequisites
 
 - [Bun](https://bun.sh) (v1.0 or later)
-- [Ollama](https://ollama.com) (optional, for semantic search)
+- [Ollama](https://ollama.com) (optional, for semantic search and AI Q&A)
 
 ## Installation
 
@@ -179,6 +180,45 @@ ollama pull mxbai-embed-large
 
 After syncing issues, embeddings are generated in the background. Semantic search will find conceptually related content even if exact keywords don't match.
 
+### AI Q&A
+
+Ask questions about your synced data using AI:
+
+```bash
+ji ask "How do we handle authentication?"
+```
+
+By default, the AI assistant focuses on Confluence documentation. To include Jira issues in the search:
+
+```bash
+ji ask "What bugs are related to login?" --include-jira
+```
+
+Options:
+- `--source [jira|confluence]` - Search only specific source
+- `--limit <n>` - Number of context documents to use (default: 10)
+- `--verbose` - Show which documents were used
+- `--model <name>` - Use a different Ollama model (default: gemma3n)
+
+The AI uses hybrid search (both semantic and keyword matching) to find the most relevant documentation and provides concise, contextual answers.
+
+#### AI Setup
+
+For AI Q&A to work, you need the language model:
+
+```bash
+# Pull the default language model
+ollama pull gemma3n
+```
+
+### Embeddings Management
+
+Regenerate all embeddings (useful after changing models):
+
+```bash
+ji embeddings regenerate
+```
+
 ## Development
 
 ```bash
@@ -203,8 +243,9 @@ bun run lint
 - **Runtime**: Pure Bun for lightning-fast execution
 - **Storage**: Bun's built-in SQLite database stored in `~/.ji/data.db`
 - **Authentication**: Credentials stored separately in `~/.ji/auth.json` (600 permissions)
-- **Search**: SQLite FTS5 for full-text search across all content
-- **Sync**: Background processes for data refresh
+- **Search**: Hybrid approach combining SQLite FTS5 and semantic embeddings
+- **AI**: Local LLM integration via Ollama for Q&A functionality
+- **Sync**: Background processes for data refresh and embedding generation
 - **Security**: API credentials stored securely, never committed to git
 - **Zero Node.js dependencies**: Runs entirely on Bun
 

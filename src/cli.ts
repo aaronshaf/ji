@@ -4,7 +4,7 @@ import { ConfigManager } from './lib/config.js';
 import { JiraClient } from './lib/jira-client.js';
 import { CacheManager } from './lib/cache.js';
 import { ContentManager } from './lib/content-manager.js';
-import { EmbeddingManager } from './lib/embeddings.js';
+import { EmbeddingManager, type SearchResult } from './lib/embeddings.js';
 import { ConfluenceClient } from './lib/confluence-client.js';
 import { confluenceToText } from './lib/confluence-converter.js';
 import { OllamaClient } from './lib/ollama.js';
@@ -865,6 +865,7 @@ async function ask(question: string, options: {
   limit?: number;
   verbose?: boolean;
   model?: string;
+  includeJira?: boolean;
 }) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
@@ -886,17 +887,34 @@ async function ask(question: string, options: {
     
     console.log('🤔 Searching for relevant context...\n');
     
-    // Search for relevant context using embeddings
-    const contexts = await embeddingManager.searchSemantic(question, {
-      source: options.source,
-      limit: options.limit || 10,
+    // Default to Confluence-only unless explicitly including Jira or source is set to jira
+    const effectiveSource = options.source || (options.includeJira ? undefined : 'confluence');
+    
+    // Use hybrid search - both semantic and full-text search for better results
+    const contexts = await embeddingManager.hybridSearch(question, {
+      source: effectiveSource,
+      limit: options.limit || 15, // Fetch more initially, we'll trim later
       includeAll: true // Include closed issues for historical context
     });
     
+    // Sort to prioritize Confluence docs and higher scores
+    contexts.sort((a, b) => {
+      // First priority: Confluence over Jira
+      if (a.content.source === 'confluence' && b.content.source === 'jira') return -1;
+      if (a.content.source === 'jira' && b.content.source === 'confluence') return 1;
+      // Second priority: Higher scores
+      return b.score - a.score;
+    });
+    
+    // Trim to requested limit
+    const limitedContexts = contexts.slice(0, options.limit || 10);
+    
     if (contexts.length === 0) {
       console.log('No relevant context found. Try syncing more data with:');
-      console.log(`  ${chalk.cyan('ji issue sync <project>')}`);
       console.log(`  ${chalk.cyan('ji confluence sync <space>')}`);
+      if (options.includeJira || options.source === 'jira') {
+        console.log(`  ${chalk.cyan('ji issue sync <project>')}`);
+      }
       return;
     }
     
@@ -916,20 +934,28 @@ async function ask(question: string, options: {
         contextBlock += `Space: ${content.spaceKey || 'Unknown'}\n`;
       }
       
-      // Include relevant content snippet
-      const snippet = content.content.substring(0, 500).replace(/\n+/g, ' ').trim();
+      // Include relevant content snippet - more for Confluence, less for Jira
+      const maxLength = content.source === 'confluence' ? 800 : 300;
+      const snippet = content.content.substring(0, maxLength).replace(/\n+/g, ' ').trim();
       contextBlock += `Content: ${snippet}...\n`;
       
       return contextBlock;
     }).join('\n');
     
     // Build the prompt
-    const systemPrompt = `You are a helpful assistant with access to a software team's Jira issues and Confluence documentation. 
-Answer questions based on the provided context. Be concise and specific.
-Reference issue keys (like EVAL-123) when relevant.
-If the context doesn't contain enough information to fully answer the question, say so.`;
+    const hasJira = limitedContexts.some(c => c.content.source === 'jira');
+    const systemPrompt = hasJira 
+      ? `You are a helpful assistant with access to a software team's Confluence documentation and Jira issues.
+Focus primarily on the Confluence documentation when answering questions.
+Be thorough but concise. Reference page titles and issue keys when relevant.
+If the context doesn't contain enough information to fully answer the question, say so.`
+      : `You are a helpful assistant with access to a software team's Confluence documentation.
+Answer questions based on the provided documentation. Be thorough but concise.
+Reference specific page titles when relevant.
+If the documentation doesn't contain enough information to fully answer the question, say so.`;
 
-    const userPrompt = `Context from synced Jira issues and Confluence pages:
+    const contextLabel = hasJira ? 'Context from Confluence documentation and Jira issues:' : 'Context from Confluence documentation:';
+    const userPrompt = `${contextLabel}
 
 ${contextStr}
 
@@ -941,7 +967,7 @@ Based on the context above, please provide a helpful answer:`;
     
     if (options.verbose) {
       console.log(chalk.dim('Using context from:'));
-      contexts.forEach(ctx => {
+      limitedContexts.forEach(ctx => {
         if (ctx.content.source === 'jira') {
           console.log(chalk.dim(`  • ${ctx.content.id.replace('jira:', '')}: ${ctx.content.title}`));
         } else {
@@ -984,12 +1010,13 @@ Based on the context above, please provide a helpful answer:`;
       }
     }
     
-    console.log('\n');
+    // Only add newline if we actually output something
+    console.log('');
     
     if (options.verbose) {
-      console.log(chalk.dim('\n📎 Sources used:'));
-      console.log(chalk.dim(`   ${contexts.filter(c => c.content.source === 'jira').length} Jira issues`));
-      console.log(chalk.dim(`   ${contexts.filter(c => c.content.source === 'confluence').length} Confluence pages`));
+      console.log(chalk.dim('📎 Sources used:'));
+      console.log(chalk.dim(`   ${limitedContexts.filter(c => c.content.source === 'jira').length} Jira issues`));
+      console.log(chalk.dim(`   ${limitedContexts.filter(c => c.content.source === 'confluence').length} Confluence pages`));
     }
     
   } catch (error) {
@@ -1082,7 +1109,7 @@ async function main() {
     console.log('  ji confluence view <page-id>  - View Confluence page');
     console.log('  ji search <query>             - Search across all content');
     console.log('  ji search --semantic <query>  - Semantic search only');
-    console.log('  ji ask "<question>"           - Ask AI about your data');
+    console.log('  ji ask "<question>"           - Ask AI about Confluence docs');
     console.log('  ji embeddings regenerate      - Regenerate all embeddings');
     console.log('\nOptions:');
     console.log('  --help, -h                    - Show this help message');
@@ -1094,6 +1121,7 @@ async function main() {
     console.log('  --all                         - Include closed/resolved issues');
     console.log('  --verbose, -v                 - Show additional details');
     console.log('  --model <name>                - LLM model for ask (default: gemma3n)');
+    console.log('  --include-jira                - Include Jira issues in ask results');
   }
   
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
@@ -1178,7 +1206,8 @@ async function main() {
       source,
       limit: limitIndex !== -1 ? parseInt(args[limitIndex + 1]) : undefined,
       verbose: args.includes('--verbose') || args.includes('-v'),
-      model: modelIndex !== -1 ? args[modelIndex + 1] : undefined
+      model: modelIndex !== -1 ? args[modelIndex + 1] : undefined,
+      includeJira: args.includes('--include-jira')
     };
     
     await ask(question, options);
