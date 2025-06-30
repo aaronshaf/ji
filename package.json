@@ -1,0 +1,41 @@
+{
+  "name": "ji",
+  "version": "0.1.0",
+  "description": "CLI for accessing Jira and Confluence with local SQLite sync",
+  "type": "module",
+  "bin": {
+    "ji": "./bin/run.js"
+  },
+  "scripts": {
+    "build": "bun build ./src/bin/run.ts --target=bun --outdir=./bin --external @oclif/core --external better-sqlite3",
+    "dev": "bun run --watch src/bin/run.ts",
+    "daemon": "bun run src/daemon/index.ts",
+    "test": "bun test",
+    "lint": "eslint . --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["jira", "confluence", "cli", "sqlite", "daemon"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@oclif/core": "^3.18.1",
+    "better-sqlite3": "^9.2.2",
+    "dotenv": "^16.3.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.10.5",
+    "bun-types": "^1.0.20",
+    "typescript": "^5.3.3",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0"
+  },
+  "oclif": {
+    "bin": "ji",
+    "dirname": "ji",
+    "commands": "./dist/commands",
+    "topicSeparator": " "
+  }
+}
