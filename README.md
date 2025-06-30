@@ -11,8 +11,8 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 - 🔄 Automatic background refresh keeps data up-to-date
 - 🔐 Secure API key storage
 - 📝 Clean, intuitive command structure
-- 🔍 Local vector search with semantic understanding
-- 🤖 Hybrid search combining keyword and AI-powered semantic search
+- 🔍 Fast full-text search with SQLite FTS5
+- 🤖 Extensible architecture ready for vector search
 
 ## Prerequisites
 
@@ -76,10 +76,7 @@ Search across all cached content (hybrid search by default):
 ji search "performance issues"
 ```
 
-Semantic search only (AI-powered):
-```bash
-ji search --semantic "how to improve page load times"
-```
+Note: Semantic search currently falls back to keyword search. Vector embeddings coming soon with a Bun-compatible solution.
 
 Filter by source:
 ```bash
@@ -115,7 +112,7 @@ bun run lint
 
 - **Runtime**: Pure Bun for lightning-fast execution
 - **Storage**: Bun's built-in SQLite database stored in `~/.ji/` for fast local queries
-- **Search**: Local vector embeddings using Transformers.js (all-MiniLM-L6-v2)
+- **Search**: SQLite FTS5 for full-text search, vector embeddings infrastructure ready
 - **Sync**: Background processes for data refresh and embedding generation
 - **Security**: API credentials stored securely in local SQLite database
 - **Zero Node.js dependencies**: Runs entirely on Bun
