@@ -182,7 +182,9 @@ export class EmbeddingManager {
       WHERE content_fts MATCH ?
     `;
 
-    const params: any[] = [query];
+    // Escape special characters for FTS5
+    const ftsQuery = query.replace(/[-]/g, ' ');
+    const params: any[] = [ftsQuery];
 
     if (options?.source) {
       sql += ' AND sc.source = ?';
