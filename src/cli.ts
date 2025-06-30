@@ -199,6 +199,50 @@ function getJiraStatusIcon(status: string): string {
   return '🔵';
 }
 
+async function saveIssuesBatch(
+  issues: any[], 
+  cacheManager: CacheManager, 
+  contentManager: ContentManager
+): Promise<void> {
+  const startTime = Date.now();
+  let lastUpdateTime = Date.now();
+  const updateInterval = 100;
+  
+  for (let i = 0; i < issues.length; i++) {
+    const issue = issues[i];
+    
+    // Update progress UI at intervals
+    const now = Date.now();
+    if (now - lastUpdateTime >= updateInterval || i === issues.length - 1) {
+      const percent = Math.round(((i + 1) / issues.length) * 100);
+      const progressBar = createProgressBar(percent);
+      const rate = (i + 1) / ((now - startTime) / 1000);
+      const summary = issue.fields.summary.length > 40 
+        ? issue.fields.summary.substring(0, 40) + '...' 
+        : issue.fields.summary;
+      
+      process.stdout.write(`\r💾 Saving: ${progressBar} ${percent}% | ${i + 1}/${issues.length} | ${rate.toFixed(0)}/sec | ${issue.key}: ${summary}`);
+      lastUpdateTime = now;
+    }
+    
+    try {
+      await cacheManager.saveIssue(issue);
+      await contentManager.saveJiraIssue(issue);
+    } catch (error: any) {
+      if (error.message?.includes('database is locked')) {
+        // Wait and retry
+        await new Promise(resolve => setTimeout(resolve, 200));
+        await cacheManager.saveIssue(issue);
+        await contentManager.saveJiraIssue(issue);
+      } else {
+        throw error;
+      }
+    }
+  }
+  
+  console.log(''); // New line after progress
+}
+
 async function search(query: string, options: { 
   semantic?: boolean, 
   source?: 'jira' | 'confluence',
@@ -419,125 +463,107 @@ async function syncJiraProject(projectKey: string) {
     }
     console.log(''); // New line after progress
 
-    // For incremental sync, also check if we're missing any issues
-    let missingIssues: Issue[] = [];
+    // Save the updated issues we already have
+    if (issues.length > 0) {
+      console.log(`\n💾 Saving ${issues.length} updated issues...\n`);
+      await saveIssuesBatch(issues, cacheManager, contentManager);
+    }
+    
+    // For incremental sync, check and sync missing issues in batches
     if (fetchMode === 'incremental' && existingIssueKeys.length > 0) {
-      console.log(`\n🔎 Checking for any missing issues...\n`);
+      console.log(`\n🔎 Checking for missing issues...\n`);
       
-      // Get total count of issues in Jira
+      // Get total count
       const countResult = await jiraClient.searchIssues(
         `project = ${projectKey}`,
-        { maxResults: 0 }  // Just get the total count
+        { maxResults: 0 }
       );
       
       const totalJiraIssues = countResult.total;
       const totalLocalIssues = existingIssueKeys.length;
       
-      // If counts don't match, do a full scan to find missing issues
       if (totalJiraIssues > totalLocalIssues) {
         console.log(`📊 Remote: ${totalJiraIssues} issues | Local: ${totalLocalIssues} issues`);
-        console.log(`🔍 Scanning for ${totalJiraIssues - totalLocalIssues} missing issues...`);
-        
-        // Fetch all issues with progress indicator
-        const allRemoteIssues = await jiraClient.getAllProjectIssues(
-          projectKey, 
-          (current, total) => {
-            const percent = Math.round((current / total) * 100);
-            const progressBar = createProgressBar(percent);
-            process.stdout.write(`\r🔍 Scanning: ${progressBar} ${percent}% | ${current}/${total} issues`);
-          },
-          `project = ${projectKey} ORDER BY key ASC`
-        );
-        console.log(''); // New line after progress
+        console.log(`🔍 Incrementally syncing ${totalJiraIssues - totalLocalIssues} missing issues...\n`);
         
         const localKeysSet = new Set(existingIssueKeys);
+        let syncedCount = 0;
+        let startAt = 0;
+        const batchSize = 100;
         
-        // Filter to only missing issues
-        missingIssues = allRemoteIssues.filter(issue => !localKeysSet.has(issue.key));
-        
-        if (missingIssues.length > 0) {
-          console.log(`\n📋 Found ${missingIssues.length} missing issues to sync\n`);
-        } else {
-          console.log(`\n✅ No missing issues found\n`);
+        // Fetch and sync in batches
+        while (startAt < totalJiraIssues) {
+          // Fetch next batch
+          const batchResult = await jiraClient.searchIssues(
+            `project = ${projectKey} ORDER BY key ASC`,
+            { startAt, maxResults: batchSize }
+          );
+          
+          // Filter to only missing issues in this batch
+          const missingInBatch = batchResult.issues.filter(issue => !localKeysSet.has(issue.key));
+          
+          if (missingInBatch.length > 0) {
+            // Save this batch immediately
+            console.log(`📦 Processing batch ${Math.floor(startAt / batchSize) + 1}: ${missingInBatch.length} new issues...`);
+            await saveIssuesBatch(missingInBatch, cacheManager, contentManager);
+            syncedCount += missingInBatch.length;
+            
+            // Add to our local set so we don't re-sync
+            missingInBatch.forEach(issue => localKeysSet.add(issue.key));
+          }
+          
+          startAt += batchSize;
+          
+          // Show overall progress
+          const percent = Math.round((startAt / totalJiraIssues) * 100);
+          console.log(`📊 Overall progress: ${percent}% | Synced ${syncedCount} new issues so far\n`);
+          
+          // Stop if we've found all missing issues
+          if (syncedCount >= totalJiraIssues - totalLocalIssues) {
+            break;
+          }
         }
+        
+        console.log(chalk.green(`✅ Incremental sync complete! Added ${syncedCount} missing issues\n`));
+      } else {
+        console.log(chalk.green(`✅ No missing issues found\n`));
       }
       
+      return; // Exit early for incremental sync
     }
     
-    // Combine updated and missing issues
-    const allIssuesToSave = [...issues, ...missingIssues];
-    
-    if (allIssuesToSave.length === 0) {
-      if (fetchMode === 'incremental') {
-        console.log(chalk.green('\n✅ All issues are up to date!'));
-        const existingCount = await cacheManager.listIssuesByProject(projectKey);
-        console.log(chalk.dim(`\n   ${existingCount.length} issues already synced for ${projectKey}\n`));
-      } else {
-        console.log(chalk.yellow('\n⚠️  No issues found in this project.'));
-      }
+    // For full sync, save all issues
+    if (issues.length === 0) {
+      console.log(chalk.yellow('\n⚠️  No issues found in this project.'));
       return;
     }
 
-    console.log(`\n💾 Saving ${allIssuesToSave.length} issues to local database...\n`);
+    console.log(`\n💾 Saving ${issues.length} issues to local database...\n`);
     
     const saveStartTime = Date.now();
     
+    // Save all issues using batch function
+    await saveIssuesBatch(issues, cacheManager, contentManager);
+    
     // Group issues by type for summary
-    const issueTypes: Record<string, number> = {};
     const issueStatuses: Record<string, number> = {};
-    
-    // Save each issue
-    let lastUpdateTime = Date.now();
-    const updateInterval = 100; // Update UI every 100ms
-    
-    for (let i = 0; i < allIssuesToSave.length; i++) {
-      const issue = allIssuesToSave[i];
-      
-      // Count types and statuses
+    issues.forEach(issue => {
       const status = issue.fields.status.name;
       issueStatuses[status] = (issueStatuses[status] || 0) + 1;
-      
-      // Update progress UI at intervals or for last item
-      const now = Date.now();
-      if (now - lastUpdateTime >= updateInterval || i === allIssuesToSave.length - 1) {
-        const percent = Math.round(((i + 1) / allIssuesToSave.length) * 100);
-        const progressBar = createProgressBar(percent);
-        const rate = (i + 1) / ((now - saveStartTime) / 1000);
-        const summary = issue.fields.summary.length > 40 
-          ? issue.fields.summary.substring(0, 40) + '...' 
-          : issue.fields.summary;
-        
-        process.stdout.write(`\r💾 Saving: ${progressBar} ${percent}% | ${i + 1}/${allIssuesToSave.length} | ${rate.toFixed(0)}/sec | ${issue.key}: ${summary}`);
-        lastUpdateTime = now;
-      }
-
-      // Save to cache and content manager
-      await cacheManager.saveIssue(issue);
-      await contentManager.saveJiraIssue(issue);
-    }
+    });
     
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log('\n'); // New lines after progress
     
     // Show summary
-    if (fetchMode === 'incremental') {
-      const updateCount = issues.length;
-      const missingCount = missingIssues.length;
-      if (missingCount > 0) {
-        console.log(chalk.green(`✅ Successfully synced ${updateCount} updated + ${missingCount} missing issues from ${projectKey} in ${totalTime}s\n`));
-      } else {
-        console.log(chalk.green(`✅ Successfully updated ${updateCount} issues from ${projectKey} in ${totalTime}s\n`));
-      }
-    } else {
-      console.log(chalk.green(`✅ Successfully synced ${allIssuesToSave.length} issues from ${projectKey} in ${totalTime}s\n`));
-    }
+    console.log(chalk.green(`✅ Successfully synced ${issues.length} issues from ${projectKey} in ${totalTime}s\n`));
     
     // Get total count for project
     const totalProjectIssues = await cacheManager.listIssuesByProject(projectKey);
     console.log(chalk.dim(`   Total issues in local database: ${totalProjectIssues.length}\n`));
     
     // Show status breakdown only if we have a decent number of issues
-    if (allIssuesToSave.length > 5) {
+    if (issues.length > 5) {
       console.log(chalk.bold('📊 Status breakdown (synced issues):'));
       Object.entries(issueStatuses)
         .sort((a, b) => b[1] - a[1])
