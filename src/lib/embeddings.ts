@@ -127,7 +127,7 @@ export class EmbeddingManager {
     const threshold = 0.3; // Lowered threshold - all-minilm might have lower similarities
     return results
       .filter(r => r.score >= threshold)
-      .slice(0, options?.limit || 10);
+      .slice(0, options?.limit || 20);
   }
 
   async hybridSearch(query: string, options?: {
@@ -135,7 +135,7 @@ export class EmbeddingManager {
     limit?: number;
     includeAll?: boolean;
   }): Promise<SearchResult[]> {
-    const limit = options?.limit || 10;
+    const limit = options?.limit || 20;
     
     // Get both semantic and FTS results
     const [semanticResults, ftsResults] = await Promise.all([
@@ -205,7 +205,7 @@ export class EmbeddingManager {
     }
 
     sql += ' ORDER BY rank LIMIT ?';
-    params.push(options?.limit || 10);
+    params.push(options?.limit || 20);
 
     const stmt = this.db.prepare(sql);
     const rows = stmt.all(...params) as any[];
