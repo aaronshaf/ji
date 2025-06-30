@@ -767,29 +767,49 @@ async function syncConfluence(spaceKey: string) {
   const contentManager = new ContentManager();
 
   try {
+    console.log(`\n🔍 Syncing Confluence space ${chalk.bold.blue(spaceKey)}...\n`);
+    
     // First verify the space exists
-    console.log(`Fetching space information for ${chalk.bold(spaceKey)}...`);
     const space = await confluenceClient.getSpace(spaceKey);
-    console.log(`Found space: ${chalk.bold(space.name)}`);
+    console.log(`📚 Space: ${chalk.bold(space.name)}\n`);
 
     // Fetch all pages with progress
-    console.log('\nSyncing pages...');
+    const startTime = Date.now();
+    let lastProgress = 0;
     const pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
-      process.stdout.write(`\rProgress: ${current}/${total} pages`);
+      if (total === 0) return;
+      
+      const percent = Math.round((current / total) * 100);
+      const progressBar = createProgressBar(percent, 20);
+      const statusLine = `📥 ${progressBar} ${percent}% | ${current}/${total} pages`;
+      process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
+      lastProgress = percent;
     });
+    
+    if (lastProgress < 100 && pages.length > 0) {
+      const progressBar = createProgressBar(100, 20);
+      const statusLine = `📥 ${progressBar} 100% | ${pages.length}/${pages.length} pages`;
+      process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
+    }
     console.log(''); // New line after progress
 
     if (pages.length === 0) {
-      console.log('No pages found in this space.');
+      console.log(chalk.yellow('⚠️  No pages found in this space.'));
       return;
     }
 
-    console.log(`\nProcessing ${pages.length} pages...`);
+    console.log(`\n💾 Saving ${pages.length} pages...\n`);
     
     // Save each page to the content manager
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
-      process.stdout.write(`\rProcessing: ${i + 1}/${pages.length} - ${page.title.substring(0, 50)}${page.title.length > 50 ? '...' : ''}`);
+      
+      // Update progress
+      const percent = Math.round(((i + 1) / pages.length) * 100);
+      const progressBar = createProgressBar(percent, 20);
+      const title = page.title.length > 40 ? page.title.substring(0, 40) + '...' : page.title;
+      const statusLine = `💾 ${progressBar} ${percent}% | ${title}`;
+      process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
 
       // Convert storage format to plain text
       const plainText = confluenceToText(page.body?.storage?.value || '');
@@ -819,16 +839,165 @@ async function syncConfluence(spaceKey: string) {
     }
 
     console.log(''); // New line after progress
-    console.log(chalk.green(`\n✓ Successfully synced ${pages.length} pages from ${space.name}`));
-    console.log(`\nYou can now search these pages with: ${chalk.dim('ji search <query>')}`);
-    console.log(`Or filter by source: ${chalk.dim('ji search --source confluence <query>')}`);
+    
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(chalk.green(`\n✅ Successfully synced ${pages.length} pages from ${space.name} in ${totalTime}s\n`));
+    
+    console.log(`💡 Next steps:`);
+    console.log(`   • Search all content: ${chalk.cyan('ji search <query>')}`);
+    console.log(`   • Search Confluence only: ${chalk.cyan('ji search --source confluence <query>')}`);
+    console.log(`   • View a page: ${chalk.cyan('ji confluence view <page-id>')}\n`);
+    
+    // Generate embeddings in background after sync
+    await generateEmbeddingsInBackground();
 
   } catch (error) {
-    console.error(`\nSync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   } finally {
     configManager.close();
     contentManager.close();
+  }
+}
+
+async function ask(question: string, options: {
+  source?: 'jira' | 'confluence';
+  limit?: number;
+  verbose?: boolean;
+  model?: string;
+}) {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  const embeddingManager = new EmbeddingManager();
+  const ollama = new OllamaClient();
+  
+  try {
+    // Check if Ollama is available
+    if (!await ollama.isAvailable()) {
+      console.error('❌ Ollama is not available. Please start Ollama.');
+      process.exit(1);
+    }
+    
+    console.log('🤔 Searching for relevant context...\n');
+    
+    // Search for relevant context using embeddings
+    const contexts = await embeddingManager.searchSemantic(question, {
+      source: options.source,
+      limit: options.limit || 10,
+      includeAll: true // Include closed issues for historical context
+    });
+    
+    if (contexts.length === 0) {
+      console.log('No relevant context found. Try syncing more data with:');
+      console.log(`  ${chalk.cyan('ji issue sync <project>')}`);
+      console.log(`  ${chalk.cyan('ji confluence sync <space>')}`);
+      return;
+    }
+    
+    // Build context string for the prompt
+    const contextStr = contexts.map((ctx, i) => {
+      const { content } = ctx;
+      let contextBlock = `[${i + 1}] `;
+      
+      if (content.source === 'jira') {
+        contextBlock += `Issue ${content.id.replace('jira:', '')} - ${content.title}\n`;
+        const meta = content.metadata as any;
+        contextBlock += `Status: ${meta?.status || 'Unknown'} | `;
+        contextBlock += `Assignee: ${meta?.assignee || 'Unassigned'} | `;
+        contextBlock += `Priority: ${meta?.priority || 'None'}\n`;
+      } else {
+        contextBlock += `Page: ${content.title}\n`;
+        contextBlock += `Space: ${content.spaceKey || 'Unknown'}\n`;
+      }
+      
+      // Include relevant content snippet
+      const snippet = content.content.substring(0, 500).replace(/\n+/g, ' ').trim();
+      contextBlock += `Content: ${snippet}...\n`;
+      
+      return contextBlock;
+    }).join('\n');
+    
+    // Build the prompt
+    const systemPrompt = `You are a helpful assistant with access to a software team's Jira issues and Confluence documentation. 
+Answer questions based on the provided context. Be concise and specific.
+Reference issue keys (like EVAL-123) when relevant.
+If the context doesn't contain enough information to fully answer the question, say so.`;
+
+    const userPrompt = `Context from synced Jira issues and Confluence pages:
+
+${contextStr}
+
+Question: ${question}
+
+Based on the context above, please provide a helpful answer:`;
+
+    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+    
+    if (options.verbose) {
+      console.log(chalk.dim('Using context from:'));
+      contexts.forEach(ctx => {
+        if (ctx.content.source === 'jira') {
+          console.log(chalk.dim(`  • ${ctx.content.id.replace('jira:', '')}: ${ctx.content.title}`));
+        } else {
+          console.log(chalk.dim(`  • ${ctx.content.title} (${ctx.content.spaceKey})`));
+        }
+      });
+      console.log();
+    }
+    
+    console.log('🤖 Generating answer...\n');
+    
+    // Generate response with streaming
+    const stream = await ollama.generateStream(fullPrompt, { model: options.model });
+    
+    if (!stream) {
+      console.error('Failed to generate response');
+      return;
+    }
+    
+    // Process the stream
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n').filter(line => line.trim());
+      
+      for (const line of lines) {
+        try {
+          const json = JSON.parse(line) as { response?: string; done?: boolean };
+          if (json.response) {
+            process.stdout.write(json.response);
+          }
+        } catch {
+          // Skip invalid JSON lines
+        }
+      }
+    }
+    
+    console.log('\n');
+    
+    if (options.verbose) {
+      console.log(chalk.dim('\n📎 Sources used:'));
+      console.log(chalk.dim(`   ${contexts.filter(c => c.content.source === 'jira').length} Jira issues`));
+      console.log(chalk.dim(`   ${contexts.filter(c => c.content.source === 'confluence').length} Confluence pages`));
+    }
+    
+  } catch (error) {
+    console.error(`\n❌ Failed to answer: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    configManager.close();
+    embeddingManager.close();
   }
 }
 
@@ -913,6 +1082,7 @@ async function main() {
     console.log('  ji confluence view <page-id>  - View Confluence page');
     console.log('  ji search <query>             - Search across all content');
     console.log('  ji search --semantic <query>  - Semantic search only');
+    console.log('  ji ask "<question>"           - Ask AI about your data');
     console.log('  ji embeddings regenerate      - Regenerate all embeddings');
     console.log('\nOptions:');
     console.log('  --help, -h                    - Show this help message');
@@ -922,6 +1092,8 @@ async function main() {
     console.log('  --source [jira|confluence]    - Filter by source');
     console.log('  --limit <n>                   - Limit results (default: 10)');
     console.log('  --all                         - Include closed/resolved issues');
+    console.log('  --verbose, -v                 - Show additional details');
+    console.log('  --model <name>                - LLM model for ask (default: gemma3n)');
   }
   
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
@@ -983,6 +1155,33 @@ async function main() {
     await search(query, options);
   } else if (command === 'embeddings' && args[1] === 'regenerate') {
     await regenerateAllEmbeddings();
+  } else if (command === 'ask' && args[1]) {
+    // Extract the question and options
+    const questionStart = 1;
+    const questionArgs = args.slice(questionStart).filter(arg => !arg.startsWith('--'));
+    const question = questionArgs.join(' ');
+    
+    const sourceIndex = args.indexOf('--source');
+    const limitIndex = args.indexOf('--limit');
+    const modelIndex = args.indexOf('--model');
+    
+    // Properly type the source option
+    let source: 'jira' | 'confluence' | undefined;
+    if (sourceIndex !== -1 && args[sourceIndex + 1]) {
+      const sourceValue = args[sourceIndex + 1];
+      if (sourceValue === 'jira' || sourceValue === 'confluence') {
+        source = sourceValue;
+      }
+    }
+    
+    const options = {
+      source,
+      limit: limitIndex !== -1 ? parseInt(args[limitIndex + 1]) : undefined,
+      verbose: args.includes('--verbose') || args.includes('-v'),
+      model: modelIndex !== -1 ? args[modelIndex + 1] : undefined
+    };
+    
+    await ask(question, options);
   } else {
     console.error(`Unknown command: ${args.join(' ')}`);
     process.exit(1);
