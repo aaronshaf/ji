@@ -1253,8 +1253,49 @@ async function ask(question: string, options: {
       process.exit(1);
     }
     
-    // Default to Confluence-only unless explicitly including Jira or source is set to jira
-    const effectiveSource = options.source || (options.includeJira ? undefined : 'confluence');
+    // Smart source selection based on question analysis
+    spinner.text = 'Analyzing your question...';
+    
+    let effectiveSource = options.source; // Use explicit source if provided
+    
+    if (!options.source) {
+      // Analyze the question to determine best sources
+      try {
+        const analysisPrompt = `Analyze this question and determine the best sources to search.
+
+Question: "${question}"
+
+Consider:
+1. Is this about current status, bugs, or issues? → Search Jira
+2. Is this about how something works, documentation, or teams? → Search Confluence
+3. Is this about troubleshooting or errors? → Search both
+4. Is this asking who owns/works on something? → Search Confluence
+
+Respond with ONLY one of: "jira", "confluence", or "both"`;
+        
+        const sourceAnalysis = await ollama.generate(analysisPrompt, { model: askModel });
+        const suggestedSource = sourceAnalysis.trim().toLowerCase();
+        
+        if (suggestedSource === 'jira') {
+          effectiveSource = 'jira';
+        } else if (suggestedSource === 'confluence') {
+          effectiveSource = 'confluence';
+        } else if (suggestedSource === 'both') {
+          effectiveSource = undefined; // undefined means search both
+        } else {
+          // Default to Confluence if analysis is unclear
+          effectiveSource = 'confluence';
+        }
+        
+        if (options.verbose) {
+          console.log(chalk.dim(`\n📊 Question analysis:`));
+          console.log(chalk.dim(`   Searching: ${effectiveSource || 'both Jira and Confluence'}\n`));
+        }
+      } catch (error) {
+        // If analysis fails, fall back to old behavior
+        effectiveSource = options.includeJira ? undefined : 'confluence';
+      }
+    }
     
     // Round 0: Check memory for relevant facts
     const relevantMemories = memoryManager.getRelevantMemories(question, 2);
@@ -1280,27 +1321,17 @@ async function ask(question: string, options: {
     // Round 1: Broad Discovery - Generate diverse initial queries
     spinner.text = 'Searching for relevant information...';
     
-    // Smart detection for team/project questions
-    const isTeamQuestion = /\b(team|who|owns|ownership|responsible|works on|maintains|eval team)\b/i.test(question);
-    const hasProjectCode = /\b[A-Z]{2,6}\b/.test(question); // Detect project codes like EVAL, CFA, etc.
-    
     const round1Prompt = `Given this question: "${question}"
 
-Generate 3-4 diverse search queries for finding relevant technical documentation. ${isTeamQuestion ? 'This appears to be a team/organization question, so focus on:' : 'Focus on:'}
+Generate 3-4 diverse search queries for finding relevant documentation. Focus on:
 - Direct keywords from the question
-${hasProjectCode ? '- Project codes and team abbreviations (like EVAL-, CFA-, etc.)' : '- Technical terms and abbreviations'}
-${isTeamQuestion ? '- Team structure, ownership, and organization' : '- Related concepts and components'}
-${isTeamQuestion ? '- Leadership and responsibility information' : '- Different ways to phrase the same question'}
-${isTeamQuestion ? '- Decoder ring, org chart, team directory' : ''}
+- Technical terms and related concepts
+- Different ways to phrase the same question
+- Related components or systems
 
 Return only the queries, one per line:`;
 
     let round1Queries = [question];
-    
-    // For team/ownership questions, always include Decoder Ring search
-    if (isTeamQuestion) {
-      round1Queries.push('Decoder Ring 2025');
-    }
     
     try {
       const response = await ollama.generate(round1Prompt, { model: askModel });
@@ -1417,50 +1448,16 @@ Return only the queries, one per line:`;
         if (options.verbose) {
           spinner.stop();
           console.log(chalk.yellow('⚠️  Round 3 query generation failed'));
-          if (isTeamQuestion) {
-            spinner.start('Looking up organizational details...');
-          } else {
-            spinner.start('Preparing answer...');
-          }
+          spinner.start('Preparing answer...');
         }
       }
     }
 
-    // Round 4: Team-specific targeted search (only for team questions)
-    if (isTeamQuestion && allContexts.length > 0) {
-      spinner.text = 'Looking up organizational details...';
-      
-      // Look for project codes and specific team searches
-      const extractedCodes = question.match(/\b[A-Z]{2,6}\b/g) || [];
-      const teamSearches = [
-        ...extractedCodes.map(code => `${code} team`),
-        ...extractedCodes.map(code => `${code} project`),
-        ...extractedCodes.map(code => `${code}-` + " issues"), // Project prefix search
-        `team structure ${extractedCodes.join(' ')}`,
-        'team ownership responsibilities'
-      ].filter(q => q.trim().length > 5); // Filter out short queries
-
-      spinner.text = 'Searching team information...';
-      for (const query of teamSearches.slice(0, 3)) {
-        const results = await meilisearch.search(query, {
-          source: effectiveSource,
-          limit: 3,
-          includeAll: true
-        });
-        
-        for (const result of results) {
-          if (!seenIds.has(result.content.id)) {
-            seenIds.add(result.content.id);
-            allContexts.push({ ...result, searchRound: 4 });
-          }
-        }
-      }
-    }
 
     spinner.text = 'Analyzing information...';
     
     if (options.verbose) {
-      const byRound = [1, 2, 3, 4].map(round => 
+      const byRound = [1, 2, 3].map(round => 
         allContexts.filter(c => c.searchRound === round).length
       );
       spinner.stop();
@@ -1614,11 +1611,6 @@ Return only the queries, one per line:`;
             }
           }
           
-          // Extra score for key terms related to teams/ownership
-          if (chunkLower.includes('gradebook')) score += 20;
-          if (chunkLower.includes('eval')) score += 15;
-          if (chunkLower.includes('evaluate')) score += 15;
-          if (chunkLower.includes('owns') || chunkLower.includes('responsible')) score += 5;
           
           if (score > bestScore) {
             bestScore = score;
@@ -1644,12 +1636,12 @@ Return only the queries, one per line:`;
       // Clean up and structure the snippet
       snippet = snippet.trim();
       
-      // For Decoder Ring specifically, add structure hints
-      if (content.title.toLowerCase().includes('decoder ring')) {
-        // Process table structure for better clarity
-        // Look for table patterns and add clarifying text
-        snippet = snippet.replace(/\|\s*([A-Z][a-z]+(?:\s+[A-Z]?[a-z]+)*)\s*\|\s*([^|]+)\s*\|/g, (match, team, features) => {
-          return `\nTEAM: ${team.trim()}\nOWNS: ${features.trim()}\n`;
+      // Process table structures for better clarity
+      // Look for markdown table patterns and convert to more readable format
+      if (snippet.includes('|')) {
+        snippet = snippet.replace(/\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|/g, (match, col1, col2) => {
+          // Simple two-column table conversion
+          return `\n${col1.trim()}: ${col2.trim()}\n`;
         });
       }
       
@@ -1663,15 +1655,9 @@ Return only the queries, one per line:`;
     // Build the prompt
     const hasJira = limitedContexts.some(c => c.content.source === 'jira');
     
-    // Enhanced prompt for team/ownership questions
+    // Build appropriate system prompt
     let systemPrompt = '';
-    if (isTeamQuestion) {
-      systemPrompt = `You are a helpful assistant with access to a software team's documentation.
-When you see "TEAM: X" followed by "OWNS: Y", this means team X is responsible for feature/project Y.
-For questions about who works on something, look for these TEAM/OWNS patterns.
-Be direct and specific. If you see "TEAM: Evaluate" followed by "OWNS: Gradebook", then the answer is "The Evaluate (EVAL) team works on Gradebook."
-Do not speculate or provide vague answers when the information is clearly stated.`;
-    } else if (hasJira) {
+    if (hasJira) {
       systemPrompt = `You are a helpful assistant with access to a software team's Confluence documentation and Jira issues.
 Focus primarily on the Confluence documentation when answering questions.
 Be thorough but concise. Reference page titles and issue keys when relevant.
