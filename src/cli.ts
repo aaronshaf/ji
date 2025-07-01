@@ -6,7 +6,7 @@ import { CacheManager } from './lib/cache.js';
 import { ContentManager } from './lib/content-manager.js';
 import { EmbeddingManager, type SearchResult } from './lib/embeddings.js';
 import { ConfluenceClient } from './lib/confluence-client.js';
-import { confluenceToText } from './lib/confluence-converter.js';
+import { confluenceToText, confluenceToMarkdown } from './lib/confluence-converter.js';
 import { OllamaClient } from './lib/ollama.js';
 import { MemoryManager } from './lib/memory.js';
 import { SearchAnalytics } from './lib/search-analytics.js';
@@ -990,8 +990,8 @@ async function syncConfluence(spaceKey: string) {
       const statusLine = `💾 ${progressBar} ${percent}% | ${title}`;
       process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
 
-      // Convert storage format to plain text
-      const plainText = confluenceToText(page.body?.storage?.value || '');
+      // Convert storage format to markdown for better LLM understanding
+      const plainText = confluenceToMarkdown(page.body?.storage?.value || '');
       
       // Extract metadata
       const metadata = {
