@@ -2913,38 +2913,52 @@ async function initializeSetup() {
       console.log();
     }
     
-    console.log('Let\'s sync your first project or space to get started.');
+    console.log('Let\'s sync your initial data to get started.');
+    console.log(chalk.dim('(You can sync more projects/spaces later with "ji sync")\n'));
     
-    const syncType = await rl.question('\nWhat would you like to sync?\n  1. Jira project\n  2. Confluence space\n  3. Skip for now\n\nChoice (1/2/3): ');
+    // Prompt for Jira projects
+    const defaultProject = existingProjects.length > 0 ? existingProjects[0].project_key : undefined;
+    const projectKey = await promptWithDefault(
+      'Jira project key to sync (e.g., PROJ) - press Enter to skip',
+      defaultProject
+    );
     
-    if (syncType === '1') {
-      const defaultProject = existingProjects.length > 0 ? existingProjects[0].project_key : undefined;
-      const projectKey = await promptWithDefault(
-        '\nJira project key (e.g., PROJ)',
-        defaultProject
-      );
+    // Prompt for Confluence spaces
+    const defaultSpace = existingSpaces.length > 0 ? existingSpaces[0].space_key : undefined;
+    const spaceKey = await promptWithDefault(
+      'Confluence space key to sync (e.g., ENG) - press Enter to skip',
+      defaultSpace
+    );
+    
+    rl.close();
+    
+    // Sync both if provided
+    if (projectKey || spaceKey) {
+      console.log();
+      
       if (projectKey) {
-        console.log(chalk.dim('\nSyncing project... This may take a few minutes for large projects.'));
-        rl.close();
-        await syncJiraProject(projectKey.toUpperCase());
-      } else {
-        rl.close();
+        console.log(chalk.dim(`Syncing Jira project ${projectKey}...`));
+        try {
+          await syncJiraProject(projectKey.toUpperCase());
+          console.log(chalk.green(`✅ Synced Jira project ${projectKey}\n`));
+        } catch (error) {
+          console.log(chalk.yellow(`⚠️  Failed to sync Jira project: ${error instanceof Error ? error.message : 'Unknown error'}\n`));
+        }
       }
-    } else if (syncType === '2') {
-      const defaultSpace = existingSpaces.length > 0 ? existingSpaces[0].space_key : undefined;
-      const spaceKey = await promptWithDefault(
-        '\nConfluence space key (e.g., ENG)',
-        defaultSpace
-      );
+      
       if (spaceKey) {
-        console.log(chalk.dim('\nSyncing space... This may take a few minutes for large spaces.'));
-        rl.close();
-        await syncConfluence(spaceKey.toUpperCase());
-      } else {
-        rl.close();
+        console.log(chalk.dim(`Syncing Confluence space ${spaceKey}...`));
+        try {
+          await syncConfluence(spaceKey.toUpperCase());
+          console.log(chalk.green(`✅ Synced Confluence space ${spaceKey}`));
+        } catch (error) {
+          console.log(chalk.yellow(`⚠️  Failed to sync Confluence space: ${error instanceof Error ? error.message : 'Unknown error'}`));
+        }
       }
     } else {
-      rl.close();
+      console.log(chalk.dim('\nSkipping initial sync. You can sync data later with:'));
+      console.log(chalk.dim('  ji issue sync <project>'));
+      console.log(chalk.dim('  ji confluence sync <space>'));
     }
 
     // Final message
