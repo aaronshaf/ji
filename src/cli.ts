@@ -683,13 +683,23 @@ async function generateEmbeddingsBatch() {
   try {
     const items = await contentManager.getContentNeedingEmbeddings(100);
     
+    if (items.length === 0) {
+      return;
+    }
+    
+    // Process embeddings sequentially (Ollama is single-threaded)
     let processed = 0;
+    
     for (const item of items) {
       const embedding = await ollama.generateEmbedding(item.content);
       if (embedding) {
         await contentManager.saveEmbedding(item.id, embedding, item.content_hash);
         processed++;
       }
+    }
+    
+    if (processed > 0) {
+      console.log(chalk.dim(`\n✓ Updated ${processed} embeddings in background`));
     }
   } finally {
     contentManager.close();
@@ -739,6 +749,7 @@ async function regenerateAllEmbeddings() {
       
       const batchNum = Math.floor(offset / batchSize) + 1;
       
+      // Process sequentially (Ollama is single-threaded)
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const embedding = await ollama.generateEmbedding(item.content);
