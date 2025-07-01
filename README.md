@@ -51,7 +51,7 @@ After running `ji init`, you'll have a fully configured ji installation ready to
 
 - [Bun](https://bun.sh) (v1.0 or later)
 - [Meilisearch](https://www.meilisearch.com) (for search functionality)
-- [Ollama](https://ollama.com) (for AI Q&A and hybrid search embeddings)
+- [Ollama](https://ollama.com) (optional - for AI Q&A and semantic search)
 
 ### Installing Meilisearch
 
@@ -65,9 +65,11 @@ curl -L https://install.meilisearch.com | sh
 ./meilisearch
 ```
 
-### Installing Ollama
+### Installing Ollama (Optional)
 
-For hybrid search and AI Q&A:
+Ollama is optional but enables AI-powered features like semantic search and Q&A. The app works perfectly fine without it - you'll still have fast keyword search and all other features.
+
+To enable AI features:
 
 ```bash
 # Install Ollama
