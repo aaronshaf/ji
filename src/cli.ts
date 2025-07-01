@@ -1381,6 +1381,63 @@ function createProgressBar(percent: number, width: number = 30): string {
 }
 
 
+async function showRecentConfluencePages(spaceKey: string, limit: number = 10) {
+  const configManager = new ConfigManager();
+  
+  try {
+    const config = await configManager.getConfig();
+    if (!config) {
+      console.error(chalk.red('❌ Not authenticated. Run "ji auth" first.'));
+      return;
+    }
+    
+    const confluenceClient = new ConfluenceClient(config);
+    
+    console.log(chalk.blue(`\n📅 Recently updated pages in ${spaceKey}...\n`));
+    
+    const spinner = ora('Fetching recent pages...').start();
+    
+    try {
+      const recentPages = await confluenceClient.getRecentlyUpdatedPages(spaceKey, limit);
+      spinner.stop();
+      
+      if (recentPages.length === 0) {
+        console.log(chalk.yellow('No pages found.'));
+        return;
+      }
+      
+      console.log(chalk.bold(`Most recent ${recentPages.length} pages:\n`));
+      
+      recentPages.forEach((page, index) => {
+        const date = new Date(page.version.when);
+        const formattedDate = date.toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric',
+          year: 'numeric'
+        });
+        const formattedTime = date.toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+        
+        console.log(`${chalk.dim(`${index + 1}.`)} ${chalk.bold(page.title)}`);
+        console.log(`   ${chalk.dim('Updated:')} ${formattedDate} at ${formattedTime}`);
+        console.log(`   ${chalk.dim('By:')} ${page.version.by.displayName}`);
+        console.log(`   ${chalk.dim('Version:')} ${page.version.number}`);
+        console.log(`   ${chalk.dim('URL:')} ${chalk.cyan(page.webUrl)}`);
+        console.log();
+      });
+      
+    } catch (error) {
+      spinner.fail('Failed to fetch recent pages');
+      console.error(chalk.red(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`));
+    }
+    
+  } finally {
+    configManager.close();
+  }
+}
+
 async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {}) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
@@ -3014,6 +3071,7 @@ async function main() {
     console.log('  ji take <key>                 - Assign issue to yourself');
     console.log('  ji confluence sync <space>    - Sync Confluence space (add --background for async)');
     console.log('  ji confluence view <page-id>  - View Confluence page');
+    console.log('  ji confluence recent <space>  - Show recently updated pages');
     console.log('  ji search <query>             - Hybrid semantic + keyword search');
     console.log('  ji ask "<question>"           - Search and ask about your docs');
     console.log('  ji remember "<fact>"          - Add fact to memory manually');
@@ -3136,6 +3194,11 @@ async function main() {
       json: args.includes('--json') || args.includes('-j')
     };
     await viewConfluencePage(pageId, options);
+  } else if (command === 'confluence' && args[1] === 'recent' && args[2]) {
+    const spaceKey = args[2];
+    const limitIndex = args.indexOf('--limit');
+    const limit = limitIndex !== -1 && args[limitIndex + 1] ? parseInt(args[limitIndex + 1]) : 10;
+    await showRecentConfluencePages(spaceKey, limit);
   } else if (command === 'search' && args[1]) {
     const query = args.slice(1).filter(arg => !arg.startsWith('--')).join(' ');
     
