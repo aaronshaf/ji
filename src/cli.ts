@@ -598,7 +598,7 @@ async function search(query: string, options: {
     });
     searchAnalytics.close();
 
-    for (const result of limitedResults) {
+    limitedResults.forEach((result, index) => {
       const { content, score, team } = result;
       const scorePercent = Math.round(score * 100);
       const scoreColor = getScoreColor(scorePercent);
@@ -678,8 +678,12 @@ async function search(query: string, options: {
       }
       
       console.log(chalk.dim(`  ${team} • `) + timeColor(timeAgo) + chalk.cyan(` → ${fullUrl}`));
-      console.log('');
-    }
+      
+      // Only add blank line between results, not after the last one
+      if (index < limitedResults.length - 1) {
+        console.log('');
+      }
+    });
   } catch (error) {
     console.error(`Search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
