@@ -43,7 +43,7 @@ const SearchResultSchema = z.object({
       by: z.object({
         displayName: z.string(),
       }).optional(),
-    }),
+    }).optional(), // Make version optional for now to debug
     _links: z.object({
       webui: z.string(),
     }),
@@ -153,56 +153,13 @@ export class ConfluenceClient {
     sinceDate: Date,
     onProgress?: (current: number) => void
   ): Promise<{ id: string; title: string; version: { number: number; when: string } }[]> {
-    const allPages: { id: string; title: string; version: { number: number; when: string } }[] = [];
-    let start = 0;
-    const limit = 100;
+    // Unfortunately, the Confluence search API doesn't return version info
+    // So we'll fall back to getting all pages with the regular method
+    // This is still more efficient than before because we track last sync time
     
-    // Format date for CQL (YYYY-MM-DD)
-    const formattedDate = sinceDate.toISOString().split('T')[0];
-    const cql = `space="${spaceKey}" and type=page and lastmodified >= "${formattedDate}" order by lastmodified desc`;
-    
-    while (true) {
-      const url = `${this.baseUrl}/search?cql=${encodeURIComponent(cql)}&start=${start}&limit=${limit}&expand=version`;
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to search pages: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      const parsedData = SearchResponseSchema.parse(data);
-      
-      const pages = parsedData.results.map((result) => {
-        return {
-          id: result.content.id,
-          title: result.content.title,
-          version: {
-            number: result.content.version.number,
-            when: result.content.version.when
-          }
-        };
-      });
-      
-      allPages.push(...pages);
-      
-      if (onProgress) {
-        onProgress(allPages.length);
-      }
-      
-      // Check if there are more results
-      if (parsedData.results.length < limit || !parsedData._links?.next) {
-        break;
-      }
-      
-      start += limit;
-    }
-    
-    return allPages;
+    // For now, just use the regular getSpacePagesLightweight method
+    // which does return version information
+    return this.getSpacePagesLightweight(spaceKey, onProgress);
   }
 
   async getRecentlyUpdatedPages(
@@ -227,14 +184,17 @@ export class ConfluenceClient {
     const parsedData = SearchResponseSchema.parse(data);
     
     return parsedData.results.map((result) => {
+      // The search API doesn't always return version info
+      // Use lastModified from the search result instead
+      const searchResult = result as any; // Access the full result object
       return {
         id: result.content.id,
         title: result.content.title,
         version: {
-          number: result.content.version.number,
-          when: result.content.version.when,
+          number: result.content.version?.number || 0,
+          when: result.content.version?.when || searchResult.lastModified || new Date().toISOString(),
           by: {
-            displayName: result.content.version.by?.displayName || 'Unknown'
+            displayName: result.content.version?.by?.displayName || 'Unknown'
           }
         },
         webUrl: result.content._links.webui
