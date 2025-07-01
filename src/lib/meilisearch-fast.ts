@@ -177,6 +177,11 @@ export class MeilisearchFast {
         semanticRatio: 0.5 // 50% semantic, 50% keyword
       }
     };
+    
+    // Debug: Log to verify hybrid search is being used
+    if (process.env.DEBUG) {
+      console.log('Hybrid search params:', JSON.stringify(baseSearchParams, null, 2));
+    }
 
     // Handle search based on source
     let results: any[] = [];
