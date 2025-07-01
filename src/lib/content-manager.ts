@@ -2,8 +2,8 @@ import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { Issue } from './jira-client.js';
-import { OllamaClient } from './ollama.js';
 import { MeilisearchAdapter } from './meilisearch-adapter.js';
+import { OllamaClient } from './ollama.js';
 
 export interface SearchableContent {
   id: string;
@@ -18,6 +18,13 @@ export interface SearchableContent {
   createdAt?: number;
   updatedAt?: number;
   syncedAt: number;
+}
+
+export interface SearchResult {
+  content: SearchableContent;
+  score: number;
+  snippet: string;
+  chunkIndex?: number;
 }
 
 export class ContentManager {
@@ -256,43 +263,7 @@ export class ContentManager {
     return text.trim();
   }
 
-  async getContentNeedingEmbeddings(limit: number = 100): Promise<Array<{id: string, content: string, content_hash: string}>> {
-    // Get content where embedding is missing or outdated
-    const stmt = this.db.prepare(`
-      SELECT sc.id, sc.content, sc.content_hash
-      FROM searchable_content sc
-      LEFT JOIN content_embeddings ce ON sc.id = ce.content_id
-      WHERE ce.id IS NULL 
-         OR ce.embedding_hash != sc.content_hash
-         OR ce.embedding_hash IS NULL
-      LIMIT ?
-    `);
-    
-    return stmt.all(limit) as Array<{id: string, content: string, content_hash: string}>;
-  }
 
-  async saveEmbedding(contentId: string, embedding: Float32Array, contentHash: string): Promise<void> {
-    // First delete any existing embeddings for this content
-    const deleteStmt = this.db.prepare('DELETE FROM content_embeddings WHERE content_id = ?');
-    deleteStmt.run(contentId);
-    
-    // Then insert the new embedding
-    const stmt = this.db.prepare(`
-      INSERT INTO content_embeddings (
-        content_id, embedding, chunk_index, model, 
-        embedding_hash, generated_at, created_at
-      ) VALUES (?, ?, 0, 'mxbai-embed-large:latest', ?, ?, ?)
-    `);
-    
-    const now = Date.now();
-    stmt.run(
-      contentId,
-      OllamaClient.embeddingToBuffer(embedding),
-      contentHash,
-      now,
-      now
-    );
-  }
 
   close() {
     this.db.close();

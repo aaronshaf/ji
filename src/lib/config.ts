@@ -15,7 +15,7 @@ export type Config = z.infer<typeof ConfigSchema>;
 // Settings that can be configured via CLI
 export interface Settings {
   askModel?: string;
-  embeddingModel?: string;
+  embeddingModel?: string; // Model for generating embeddings for hybrid search
   analysisModel?: string;  // Smaller, faster model for source selection and query generation
 }
 
@@ -92,19 +92,6 @@ export class ConfigManager {
       )
     `);
     
-    // Create embeddings table
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS content_embeddings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        content_id TEXT NOT NULL,
-        embedding BLOB,
-        chunk_index INTEGER DEFAULT 0,
-        chunk_text TEXT,
-        model TEXT DEFAULT 'all-MiniLM-L6-v2',
-        created_at INTEGER NOT NULL,
-        FOREIGN KEY (content_id) REFERENCES searchable_content(id) ON DELETE CASCADE
-      )
-    `);
     
     // Create FTS5 virtual table for full-text search
     this.db.run(`
@@ -140,7 +127,6 @@ export class ConfigManager {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_content_type ON searchable_content(source, type)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_content_space ON searchable_content(space_key)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_content_project ON searchable_content(project_key)`);
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_embeddings_content ON content_embeddings(content_id, chunk_index)`);
   }
 
   async getConfig(): Promise<Config | null> {
@@ -197,14 +183,6 @@ export class ConfigManager {
         this.db.run(`ALTER TABLE searchable_content ADD COLUMN content_hash TEXT`);
       }
       
-      // Add embedding tracking columns to embeddings table
-      const embeddingTableInfo = this.db.prepare(`PRAGMA table_info(content_embeddings)`).all() as any[];
-      const hasEmbeddingHash = embeddingTableInfo.some((col: any) => col.name === 'embedding_hash');
-      
-      if (!hasEmbeddingHash) {
-        this.db.run(`ALTER TABLE content_embeddings ADD COLUMN embedding_hash TEXT`);
-        this.db.run(`ALTER TABLE content_embeddings ADD COLUMN generated_at INTEGER`);
-      }
       
       // Check if reporter_email has NOT NULL constraint
       const tableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as any[];

@@ -6,25 +6,17 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 
 ## Features
 
-- 🚀 Built with Bun for lightning-fast performance
-- 💾 Local SQLite caching for offline access and instant queries
-- 🔄 Automatic background refresh keeps data up-to-date
-- 🔐 Secure API key storage (separate from database)
-- 📝 Clean, intuitive command structure
-- ⚡ Instant search powered by Meilisearch (<50ms latency)
-- 🔍 Typo-tolerant search with smart ranking
-- 🧠 Semantic search with local vector embeddings (via Ollama)
-- 🤖 AI-powered Q&A to answer questions from your knowledge base
-- 💭 Memory system for progressive learning and fact correction
-- 📚 Confluence integration with space syncing
-- 🎨 Subtle color highlighting with chalk
-- 🔗 Clickable links in search results
+- ⚡ **Lightning fast** - Built with Bun, local SQLite caching, <50ms search
+- 🧠 **Smart search** - Hybrid semantic + keyword search with typo tolerance
+- 🤖 **AI-powered** - Ask questions about your knowledge base with memory
+- 📚 **Complete integration** - Both Jira issues and Confluence pages
+- 🔄 **Always fresh** - Automatic background sync keeps data up-to-date
 
 ## Prerequisites
 
 - [Bun](https://bun.sh) (v1.0 or later)
 - [Meilisearch](https://www.meilisearch.com) (for search functionality)
-- [Ollama](https://ollama.com) (optional, for semantic search and AI Q&A)
+- [Ollama](https://ollama.com) (for AI Q&A and hybrid search embeddings)
 
 ### Installing Meilisearch
 
@@ -36,6 +28,23 @@ brew services start meilisearch
 # Linux/WSL
 curl -L https://install.meilisearch.com | sh
 ./meilisearch
+```
+
+### Installing Ollama
+
+For hybrid search and AI Q&A:
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull the default embedding model for hybrid search
+ollama pull mxbai-embed-large
+
+# Pull the language model for AI Q&A
+ollama pull gemma3n
+
+# Ollama runs as a service automatically
 ```
 
 ## Installation
@@ -110,7 +119,7 @@ This will:
 - Fetch all issues from the specified project
 - Store them in the local SQLite database for searching
 - Show progress during the sync
-- Generate vector embeddings in background (if Ollama is available)
+- Index content in Meilisearch for fast searching
 
 #### Show your open issues
 
@@ -188,26 +197,12 @@ ji search "bug" --limit 5
 
 Search features:
 - ⚡ Instant results (<50ms)
+- 🧠 Hybrid semantic + keyword search (understands meaning and context)
 - 🎯 Typo tolerance (finds "authentcation" → "authentication")
 - 📊 Smart ranking based on relevance
 - 🔍 Highlighted search terms in results
 - 📋 Shows status, priority, and reporter for Jira issues
 
-#### Semantic Search Setup
-
-For semantic search to work, you need Ollama:
-
-```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull the embedding model
-ollama pull mxbai-embed-large
-
-# Ollama runs as a service automatically
-```
-
-After syncing issues, embeddings are generated in the background. Semantic search will find conceptually related content even if exact keywords don't match.
 
 ### AI Q&A
 
@@ -230,7 +225,7 @@ Options:
 - `--model <name>` - Use a different Ollama model (default: gemma3n)
 - `--include-old` - Include documentation not modified in 3+ years
 
-The AI uses hybrid search (both semantic and keyword matching) to find the most relevant documentation and provides concise, contextual answers. It also learns from previous Q&A sessions, storing key facts for improved future responses.
+The AI uses the same hybrid search technology to find the most relevant documentation and provides concise, contextual answers. It also learns from previous Q&A sessions, storing key facts for improved future responses.
 
 #### AI Setup
 
@@ -299,12 +294,11 @@ ji models
 This interactive command lets you:
 - Auto-detect available Ollama models
 - Select which model to use for Q&A (ask command)
-- Select which model to use for embeddings (semantic search)
+- Select which model to use for embeddings (hybrid search)
+- Select which model to use for analysis (query generation & source selection)
 - Automatically pull models if they're not installed
 
-### Search & Embeddings Management
-
-#### Index Management
+### Index Management
 
 Index all documents to Meilisearch for fast search:
 ```bash
@@ -312,12 +306,6 @@ ji index              # Index all documents
 ji index --clean      # Clear indexes and re-index
 ```
 
-#### Embeddings Management
-
-Regenerate all embeddings (useful after changing models):
-```bash
-ji embeddings regenerate
-```
 
 ## Development
 
@@ -344,9 +332,8 @@ bun run lint
 - **Storage**: Bun's built-in SQLite database stored in `~/.ji/data.db`
 - **Authentication**: Credentials stored separately in `~/.ji/auth.json` (600 permissions)
 - **Search**: Meilisearch for instant, typo-tolerant search with smart ranking
-- **Semantic Search**: Local vector embeddings via Ollama for concept-based search
 - **AI**: Local LLM integration via Ollama for Q&A functionality
-- **Sync**: Background processes for data refresh and embedding generation
+- **Sync**: Background processes for data refresh
 - **Security**: API credentials stored securely, never committed to git
 - **Zero Node.js dependencies**: Runs entirely on Bun
 

@@ -4,7 +4,7 @@ import { ConfigManager } from './lib/config.js';
 import { JiraClient } from './lib/jira-client.js';
 import { CacheManager } from './lib/cache.js';
 import { ContentManager } from './lib/content-manager.js';
-import { EmbeddingManager, type SearchResult } from './lib/embeddings.js';
+import { type SearchResult } from './lib/content-manager.js';
 import { ConfluenceClient } from './lib/confluence-client.js';
 import { confluenceToText, confluenceToMarkdown } from './lib/confluence-converter.js';
 import { OllamaClient } from './lib/ollama.js';
@@ -109,6 +109,7 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
       console.log(JSON.stringify(issue, null, 2));
     } else {
       console.log(`\n${chalk.bold(issue.key)}: ${issue.fields.summary}`);
+      console.log(chalk.cyan(`${config.jiraUrl}/browse/${issue.key}`));
       console.log(`\n${chalk.dim('Status:')} ${issue.fields.status.name}`);
       if (issue.fields.priority) {
         console.log(`${chalk.dim('Priority:')} ${issue.fields.priority.name}`);
@@ -546,7 +547,6 @@ function getTeamFromMetadata(content: any): string {
 }
 
 async function search(query: string, options: { 
-  semantic?: boolean, 
   source?: 'jira' | 'confluence',
   limit?: number,
   includeAll?: boolean
@@ -563,10 +563,10 @@ async function search(query: string, options: {
     // Use fast singleton Meilisearch instance
     const meilisearch = MeilisearchFast.getInstance();
     
-    // Use Meilisearch for all searches now
-    const results = await meilisearch.search(query, {
+    // Use hybrid search by default for better results
+    const results = await meilisearch.hybridSearch(query, {
       source: options.source,
-      limit: options.limit || 5,  // Default to 5 results for cleaner output
+      limit: options.limit || 5,
       includeAll: options.includeAll
     });
 
@@ -635,14 +635,50 @@ async function search(query: string, options: {
         console.log(chalk.dim(`  ${cleanSnippet}`));
       }
       
-      // Show metadata for Jira issues
+      // Show metadata for Jira issues with visual indicators
       if (content.source === 'jira' && content.metadata) {
         const meta = content.metadata as any;
         const status = meta.status || 'Unknown';
         const priority = meta.priority || 'Unassigned';
-        const reporter = meta.reporter || 'Unknown';
+        const assignee = meta.assignee || 'Unassigned';
         
-        console.log(chalk.dim(`  Status: ${status} • Priority: ${priority} • Reporter: ${reporter}`));
+        // Status with visual indicators
+        const getStatusIndicator = (status: string): string => {
+          const statusLower = status.toLowerCase();
+          if (['done', 'closed', 'resolved'].includes(statusLower)) {
+            return chalk.green('✓'); // Green checkmark for completed
+          } else if (['in progress', 'in review', 'testing'].includes(statusLower)) {
+            return chalk.yellow('●'); // Yellow dot for in progress
+          } else if (['open', 'to do', 'new', 'reopened'].includes(statusLower)) {
+            return chalk.red('○'); // Red circle for open
+          } else if (['cancelled', 'rejected', "won't do"].includes(statusLower)) {
+            return chalk.gray('✗'); // Gray X for cancelled
+          } else {
+            return chalk.blue('?'); // Blue question mark for unknown
+          }
+        };
+        
+        // Priority with visual indicators
+        const getPriorityColor = (priority: string): any => {
+          const priorityLower = priority.toLowerCase();
+          if (['highest', 'critical', 'blocker'].includes(priorityLower)) {
+            return chalk.red.bold;
+          } else if (['high', 'major'].includes(priorityLower)) {
+            return chalk.red;
+          } else if (['medium', 'normal'].includes(priorityLower)) {
+            return chalk.yellow;
+          } else if (['low', 'minor', 'trivial'].includes(priorityLower)) {
+            return chalk.green;
+          } else {
+            return chalk.dim;
+          }
+        };
+        
+        const statusIndicator = getStatusIndicator(status);
+        const priorityDisplay = getPriorityColor(priority)(priority);
+        const statusDisplay = chalk.white(status);
+        
+        console.log(`  ${statusIndicator} ${statusDisplay} • ${priorityDisplay} • ${chalk.dim(assignee)}`);
       }
       
       // Minimal metadata line with clickable URL
@@ -692,165 +728,7 @@ async function search(query: string, options: {
   }
 }
 
-async function embedContent(contentId: string) {
-  const contentManager = new ContentManager();
-  const embeddingManager = new EmbeddingManager();
-  
-  try {
-    // Get content from database
-    const results = await contentManager.searchContent(`id:${contentId}`, { limit: 1 });
-    if (results.length === 0) {
-      console.error(`Content not found: ${contentId}`);
-      return;
-    }
 
-    const content = results[0];
-    await embeddingManager.embedContent(content);
-  } catch (error) {
-    // Silent fail for background process
-  } finally {
-    contentManager.close();
-    embeddingManager.close();
-  }
-}
-
-async function generateEmbeddingsInBackground() {
-  const contentManager = new ContentManager();
-  const ollama = new OllamaClient();
-  
-  try {
-    // Check if Ollama is available
-    if (!await ollama.isAvailable()) {
-      return;
-    }
-    
-    // Get content needing embeddings
-    const items = await contentManager.getContentNeedingEmbeddings(50);
-    
-    if (items.length === 0) {
-      return;
-    }
-    
-    console.log(`\n🧠 Updating embeddings in background...`);
-    
-    // Spawn a background process to generate embeddings
-    const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-embed-batch'], {
-      stdio: ['ignore', 'ignore', 'ignore'],
-      env: { ...process.env }
-    });
-    
-    proc.unref();
-  } finally {
-    contentManager.close();
-  }
-}
-
-async function generateEmbeddingsBatch() {
-  const contentManager = new ContentManager();
-  const ollama = new OllamaClient();
-  
-  try {
-    const items = await contentManager.getContentNeedingEmbeddings(100);
-    
-    if (items.length === 0) {
-      return;
-    }
-    
-    // Process embeddings sequentially (Ollama is single-threaded)
-    let processed = 0;
-    
-    for (const item of items) {
-      const embedding = await ollama.generateEmbedding(item.content);
-      if (embedding) {
-        await contentManager.saveEmbedding(item.id, embedding, item.content_hash);
-        processed++;
-      }
-    }
-    
-    if (processed > 0) {
-      console.log(chalk.dim(`\n✓ Updated ${processed} embeddings in background`));
-    }
-  } finally {
-    contentManager.close();
-  }
-}
-
-async function regenerateAllEmbeddings() {
-  const configManager = new ConfigManager();
-  const config = await configManager.getConfig();
-  
-  if (!config) {
-    console.error('No configuration found. Please run "ji auth" first.');
-    process.exit(1);
-  }
-
-  const contentManager = new ContentManager();
-  const ollama = new OllamaClient();
-  
-  try {
-    // Check if Ollama is available
-    if (!await ollama.isAvailable()) {
-      console.error('❌ Ollama is not available. Please start Ollama and install mxbai-embed-large.');
-      process.exit(1);
-    }
-    
-    // Get total count
-    const totalCount = contentManager.db.prepare('SELECT COUNT(*) as count FROM searchable_content').get() as {count: number};
-    console.log(`\n🧠 Regenerating embeddings for ${totalCount.count} items...\n`);
-    
-    // Clear existing embeddings
-    contentManager.db.run('DELETE FROM content_embeddings');
-    console.log('🧹 Cleared old embeddings\n');
-    
-    // Process in batches
-    let offset = 0;
-    const batchSize = 50;
-    let totalProcessed = 0;
-    
-    while (offset < totalCount.count) {
-      const items = contentManager.db.prepare(`
-        SELECT id, content, content_hash 
-        FROM searchable_content 
-        LIMIT ? OFFSET ?
-      `).all(batchSize, offset) as Array<{id: string, content: string, content_hash: string}>;
-      
-      if (items.length === 0) break;
-      
-      const batchNum = Math.floor(offset / batchSize) + 1;
-      
-      // Process sequentially (Ollama is single-threaded)
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const embedding = await ollama.generateEmbedding(item.content);
-        
-        if (embedding) {
-          await contentManager.saveEmbedding(item.id, embedding, item.content_hash || '');
-          totalProcessed++;
-        }
-        
-        // Update progress
-        const percent = Math.round(((offset + i + 1) / totalCount.count) * 100);
-        const progressBar = createProgressBar(percent, 20);
-        const statusLine = `🧠 ${progressBar} ${percent}% | ${offset + i + 1}/${totalCount.count} | Batch ${batchNum}`;
-        process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
-      }
-      
-      offset += batchSize;
-    }
-    
-    console.log(); // New line after progress
-    console.log(chalk.green(`\n✅ Successfully generated ${totalProcessed} embeddings!\n`));
-    console.log(`💡 You can now use semantic search:`);
-    console.log(`   ${chalk.cyan('ji search --semantic "your query"')}\n`);
-    
-  } catch (error) {
-    console.error(`\n❌ Failed to generate embeddings: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
-    configManager.close();
-    contentManager.close();
-  }
-}
 
 async function syncJiraProject(projectKey: string, options: { fresh?: boolean } = {}) {
   const configManager = new ConfigManager();
@@ -992,9 +870,6 @@ async function syncJiraProject(projectKey: string, options: { fresh?: boolean } 
     console.log(`💡 Next steps:`);
     console.log(`   • Search all issues: ${chalk.cyan('ji search <query>')}`);
     console.log(`   • View an issue: ${chalk.cyan('ji issue view <issue-key>')}\n`);
-    
-    // Generate embeddings in background after sync
-    await generateEmbeddingsInBackground();
 
   } catch (error) {
     console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1106,9 +981,6 @@ async function syncConfluence(spaceKey: string) {
     console.log(`   • Search all content: ${chalk.cyan('ji search <query>')}`);
     console.log(`   • Search Confluence only: ${chalk.cyan('ji search --source confluence <query>')}`);
     console.log(`   • View a page: ${chalk.cyan('ji confluence view <page-id>')}\n`);
-    
-    // Generate embeddings in background after sync
-    await generateEmbeddingsInBackground();
 
   } catch (error) {
     console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -2032,7 +1904,7 @@ async function configureModels() {
     }
     
     // Configure embedding model
-    console.log(chalk.bold('\n🔍 Embedding Model (for semantic search)'));
+    console.log(chalk.bold('\n🧠 Embedding Model (for hybrid search)'));
     if (currentSettings.embeddingModel) {
       console.log(chalk.dim(`Current: ${currentSettings.embeddingModel}`));
     }
@@ -2142,17 +2014,6 @@ async function main() {
     process.exit(0);
   }
 
-  // Handle internal embed command (hidden from users)
-  if (args[0] === 'internal-embed' && args[1]) {
-    await embedContent(args[1]);
-    process.exit(0);
-  }
-  
-  // Handle internal batch embedding command (hidden from users)
-  if (args[0] === 'internal-embed-batch') {
-    await generateEmbeddingsBatch();
-    process.exit(0);
-  }
   
   function showHelp() {
     console.log('ji - Jira & Confluence CLI\n');
@@ -2164,8 +2025,7 @@ async function main() {
     console.log('  ji take <key>                 - Assign issue to yourself');
     console.log('  ji confluence sync <space>    - Sync Confluence space');
     console.log('  ji confluence view <page-id>  - View Confluence page');
-    console.log('  ji search <query>             - Search across all content');
-    console.log('  ji search --semantic <query>  - Semantic search only');
+    console.log('  ji search <query>             - Hybrid semantic + keyword search');
     console.log('  ji ask "<question>"           - Ask AI about Confluence docs');
     console.log('  ji remember "<fact>"          - Add fact to memory manually');
     console.log('  ji memories list              - List stored memories');
@@ -2175,7 +2035,6 @@ async function main() {
     console.log('  ji memories clear --all       - Clear ALL memories (dangerous)');
     console.log('  ji memories stats             - Show memory statistics');
     console.log('  ji models                     - Configure Ollama models');
-    console.log('  ji embeddings regenerate      - Regenerate all embeddings');
     console.log('  ji index                      - Index all documents to Meilisearch');
     console.log('\nOptions:');
     console.log('  --help, -h                    - Show this help message');
@@ -2232,8 +2091,7 @@ async function main() {
     };
     await viewConfluencePage(pageId, options);
   } else if (command === 'search' && args[1]) {
-    const queryStart = args.includes('--semantic') ? 2 : 1;
-    const query = args.slice(queryStart).filter(arg => !arg.startsWith('--')).join(' ');
+    const query = args.slice(1).filter(arg => !arg.startsWith('--')).join(' ');
     
     const sourceIndex = args.indexOf('--source');
     const limitIndex = args.indexOf('--limit');
@@ -2248,15 +2106,12 @@ async function main() {
     }
     
     const options = {
-      semantic: args.includes('--semantic'),
       source,
       limit: limitIndex !== -1 ? parseInt(args[limitIndex + 1]) : undefined,
       includeAll: args.includes('--all')
     };
     
     await search(query, options);
-  } else if (command === 'embeddings' && args[1] === 'regenerate') {
-    await regenerateAllEmbeddings();
   } else if (command === 'index') {
     const spinner = ora('Checking Meilisearch connection...').start();
     
