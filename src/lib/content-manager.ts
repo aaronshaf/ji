@@ -346,6 +346,9 @@ export class ContentManager {
     // The format is usually an array of sprint strings
     const fields = issue.fields as any;
     
+    // Note: Sprint detection now uses Jira Agile API directly instead of custom fields
+    // since custom field IDs vary between Jira instances
+    
     // Common sprint field names
     const sprintFieldNames = [
       'customfield_10020', // Most common
