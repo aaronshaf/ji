@@ -1479,47 +1479,63 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       console.log(`\n💾 Syncing ${pagesToSync.length} pages...\n`);
     }
     
-    // Save each page to the content manager
-    for (let i = 0; i < pagesToSync.length; i++) {
-      const pageId = pagesToSync[i];
+    // Process pages in batches for better performance
+    const BATCH_SIZE = 50;
+    const batches = [];
+    
+    for (let i = 0; i < pagesToSync.length; i += BATCH_SIZE) {
+      batches.push(pagesToSync.slice(i, i + BATCH_SIZE));
+    }
+    
+    let processedCount = 0;
+    
+    // Process each batch
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
       
-      // Fetch full page content if needed
-      const page = options.clean ? 
-        pages!.find(p => p.id === pageId)! : 
-        await confluenceClient.getPage(pageId);
-      
-      // Update progress
-      const percent = Math.round(((i + 1) / pagesToSync.length) * 100);
+      // Update progress for batch
+      const percent = Math.round(((batchIndex + 1) / batches.length) * 100);
       const progressBar = createProgressBar(percent, 20);
-      const title = page.title.length > 40 ? page.title.substring(0, 40) + '...' : page.title;
-      const statusLine = `💾 ${progressBar} ${percent}% | ${title}`;
+      const statusLine = `💾 ${progressBar} ${percent}% | Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} pages)`;
       process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
-
-      // Convert storage format to markdown for better LLM understanding
-      const plainText = confluenceToMarkdown(page.body?.storage?.value || '');
       
-      // Extract metadata
-      const metadata = {
-        spaceKey: page.space.key,
-        spaceName: page.space.name,
-        version: page.version.number,
-        lastModified: page.version.when,
-        webUrl: page._links.webui
-      };
+      // Process all pages in this batch in parallel
+      const batchPromises = batch.map(async (pageId) => {
+        // Fetch full page content if needed
+        const page = options.clean ? 
+          pages!.find(p => p.id === pageId)! : 
+          await confluenceClient.getPage(pageId);
+        
+        // Convert storage format to markdown for better LLM understanding
+        const plainText = confluenceToMarkdown(page.body?.storage?.value || '');
+        
+        // Extract metadata
+        const metadata = {
+          spaceKey: page.space.key,
+          spaceName: page.space.name,
+          version: page.version.number,
+          lastModified: page.version.when,
+          webUrl: page._links.webui
+        };
 
-      // Save to content manager
-      await contentManager.saveContent({
-        id: `confluence:${page.id}`,
-        source: 'confluence',
-        type: 'page',
-        title: page.title,
-        content: plainText,
-        url: page._links.webui,
-        spaceKey: page.space.key,
-        metadata,
-        updatedAt: new Date(page.version.when).getTime(),
-        syncedAt: Date.now()
+        // Save to content manager
+        await contentManager.saveContent({
+          id: `confluence:${page.id}`,
+          source: 'confluence',
+          type: 'page',
+          title: page.title,
+          content: plainText,
+          url: page._links.webui,
+          spaceKey: page.space.key,
+          metadata,
+          updatedAt: new Date(page.version.when).getTime(),
+          syncedAt: Date.now()
+        });
       });
+      
+      // Wait for all pages in this batch to complete
+      await Promise.all(batchPromises);
+      processedCount += batch.length;
     }
 
     console.log(''); // New line after progress
@@ -2964,7 +2980,7 @@ async function main() {
     console.log('  ji issue view <key>           - View an issue');
     console.log('  ji issue sync <project>       - Sync all issues from a project');
     console.log('  ji take <key>                 - Assign issue to yourself');
-    console.log('  ji confluence sync <space>    - Sync Confluence space');
+    console.log('  ji confluence sync <space>    - Sync Confluence space (add --background for async)');
     console.log('  ji confluence view <page-id>  - View Confluence page');
     console.log('  ji search <query>             - Hybrid semantic + keyword search');
     console.log('  ji ask "<question>"           - Search and ask about your docs');
@@ -3018,6 +3034,13 @@ async function main() {
     await auth();
   } else if (command === 'mine') {
     await showMyIssues();
+  } else if (command === 'confluence-sync-internal' && args[1]) {
+    // Internal command for background sync
+    const spaceKey = args[1];
+    const options = {
+      clean: args.includes('--clean')
+    };
+    await syncConfluence(spaceKey, options);
   } else if (command === 'models') {
     const ollama = new OllamaClient();
     if (!await ollama.isAvailable()) {
@@ -3048,9 +3071,33 @@ async function main() {
   } else if (command === 'confluence' && args[1] === 'sync' && args[2]) {
     const spaceKey = args[2];
     const options = {
-      clean: args.includes('--clean')
+      clean: args.includes('--clean'),
+      background: args.includes('--background')
     };
-    await syncConfluence(spaceKey, options);
+    
+    if (options.background) {
+      console.log(chalk.blue(`🚀 Starting background sync for Confluence space ${spaceKey}...`));
+      console.log(chalk.dim('The sync will continue in the background. Check ~/.ji/sync.log for progress.'));
+      
+      // Spawn background process
+      const subprocess = Bun.spawn([
+        'bun', 
+        'run', 
+        process.argv[1], 
+        'confluence-sync-internal',
+        spaceKey,
+        options.clean ? '--clean' : ''
+      ].filter(Boolean), {
+        stdout: 'ignore',
+        stderr: 'ignore',
+        stdin: 'ignore'
+      });
+      
+      subprocess.unref();
+      process.exit(0);
+    } else {
+      await syncConfluence(spaceKey, options);
+    }
   } else if (command === 'confluence' && args[1] === 'view' && args[2]) {
     const pageId = args[2];
     const options = {
