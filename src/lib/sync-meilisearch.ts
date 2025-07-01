@@ -79,9 +79,9 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}) {
     spinner.succeed(`Synced ${totalSynced} documents to Meilisearch`);
     
     // Wait for indexing to complete
-    spinner.start('Waiting for indexing to complete...');
+    spinner.start('Finalizing search index...');
     await meilisearch.waitForIndexing();
-    spinner.succeed('Indexing complete');
+    spinner.succeed('Search index ready!');
     
     // Show final stats
     const statsAfter = await meilisearch.getStats();
