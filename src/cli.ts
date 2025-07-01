@@ -3310,25 +3310,20 @@ async function main() {
     
     await search(query, options);
   } else if (command === 'index') {
-    const spinner = ora('Checking Meilisearch connection...').start();
-    
     try {
       // Check if Meilisearch is running
       const response = await fetch('http://localhost:7700/health');
       if (!response.ok) {
         throw new Error('Meilisearch is not responding');
       }
-      spinner.succeed('Meilisearch is running');
       
       // Run sync
       const clean = args.includes('--clean');
       await syncToMeilisearch({ clean });
       
     } catch (error: any) {
-      spinner.fail('Failed to index documents');
-      
       if (error.message.includes('ECONNREFUSED') || error.message.includes('not responding')) {
-        console.error(chalk.red('\n❌ Meilisearch is not running!'));
+        console.error(chalk.red('❌ Meilisearch is not running!'));
         console.error('\nTo start Meilisearch:');
         console.error(chalk.cyan('  brew services start meilisearch'));
         console.error('\nOr run it manually:');
