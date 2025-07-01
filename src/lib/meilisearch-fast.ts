@@ -83,7 +83,12 @@ export class MeilisearchFast {
 
     // Merge and sort results by ranking score
     const allHits = results.flatMap(r => r.hits);
-    const sortedHits = allHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
+    
+    // Filter out low relevance results (below 50% is not very relevant)
+    const relevanceThreshold = 0.5;
+    const relevantHits = allHits.filter(hit => (hit._rankingScore || 0) >= relevanceThreshold);
+    
+    const sortedHits = relevantHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
     
     // Limit to requested total
     const limitedHits = sortedHits.slice(0, totalLimit);
