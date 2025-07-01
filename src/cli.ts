@@ -2293,6 +2293,8 @@ async function main() {
     console.log('Usage:');
     console.log('  ji auth                       - Set up authentication');
     console.log('  ji mine                       - Show your open issues');
+    console.log('  ji board                      - Show your boards (instant, cached)');
+    console.log('  ji sync                       - Sync all your active workspaces');
     console.log('  ji issue view <key>           - View an issue');
     console.log('  ji issue sync <project>       - Sync all issues from a project');
     console.log('  ji take <key>                 - Assign issue to yourself');
