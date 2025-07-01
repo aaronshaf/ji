@@ -101,6 +101,62 @@ export class CacheManager {
     return result?.latest_update || null;
   }
 
+  async getOldestIssueUpdate(projectKey: string): Promise<string | null> {
+    const stmt = this.db.prepare(`
+      SELECT MIN(updated) as oldest_update
+      FROM issues
+      WHERE project_key = ?
+    `);
+    const result = stmt.get(projectKey) as { oldest_update: string | null };
+    return result?.oldest_update || null;
+  }
+
+  async getIssueUpdateRange(projectKey: string): Promise<{ oldest: string | null, newest: string | null }> {
+    const stmt = this.db.prepare(`
+      SELECT MIN(updated) as oldest_update, MAX(updated) as newest_update
+      FROM issues
+      WHERE project_key = ?
+    `);
+    const result = stmt.get(projectKey) as { oldest_update: string | null, newest_update: string | null };
+    return {
+      oldest: result?.oldest_update || null,
+      newest: result?.newest_update || null
+    };
+  }
+
+  async getWorkspaceLastSync(type: string, key: string): Promise<Date | null> {
+    const stmt = this.db.prepare(`
+      SELECT last_synced
+      FROM workspaces
+      WHERE type = ? AND key_or_id = ?
+    `);
+    const result = stmt.get(type, key) as { last_synced: number | null } | undefined;
+    return result?.last_synced ? new Date(result.last_synced) : null;
+  }
+
+  async updateWorkspaceLastSync(type: string, key: string): Promise<void> {
+    const stmt = this.db.prepare(`
+      UPDATE workspaces
+      SET last_synced = ?
+      WHERE type = ? AND key_or_id = ?
+    `);
+    stmt.run(Date.now(), type, key);
+  }
+
+  async getBoardsLastSync(): Promise<number | null> {
+    const result = this.db.prepare(
+      'SELECT MAX(synced_at) as last_sync FROM boards'
+    ).get() as { last_sync: number | null };
+    return result?.last_sync || null;
+  }
+
+  async getBoardCount(): Promise<number> {
+    const result = this.db.prepare(
+      'SELECT COUNT(*) as count FROM boards'
+    ).get() as { count: number };
+    return result.count;
+  }
+
   private extractDescription(description: any): string {
     if (typeof description === 'string') {
       return description;
