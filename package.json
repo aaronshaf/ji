@@ -11,8 +11,11 @@
     "daemon": "bun run src/daemon/index.ts",
     "test": "bun test",
     "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
     "typecheck": "tsc --noEmit",
-    "ji": "bun run src/cli.ts"
+    "ji": "bun run src/cli.ts",
+    "pre-commit": "bun run typecheck && bun run lint",
+    "prepare": "node scripts/install-hooks.cjs"
   },
   "keywords": ["jira", "confluence", "cli", "sqlite", "daemon"],
   "author": "",

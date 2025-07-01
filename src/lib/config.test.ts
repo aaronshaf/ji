@@ -5,9 +5,6 @@ import { ConfigManager } from './config.js';
 
 describe('ConfigManager', () => {
   it('should create a database file', async () => {
-    // Use a temporary directory for testing
-    const testDbPath = join(tmpdir(), `test-ji-${Date.now()}.db`);
-    
     // This is a simple smoke test to ensure the class can be instantiated
     // In a real test, we'd want to mock the database path
     expect(ConfigManager).toBeDefined();
