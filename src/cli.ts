@@ -347,24 +347,27 @@ async function showMyBoards() {
       boardsByProject[projectKey].push(board);
     });
     
-    console.log(chalk.bold(`Found ${boards.length} board(s) from your active projects:\n`));
+    console.log(chalk.bold(`\n${boards.length} boards:`));
     
     // Display by project
     const projectEntries = Object.entries(boardsByProject);
     projectEntries.forEach(([projectKey, projectBoards], index) => {
-      if (projectKey === 'Other') {
-        console.log(chalk.bold.blue(`Other Boards (${projectBoards.length}):`));
-      } else {
-        console.log(chalk.bold.blue(`${projectKey} (${projectBoards.length} board${projectBoards.length === 1 ? '' : 's'}):`));
-      }
-      
-      projectBoards.forEach(board => {
+      if (projectBoards.length === 1) {
+        // Single board - put it on the same line as project
+        const board = projectBoards[0];
         const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
-        const boardUrl = `${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`;
+        console.log(`\n${chalk.bold.blue(projectKey)}: ${typeIcon} ${chalk.bold(board.name)} ${chalk.cyan(`→ ${board.id}`)}`);
+      } else {
+        // Multiple boards - use the original format
+        console.log(`\n${chalk.bold.blue(projectKey)} (${projectBoards.length}):`);
         
-        console.log(`  ${typeIcon} ${chalk.bold(board.name)} (${board.type})`);
-        console.log(`     ${chalk.cyan(boardUrl)}`);
-      });
+        projectBoards.forEach(board => {
+          const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
+          
+          // Compact single-line format
+          console.log(`  ${typeIcon} ${chalk.bold(board.name)} ${chalk.dim(`(${board.type})`)} ${chalk.cyan(`→ ${board.id}`)}`);
+        });
+      }
       
       // Only add blank line between projects, not after the last one
       if (index < projectEntries.length - 1) {
@@ -372,11 +375,8 @@ async function showMyBoards() {
       }
     });
     
-    if (boards.length === 1) {
-      console.log(chalk.dim('\n💡 This is your main board based on recent activity.'));
-    } else {
-      console.log(chalk.dim('\n💡 Boards are sorted by project. The first board in each project may be your main board for that project.'));
-    }
+    // Show command to open boards
+    console.log(chalk.dim(`\n💡 Open a board: ${chalk.cyan(`open ${config.jiraUrl}/secure/RapidBoard.jspa?rapidView={id}`)}`));
     
   } catch (error) {
     console.error(`Failed to retrieve boards: ${error instanceof Error ? error.message : 'Unknown error'}`);
