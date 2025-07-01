@@ -735,14 +735,51 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
       // First, collect all issues that need syncing
       for (const workspace of jiraWorkspaces) {
         try {
-          // Two-direction sync strategy:
-          // 1. Look for local issues in SQLite, sorted by Jira's updated field
-          // 2. Find newest and oldest by Jira's updated date
-          // 3. Ask Jira for issues updated AFTER our newest (forward fill)
-          // 4. Ask Jira for issues updated BEFORE our oldest (backward fill)
-          const updateRange = await cacheManager.getIssueUpdateRange(workspace.keyOrId);
-          
-          if (updateRange.newest && updateRange.oldest) {
+          // Clean sync strategy: get ALL historical issues with pagination
+          if (options.clean) {
+            if (process.env.DEBUG) {
+              console.log(`\n  [DEBUG] ${workspace.keyOrId} clean sync - fetching all historical issues`);
+            }
+            
+            // Paginate through ALL issues for this project
+            let startAt = 0;
+            const pageSize = 100;
+            let hasMoreIssues = true;
+            
+            while (hasMoreIssues) {
+              const cleanJql = `project = "${workspace.keyOrId}" ORDER BY updated DESC`;
+              const cleanResult = await jiraClient.searchIssues(cleanJql, { 
+                maxResults: pageSize, 
+                startAt: startAt 
+              });
+              
+              if (cleanResult.issues.length > 0) {
+                allIssues.push(...cleanResult.issues);
+                if (process.env.DEBUG) {
+                  console.log(`  [DEBUG] Clean sync batch: ${cleanResult.issues.length} issues (total so far: ${allIssues.length})`);
+                }
+                
+                // Check if we have more pages
+                hasMoreIssues = cleanResult.issues.length === pageSize && 
+                               (cleanResult.total === undefined || startAt + pageSize < cleanResult.total);
+                startAt += pageSize;
+              } else {
+                hasMoreIssues = false;
+              }
+            }
+            
+            if (process.env.DEBUG) {
+              console.log(`  [DEBUG] Clean sync complete: ${allIssues.length} total issues for ${workspace.keyOrId}`);
+            }
+          } else {
+            // Two-direction sync strategy:
+            // 1. Look for local issues in SQLite, sorted by Jira's updated field
+            // 2. Find newest and oldest by Jira's updated date
+            // 3. Ask Jira for issues updated AFTER our newest (forward fill)
+            // 4. Ask Jira for issues updated BEFORE our oldest (backward fill)
+            const updateRange = await cacheManager.getIssueUpdateRange(workspace.keyOrId);
+            
+            if (updateRange.newest && updateRange.oldest) {
             // We have local issues - do bidirectional sync
             // Debug: log the date range we're working with
             if (process.env.DEBUG) {
@@ -794,6 +831,7 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
               }
             }
           }
+          } // End of non-clean sync logic
         } catch (error) {
           issueSyncErrors++;
           process.stdout.write(' x');

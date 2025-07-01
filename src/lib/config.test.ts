@@ -15,7 +15,7 @@ describe('ConfigManager', () => {
   });
 
   it('should have required methods', () => {
-    const methods = ['getConfig', 'setConfig', 'close'];
+    const methods: Array<keyof ConfigManager> = ['getConfig', 'setConfig', 'close'];
     
     methods.forEach(method => {
       expect(ConfigManager.prototype[method]).toBeDefined();
