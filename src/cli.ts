@@ -318,6 +318,51 @@ async function showMyIssues() {
   }
 }
 
+async function takeIssue(issueKey: string) {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  const jiraClient = new JiraClient(config);
+  const spinner = ora(`Taking ownership of ${issueKey}...`).start();
+
+  try {
+    // Get current user info
+    const currentUser = await jiraClient.getCurrentUser();
+    
+    // Get the issue to verify it exists and show current assignee
+    const issue = await jiraClient.getIssue(issueKey);
+    
+    if (issue.fields.assignee?.displayName === currentUser.displayName) {
+      spinner.warn(`You already own ${issueKey}`);
+      return;
+    }
+    
+    // Assign the issue
+    await jiraClient.assignIssue(issueKey, currentUser.accountId);
+    
+    spinner.succeed(`Successfully assigned ${issueKey} to ${currentUser.displayName}`);
+    
+    // Show issue details
+    console.log(`\n${chalk.bold(issue.key)}: ${issue.fields.summary}`);
+    console.log(`${chalk.dim('Status:')} ${issue.fields.status.name}`);
+    if (issue.fields.assignee) {
+      console.log(`${chalk.dim('Previous assignee:')} ${issue.fields.assignee.displayName}`);
+    }
+    console.log(`${chalk.dim('Now assigned to:')} ${chalk.green(currentUser.displayName)}`);
+    
+  } catch (error) {
+    spinner.fail(`Failed to take issue: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    configManager.close();
+  }
+}
+
 // Technical synonyms for query expansion
 const TECHNICAL_SYNONYMS: Record<string, string[]> = {
   'auth': ['authentication', 'authorization', 'SSO', 'SAML', 'OAuth', 'login', 'token', 'credentials'],
@@ -2092,6 +2137,7 @@ async function main() {
     console.log('  ji mine                       - Show your open issues');
     console.log('  ji issue view <key>           - View an issue');
     console.log('  ji issue sync <project>       - Sync all issues from a project');
+    console.log('  ji take <key>                 - Assign issue to yourself');
     console.log('  ji confluence sync <space>    - Sync Confluence space');
     console.log('  ji confluence view <page-id>  - View Confluence page');
     console.log('  ji search <query>             - Search across all content');
@@ -2136,6 +2182,9 @@ async function main() {
     await configureModels();
   } else if (command === 'mine_fallback') {
     await showMyIssues();
+  } else if (command === 'take' && args[1]) {
+    const issueKey = args[1];
+    await takeIssue(issueKey);
   } else if (command === 'issue' && args[1] === 'view' && args[2]) {
     const issueKey = args[2];
     const options = {
