@@ -33,7 +33,25 @@ const SearchResultSchema = z.object({
   total: z.number(),
 });
 
+const BoardSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  type: z.string(),
+  location: z.object({
+    projectKey: z.string().optional(),
+    projectName: z.string().optional(),
+  }).optional(),
+});
+
+const BoardsResponseSchema = z.object({
+  values: z.array(BoardSchema),
+  startAt: z.number(),
+  maxResults: z.number(),
+  total: z.number(),
+});
+
 export type Issue = z.infer<typeof IssueSchema>;
+export type Board = z.infer<typeof BoardSchema>;
 
 export class JiraClient {
   private config: Config;
@@ -176,5 +194,81 @@ export class JiraClient {
       const errorText = await response.text();
       throw new Error(`Failed to assign issue: ${response.status} - ${errorText}`);
     }
+  }
+
+  async getBoards(options?: { projectKeyOrId?: string; type?: 'scrum' | 'kanban' }): Promise<Board[]> {
+    let url = `${this.config.jiraUrl}/rest/agile/1.0/board`;
+    const params = new URLSearchParams();
+    
+    if (options?.projectKeyOrId) {
+      params.append('projectKeyOrId', options.projectKeyOrId);
+    }
+    if (options?.type) {
+      params.append('type', options.type);
+    }
+    
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch boards: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as unknown;
+    const parsed = BoardsResponseSchema.parse(data);
+    return parsed.values;
+  }
+
+  async getBoardsForProject(projectKey: string): Promise<Board[]> {
+    return this.getBoards({ projectKeyOrId: projectKey });
+  }
+
+  async getUserActiveProjects(userEmail: string): Promise<string[]> {
+    // Get recent issues assigned to user to determine active projects
+    const jql = `assignee = "${userEmail}" AND updated >= -30d ORDER BY updated DESC`;
+    
+    try {
+      const result = await this.searchIssues(jql, { maxResults: 100 });
+      const projectKeys = new Set<string>();
+      
+      result.issues.forEach(issue => {
+        const projectKey = issue.key.split('-')[0];
+        projectKeys.add(projectKey);
+      });
+      
+      return Array.from(projectKeys);
+    } catch (error) {
+      console.warn('Failed to get user active projects:', error);
+      return [];
+    }
+  }
+
+  async getUserBoards(userEmail: string): Promise<Board[]> {
+    const activeProjects = await this.getUserActiveProjects(userEmail);
+    const allBoards: Board[] = [];
+    
+    // Get boards for each active project
+    for (const projectKey of activeProjects) {
+      try {
+        const projectBoards = await this.getBoardsForProject(projectKey);
+        allBoards.push(...projectBoards);
+      } catch (error) {
+        console.warn(`Failed to get boards for project ${projectKey}:`, error);
+      }
+    }
+    
+    // Remove duplicates and sort by name
+    const uniqueBoards = allBoards.filter((board, index, array) => 
+      array.findIndex(b => b.id === board.id) === index
+    );
+    
+    return uniqueBoards.sort((a, b) => a.name.localeCompare(b.name));
   }
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { parseArgs } from "util";
 import { ConfigManager } from './lib/config.js';
-import { JiraClient } from './lib/jira-client.js';
+import { JiraClient, type Board } from './lib/jira-client.js';
 import { CacheManager } from './lib/cache.js';
 import { ContentManager } from './lib/content-manager.js';
 import { type SearchResult } from './lib/content-manager.js';
@@ -313,6 +313,77 @@ async function showMyIssues() {
     process.exit(1);
   } finally {
     cacheManager.close();
+    configManager.close();
+  }
+}
+
+async function showMyBoards() {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  try {
+    const jiraClient = new JiraClient(config);
+    const spinner = ora('Finding your boards...').start();
+    
+    const boards = await jiraClient.getUserBoards(config.email);
+    spinner.stop();
+    
+    if (boards.length === 0) {
+      console.log('No boards found for your active projects.');
+      console.log(chalk.dim('Note: This searches boards for projects where you have recent activity.'));
+      return;
+    }
+    
+    // Group boards by project
+    const boardsByProject: Record<string, Board[]> = {};
+    boards.forEach(board => {
+      const projectKey = board.location?.projectKey || 'Other';
+      if (!boardsByProject[projectKey]) {
+        boardsByProject[projectKey] = [];
+      }
+      boardsByProject[projectKey].push(board);
+    });
+    
+    console.log(chalk.bold(`Found ${boards.length} board(s) from your active projects:\n`));
+    
+    // Display by project
+    const projectEntries = Object.entries(boardsByProject);
+    projectEntries.forEach(([projectKey, projectBoards], index) => {
+      if (projectKey === 'Other') {
+        console.log(chalk.bold.blue(`Other Boards (${projectBoards.length}):`));
+      } else {
+        console.log(chalk.bold.blue(`${projectKey} (${projectBoards.length} board${projectBoards.length === 1 ? '' : 's'}):`));
+      }
+      
+      projectBoards.forEach(board => {
+        const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
+        const boardUrl = `${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`;
+        
+        console.log(`  ${typeIcon} ${chalk.bold(board.name)} (${board.type})`);
+        console.log(`     ${chalk.cyan(boardUrl)}`);
+      });
+      
+      // Only add blank line between projects, not after the last one
+      if (index < projectEntries.length - 1) {
+        console.log();
+      }
+    });
+    
+    if (boards.length === 1) {
+      console.log(chalk.dim('\n💡 This is your main board based on recent activity.'));
+    } else {
+      console.log(chalk.dim('\n💡 Boards are sorted by project. The first board in each project may be your main board for that project.'));
+    }
+    
+  } catch (error) {
+    console.error(`Failed to retrieve boards: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
     configManager.close();
   }
 }
@@ -2215,6 +2286,8 @@ async function main() {
   } else if (command === 'memories') {
     console.error('Unknown memories subcommand. Use "ji memories --help" for usage.');
     process.exit(1);
+  } else if (command === 'board') {
+    await showMyBoards();
   } else {
     console.error(`Unknown command: ${args.join(' ')}`);
     process.exit(1);
