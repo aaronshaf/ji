@@ -1463,123 +1463,76 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
 
     const startTime = Date.now();
     let pagesToSync: string[] = [];
-    let pages: Array<{ id: string; title: string; body?: any; space: any; version: any; _links: any }> | undefined;
     
     if (options.clean) {
       console.log('🧹 Clean sync: fetching all pages...\n');
       
-      // Full sync - get all pages
-      let lastCurrent = 0;
-      pages = await confluenceClient.getAllSpacePages(spaceKey, (current, estimatedTotal) => {
-        if (current === 0) return;
-        
-        // Show progress differently based on whether we know the total
-        let statusLine: string;
-        if (current < estimatedTotal) {
-          // Still fetching, show estimated progress
-          const percent = Math.min(99, Math.round((current / estimatedTotal) * 100));
-          const progressBar = createProgressBar(percent, 20);
-          statusLine = `📥 ${progressBar} ~${percent}% | ${current}+ pages fetched`;
-        } else {
-          // We know the exact total now
-          const progressBar = createProgressBar(100, 20);
-          statusLine = `📥 ${progressBar} 100% | ${current}/${current} pages`;
-        }
-        
-        process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
-        lastCurrent = current;
+      // Full sync - get all page IDs
+      const spinner = ora('Fetching all page IDs...').start();
+      
+      // For clean sync, we can use a very old date to get all pages
+      const veryOldDate = new Date('2000-01-01');
+      const allPageIds = await confluenceClient.getPagesSince(spaceKey, veryOldDate, (current) => {
+        spinner.text = `Fetching page IDs... ${current} found`;
       });
       
-      // Ensure we show the final 100% status
-      if (pages.length > 0) {
-        const progressBar = createProgressBar(100, 20);
-        const statusLine = `📥 ${progressBar} 100% | ${pages.length}/${pages.length} pages`;
-        process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
-      }
-      console.log(''); // New line after progress
+      spinner.succeed(`Found ${allPageIds.length} pages`);
 
-      if (pages.length === 0) {
+      if (allPageIds.length === 0) {
         console.log(chalk.yellow('⚠️  No pages found in this space.'));
         return;
       }
-
-      console.log(`\n💾 Saving ${pages.length} pages...\n`);
-      pagesToSync = pages.map(p => p.id);
+      
+      pagesToSync = allPageIds;
+      console.log(`\n💾 Will sync all ${pagesToSync.length} pages...\n`);
     } else {
       console.log('⚡ Incremental sync: checking for changes...\n');
       
-      // Get last sync time
-      const lastSyncTime = await contentManager.getLastSyncTime(spaceKey);
+      // Get the newest modified date from our stored pages
+      const newestModifiedDate = await contentManager.getNewestPageModifiedDate(spaceKey);
       
-      let pageSummaries: { id: string; title: string; version: { number: number; when: string } }[];
-      
-      if (lastSyncTime) {
-        // Use efficient date-based filtering
-        const spinner = ora({ text: 'Fetching recently modified pages...', indent: 2 }).start();
+      if (newestModifiedDate) {
+        // Only fetch pages modified after our newest stored page
+        const spinner = ora({ text: 'Checking for recently modified pages...', indent: 2 }).start();
         
-        // Add a buffer of 1 day to catch any edge cases
-        const syncSince = new Date(lastSyncTime.getTime() - 24 * 60 * 60 * 1000);
-        
-        pageSummaries = await confluenceClient.getPagesSince(spaceKey, syncSince, (current) => {
-          spinner.text = `Fetching recently modified pages... ${current} found`;
+        const modifiedPageIds = await confluenceClient.getPagesSince(spaceKey, newestModifiedDate, (current) => {
+          spinner.text = `Found ${current} modified pages...`;
         });
         
-        spinner.succeed(`Found ${pageSummaries.length} pages modified since ${syncSince.toLocaleDateString()}`);
+        spinner.succeed(`Found ${modifiedPageIds.length} pages modified since ${newestModifiedDate.toLocaleDateString()}`);
+        
+        if (modifiedPageIds.length === 0) {
+          console.log(chalk.green('\n✅ All pages are up to date!'));
+          return;
+        }
+        
+        pagesToSync = modifiedPageIds;
+        console.log(`\n💾 Will sync ${pagesToSync.length} modified pages`);
       } else {
-        // First sync or no previous data - fetch all page metadata
-        console.log(chalk.dim('  No previous sync found. Fetching all page metadata...'));
+        // First sync - need to get all pages
+        console.log(chalk.dim('  No previous sync found. Fetching all pages...'));
         
         let lastUpdate = Date.now();
-        const spinner = ora({ text: 'Fetching page metadata...', indent: 2 }).start();
+        const spinner = ora({ text: 'Fetching page list...', indent: 2 }).start();
         
-        pageSummaries = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
+        const allPages = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
           const now = Date.now();
-          if (now - lastUpdate > 100) { // Update every 100ms
-            spinner.text = `Fetching page metadata... ${current} pages`;
+          if (now - lastUpdate > 100) {
+            spinner.text = `Fetching page list... ${current} pages`;
             lastUpdate = now;
           }
         });
         
-        spinner.succeed(`Fetched metadata for ${pageSummaries.length} pages`);
-      }
-      
-      if (pageSummaries.length === 0) {
-        console.log(chalk.yellow('⚠️  No pages found in this space.'));
-        return;
-      }
-      
-      // Get current versions from database
-      const checkSpinner = ora({ text: 'Checking local versions...', indent: 2 }).start();
-      const localVersions = await contentManager.getSpacePageVersions(spaceKey);
-      checkSpinner.text = 'Comparing versions...';
-      
-      // Identify pages that need syncing
-      const newPages: string[] = [];
-      const updatedPages: string[] = [];
-      let processed = 0;
-      
-      for (const summary of pageSummaries) {
-        const local = localVersions.get(summary.id);
+        spinner.succeed(`Found ${allPages.length} pages`);
         
-        if (!local) {
-          // New page
-          newPages.push(summary.id);
-        } else if (summary.version.number > local.version) {
-          // Updated page
-          updatedPages.push(summary.id);
+        if (allPages.length === 0) {
+          console.log(chalk.yellow('⚠️  No pages found in this space.'));
+          return;
         }
         
-        processed++;
-        if (processed % 100 === 0) {
-          checkSpinner.text = `Comparing versions... ${processed}/${pageSummaries.length} pages`;
-        }
+        pagesToSync = allPages.map(p => p.id);
+        console.log(`\n💾 Will sync all ${pagesToSync.length} pages`);
       }
-      
-      checkSpinner.succeed('Version check complete');
-      
-      pagesToSync = [...newPages, ...updatedPages];
-      
-      console.log(`📊 Found ${pageSummaries.length} pages: ${chalk.green(newPages.length + ' new')}, ${chalk.blue(updatedPages.length + ' updated')}, ${chalk.gray((pageSummaries.length - pagesToSync.length) + ' unchanged')}`);
       
       if (pagesToSync.length === 0) {
         console.log(chalk.green('\n✅ All pages are up to date!'));
@@ -1611,10 +1564,8 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       
       // Process all pages in this batch in parallel
       const batchPromises = batch.map(async (pageId) => {
-        // Fetch full page content if needed
-        const page = options.clean ? 
-          pages!.find(p => p.id === pageId)! : 
-          await confluenceClient.getPage(pageId);
+        // Fetch full page content
+        const page = await confluenceClient.getPage(pageId);
         
         // Convert storage format to markdown for better LLM understanding
         const plainText = confluenceToMarkdown(page.body?.storage?.value || '');

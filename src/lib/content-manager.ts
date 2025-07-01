@@ -324,6 +324,22 @@ export class ContentManager {
     
     return null;
   }
+  
+  async getNewestPageModifiedDate(spaceKey: string): Promise<Date | null> {
+    const stmt = this.db.prepare(`
+      SELECT MAX(updated_at) as newest_modified 
+      FROM searchable_content 
+      WHERE space_key = ? AND source = 'confluence'
+    `);
+    
+    const result = stmt.get(spaceKey) as { newest_modified: number | null } | undefined;
+    
+    if (result && result.newest_modified) {
+      return new Date(result.newest_modified);
+    }
+    
+    return null;
+  }
 
   private extractSprintInfo(issue: Issue): { id: string; name: string } | null {
     // Sprint information is typically stored in customfield_10020 or similar
