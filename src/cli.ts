@@ -2788,58 +2788,63 @@ async function initializeSetup() {
 
     // Step 3: Install Ollama (optional)
     console.log(chalk.bold('\n\nStep 3: Setting up Ollama (AI features) - Optional\n'));
-    console.log('Ollama enables AI-powered features like:');
-    console.log('  - Natural language Q&A with "ji ask"');
-    console.log('  - Semantic search');
-    console.log('  - Smart memory extraction\n');
-
-    const installOllama = await rl.question('Would you like to install Ollama? (Y/n): ');
     
-    if (installOllama.toLowerCase() !== 'n') {
-      // Check if Ollama is already installed
-      const ollamaCheck = await Bun.spawn(['which', 'ollama'], {
-        stdout: 'pipe',
-        stderr: 'pipe'
-      }).exited;
+    // Check if Ollama is already installed
+    const ollamaCheck = await Bun.spawn(['which', 'ollama'], {
+      stdout: 'pipe',
+      stderr: 'pipe'
+    }).exited;
 
-      if (ollamaCheck !== 0) {
-        console.log('\nOllama is not installed. Let\'s install it.');
-        console.log(chalk.dim('This will download Ollama from https://ollama.ai\n'));
-        
-        const confirmInstall = await rl.question('Proceed with Ollama installation? (Y/n): ');
-        if (confirmInstall.toLowerCase() !== 'n') {
-          console.log('\nDownloading and installing Ollama...');
-          
-          // Download and run Ollama installer
-          const proc = Bun.spawn(['sh', '-c', 'curl -fsSL https://ollama.ai/install.sh | sh'], {
-            stdout: 'inherit',
-            stderr: 'inherit'
-          });
-          await proc.exited;
-          
-          console.log(chalk.green('✅ Ollama installed'));
-          
-          // Pull a default model
-          console.log('\nPulling recommended AI model (this may take a few minutes)...');
-          await Bun.spawn(['ollama', 'pull', 'llama3.2'], {
-            stdout: 'inherit',
-            stderr: 'inherit'
-          }).exited;
-          
-          console.log(chalk.green('✅ AI model ready'));
-        }
+    if (ollamaCheck === 0) {
+      // Ollama is already installed
+      const ollama = new OllamaClient();
+      if (await ollama.isAvailable()) {
+        console.log(chalk.green('✅ Ollama is already installed and running'));
+        console.log(chalk.dim('\nOllama enables AI-powered features like:'));
+        console.log(chalk.dim('  - Natural language Q&A with "ji ask"'));
+        console.log(chalk.dim('  - Semantic search'));
+        console.log(chalk.dim('  - Smart memory extraction'));
       } else {
-        // Check if Ollama is running
-        const ollama = new OllamaClient();
-        if (await ollama.isAvailable()) {
-          console.log(chalk.green('✅ Ollama is already installed and running'));
-        } else {
-          console.log('Ollama is installed but not running.');
-          console.log(chalk.dim('Start it manually with: ollama serve'));
-        }
+        console.log(chalk.yellow('⚠️  Ollama is installed but not running'));
+        console.log(chalk.dim('\nStart it with: ollama serve'));
+        console.log(chalk.dim('\nOllama enables AI-powered features like:'));
+        console.log(chalk.dim('  - Natural language Q&A with "ji ask"'));
+        console.log(chalk.dim('  - Semantic search'));
+        console.log(chalk.dim('  - Smart memory extraction'));
       }
     } else {
-      console.log(chalk.dim('\nSkipping Ollama installation. You can install it later to enable AI features.'));
+      // Ollama is not installed
+      console.log('Ollama enables AI-powered features like:');
+      console.log('  - Natural language Q&A with "ji ask"');
+      console.log('  - Semantic search');
+      console.log('  - Smart memory extraction\n');
+      
+      const installOllama = await rl.question('Would you like to install Ollama? (Y/n): ');
+      
+      if (installOllama.toLowerCase() !== 'n') {
+        console.log('\nDownloading and installing Ollama...');
+        console.log(chalk.dim('This will download Ollama from https://ollama.ai\n'));
+        
+        // Download and run Ollama installer
+        const proc = Bun.spawn(['sh', '-c', 'curl -fsSL https://ollama.ai/install.sh | sh'], {
+          stdout: 'inherit',
+          stderr: 'inherit'
+        });
+        await proc.exited;
+        
+        console.log(chalk.green('✅ Ollama installed'));
+        
+        // Pull a default model
+        console.log('\nPulling recommended AI model (this may take a few minutes)...');
+        await Bun.spawn(['ollama', 'pull', 'llama3.2'], {
+          stdout: 'inherit',
+          stderr: 'inherit'
+        }).exited;
+        
+        console.log(chalk.green('✅ AI model ready'));
+      } else {
+        console.log(chalk.dim('\nSkipping Ollama installation. You can install it later to enable AI features.'));
+      }
     }
 
     // Step 4: Initial sync
