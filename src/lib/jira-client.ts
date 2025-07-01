@@ -292,21 +292,38 @@ export class JiraClient {
   }
 
   async getBoardIssues(boardId: number): Promise<Issue[]> {
-    const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/issue?maxResults=100`;
+    // Need to get ALL issues including Done, and handle pagination
+    let allIssues: any[] = [];
+    let startAt = 0;
+    const maxResults = 50;
+    
+    while (true) {
+      const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/issue?startAt=${startAt}&maxResults=${maxResults}`;
 
-    const response = await fetch(url, {
-      method: 'GET', 
-      headers: this.getHeaders(),
-    });
+      const response = await fetch(url, {
+        method: 'GET', 
+        headers: this.getHeaders(),
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to fetch board issues: ${response.status} - ${errorText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch board issues: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json() as any;
+      const issues = data.issues || [];
+      allIssues = allIssues.concat(issues);
+      
+      // Check if we've got all issues
+      if (issues.length < maxResults || allIssues.length >= (data.total || 0)) {
+        break;
+      }
+      
+      startAt += maxResults;
     }
-
-    const data = await response.json() as any;
+    
     // Map the agile API response to our Issue type
-    return (data.issues || []).map((issue: any) => ({
+    return allIssues.map((issue: any) => ({
       key: issue.key,
       self: issue.self,
       fields: {
