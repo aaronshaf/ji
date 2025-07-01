@@ -1,398 +1,161 @@
 # ji - Jira & Confluence CLI
 
-A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Features local SQLite caching with background sync for instant access to your data.
+A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Features local caching with instant search and AI-powered Q&A.
 
-Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
-
-## Features
-
-- ⚡ **Lightning fast** - Built with Bun, local SQLite caching, <50ms search
-- 🧠 **Smart search** - Hybrid semantic + keyword search with typo tolerance
-- 🤖 **AI-powered** - Ask questions about your knowledge base with memory
-- 📚 **Complete integration** - Both Jira issues and Confluence pages
-- 🔄 **Always fresh** - Automatic background sync keeps data up-to-date
+**Key benefits:**
+- ⚡ **Lightning fast** - local caching means <50ms searches
+- 🔍 **Smart search** - finds what you need with typo tolerance
+- 🤖 **AI assistant** - ask questions about your knowledge base
+- 🔄 **Always fresh** - automatic background sync
 
 ## Installation
 
-First, clone and install ji:
+### Prerequisites
+- [Bun](https://bun.sh) - JavaScript runtime (install: `curl -fsSL https://bun.sh/install | bash`)
+
+### Install ji
 
 ```bash
 git clone https://github.com/aaronshaf/ji.git
 cd ji
 bun install
-```
-
-To install globally (recommended):
-```bash
 bun link
 ```
 
-Now you can use `ji` from anywhere.
+Now you can use `ji` from anywhere!
 
 ## Getting Started
-
-The quickest way to get started is to use the interactive setup wizard:
 
 ```bash
 ji init
 ```
 
-This command will guide you through:
+This interactive wizard will:
+1. Set up your Atlassian credentials
+2. Install search tools (Meilisearch)
+3. Optionally set up AI features (Ollama)
+4. Sync your first project/space
 
-1. **🔐 Authentication Setup** - Configure your Jira/Confluence credentials
-   - Prompts for your Atlassian instance URL (e.g., `https://company.atlassian.net`)
-   - Your email address
-   - API token (creates a link to generate one if needed)
-   - Stores credentials securely in `~/.ji/auth.json` with 600 permissions
+## Common Commands
 
-2. **🔍 Search Installation** - Sets up Meilisearch for instant search
-   - Detects if Meilisearch is already installed
-   - Installs via Homebrew if needed (macOS)
-   - Provides instructions for other platforms
-   - Starts Meilisearch as a background service
-
-3. **🤖 AI Setup (Optional)** - Configures Ollama for AI features
-   - Checks if you want AI-powered Q&A capabilities
-   - Installs Ollama if desired
-   - Downloads required models for embeddings and language processing
-   - Completely optional - the app works great without it!
-
-4. **📊 Initial Sync** - Gets your first project/space data
-   - Prompts for a Jira project key to sync
-   - Optionally syncs a Confluence space
-   - Shows progress as it downloads and indexes your data
-
-After running `ji init`, you'll have a fully configured ji installation ready to use!
-
-## Prerequisites
-
-- [Bun](https://bun.sh) (v1.0 or later)
-- [Meilisearch](https://www.meilisearch.com) (for search functionality)
-- [Ollama](https://ollama.com) (optional - for AI Q&A and semantic search)
-
-### Installing Meilisearch
+### Daily Workflow
 
 ```bash
-# macOS
-brew install meilisearch
-brew services start meilisearch
-
-# Linux/WSL
-curl -L https://install.meilisearch.com | sh
-./meilisearch
-```
-
-### Installing Ollama (Optional)
-
-Ollama is optional but enables AI-powered features like semantic search and Q&A. The app works perfectly fine without it - you'll still have fast keyword search and all other features.
-
-To enable AI features:
-
-```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull the default embedding model for hybrid search
-ollama pull mxbai-embed-large
-
-# Pull the language model for AI Q&A
-ollama pull gemma3n
-
-# For better analysis and reasoning, consider upgrading to:
-ollama pull phi4:latest
-
-# Ollama runs as a service automatically
-```
-
-## Usage
-
-### Jira Commands
-
-#### View an issue
-
-```bash
-ji issue view PROJ-123
-```
-
-By default, if cached data exists, it will be displayed immediately while fresh data is fetched in the background for next time.
-
-View as JSON:
-```bash
-ji issue view PROJ-123 --json
-ji issue view PROJ-123 -j
-```
-
-Force sync from API (wait for fresh data):
-```bash
-ji issue view PROJ-123 --sync
-ji issue view PROJ-123 -s
-```
-
-Combine options:
-```bash
-ji issue view PROJ-123 --sync --json
-```
-
-#### Sync all issues from a project
-
-Sync all issues from a Jira project to your local database:
-
-```bash
-ji issue sync PROJ
-```
-
-Clear local data and start fresh:
-```bash
-ji issue sync PROJ --clean
-```
-
-This will:
-- Fetch all issues from the specified project
-- Store them in the local SQLite database for searching
-- Show progress during the sync
-- Index content in Meilisearch for fast searching
-
-#### Show your open issues
-
-```bash
+# View your assigned issues
 ji mine
-```
 
-Shows all open issues assigned to you, grouped by project.
+# View a specific issue
+ji issue view PROJ-123
 
-#### Take ownership of an issue
+# Take ownership of an issue
+ji take PROJ-456
 
-```bash
-ji take PROJ-123
-```
-
-Assigns the specified issue to yourself. Shows the issue details and confirms the assignment.
-
-#### View sprint issues
-
-View all issues in your current sprint(s):
-
-```bash
+# View current sprint
 ji sprint
 ```
 
-View only unassigned issues in the current sprint:
+### Search & Ask
 
 ```bash
-ji sprint unassigned
+# Search everything
+ji search "login bug"
+
+# Search only Confluence
+ji search "api docs" --source confluence
+
+# Ask the AI assistant
+ji ask "How do we deploy to production?"
 ```
 
-Filter by specific project:
+### Sync Data
 
 ```bash
-ji sprint PROJ
-ji sprint unassigned PROJ
+# Sync a Jira project
+ji issue sync PROJ
+
+# Sync a Confluence space
+ji confluence sync DOCS
+
+# Sync all your workspaces
+ji sync
 ```
 
-Shows issues grouped by status with assignee information. Uses color coding for better readability.
+## Key Features
 
-### Confluence Commands
+### 🔍 Instant Search
+All data is cached locally in SQLite with full-text search. Searches complete in milliseconds, even offline.
 
-#### Sync a Confluence space
+### 🤖 AI Assistant (Optional)
+With Ollama installed, ask natural language questions about your knowledge base:
+```bash
+ji ask "What's our API rate limit?"
+ji ask "Who owns the payment service?"
+```
 
-Sync all pages from a Confluence space to your local database:
+### 📱 Smart Sync
+- Incremental sync only fetches changes
+- Background refresh keeps data current
+- Works offline with cached data
+
+### 🎯 Sprint Management
+```bash
+ji sprint              # Current sprint overview
+ji sprint unassigned   # Unassigned issues
+ji board PROJ          # View project board
+```
+
+## Tips & Tricks
+
+1. **Speed up searches** with source filters:
+   ```bash
+   ji search "error" --source jira --limit 20
+   ```
+
+2. **Remember facts** for the AI:
+   ```bash
+   ji remember "Our staging URL is https://staging.example.com"
+   ```
+
+3. **Sync in background**:
+   ```bash
+   ji confluence sync LARGE_SPACE --background
+   ```
+
+4. **View recent changes**:
+   ```bash
+   ji confluence recent ENG
+   ```
+
+## Documentation
+
+- **[DOCS.md](DOCS.md)** - Complete command reference and advanced usage
+- **[CLAUDE.md](CLAUDE.md)** - Development notes and architecture
+
+## Quick Reference
 
 ```bash
-ji confluence sync <space-key>
+# Setup
+ji init                      # First-time setup
+ji auth                      # Configure credentials
+
+# Jira
+ji mine                      # Your issues
+ji issue view <KEY>          # View issue
+ji take <KEY>                # Assign to yourself
+ji sprint [PROJECT]          # Sprint overview
+
+# Confluence
+ji confluence sync <SPACE>   # Sync space
+ji confluence recent <SPACE> # Recent changes
+
+# Search & AI
+ji search "query"            # Search everything
+ji ask "question"            # AI Q&A
+
+# Maintenance
+ji sync                      # Sync all workspaces
+ji index                     # Rebuild search index
 ```
-
-This will:
-- Fetch all pages from the specified space
-- Convert Confluence storage format to plain text
-- Store pages in the local SQLite database for searching
-- Show progress during the sync
-
-#### View a Confluence page
-
-```bash
-ji confluence view <page-id>
-```
-
-View as JSON:
-```bash
-ji confluence view <page-id> --json
-```
-
-### Search
-
-#### Fast Search Setup
-
-Before searching, index your data to Meilisearch:
-```bash
-ji index              # Index all documents
-ji index --clean      # Clear and re-index everything
-```
-
-Search across all cached content (both Jira and Confluence):
-```bash
-ji search "performance issues"
-```
-
-By default, closed/resolved/done issues are excluded. To include all issues:
-```bash
-ji search "performance issues" --all
-```
-
-Filter by source:
-```bash
-ji search "deployment" --source jira              # Only Jira issues
-ji search "api documentation" --source confluence  # Only Confluence pages
-```
-
-Limit results:
-```bash
-ji search "bug" --limit 5
-```
-
-Search features:
-- ⚡ Instant results (<50ms)
-- 🧠 Hybrid semantic + keyword search (understands meaning and context)
-- 🎯 Typo tolerance (finds "authentcation" → "authentication")
-- 📊 Smart ranking based on relevance
-- 🔍 Highlighted search terms in results
-- 📋 Shows status, priority, and reporter for Jira issues
-
-
-### AI Q&A
-
-Ask questions about your synced data using AI:
-
-```bash
-ji ask "How do we handle authentication?"
-```
-
-By default, the AI assistant focuses on Confluence documentation. To include Jira issues in the search:
-
-```bash
-ji ask "What bugs are related to login?" --include-jira
-```
-
-Options:
-- `--source [jira|confluence]` - Search only specific source
-- `--limit <n>` - Number of context documents to use (default: 10)
-- `--verbose` - Show which documents were used
-- `--model <name>` - Use a different Ollama model (default: gemma3n)
-- `--include-old` - Include documentation not modified in 3+ years
-
-The AI uses the same hybrid search technology to find the most relevant documentation and provides concise, contextual answers. It also learns from previous Q&A sessions, storing key facts for improved future responses.
-
-#### AI Setup
-
-For AI Q&A to work, you need the language model:
-
-```bash
-# Pull the default language model
-ollama pull gemma3n
-
-# For better analysis and reasoning, consider upgrading to:
-ollama pull phi4:latest
-```
-
-### Memory Management
-
-The AI assistant can remember facts from previous conversations and manual additions. This helps improve response accuracy over time.
-
-#### Add a fact manually
-
-```bash
-ji remember "EVAL team handles Canvas evaluation and grading systems"
-```
-
-#### List stored memories
-
-```bash
-ji memories list                  # Show recent memories
-ji memories list --limit 50       # Show more memories
-```
-
-#### Search memories
-
-```bash
-ji memories search "EVAL"         # Search for specific terms
-```
-
-#### Delete a specific memory
-
-```bash
-ji memories delete <memory-id>    # Delete by ID (shown in list)
-```
-
-#### Clear memories
-
-```bash
-ji memories clear                 # Clear only manually added memories
-ji memories clear --all           # Clear ALL memories (requires confirmation)
-```
-
-#### View memory statistics
-
-```bash
-ji memories stats                 # Show total memories and usage
-```
-
-The memory system helps correct false information by allowing you to:
-- Manually add correct facts that override auto-extracted ones
-- Delete incorrect memories that were automatically extracted
-- Clear all memories if needed to start fresh
-
-### Model Configuration
-
-Configure which Ollama models to use for AI features:
-
-```bash
-ji models
-```
-
-This interactive command lets you:
-- Auto-detect available Ollama models
-- Select which model to use for Q&A (ask command)
-- Select which model to use for embeddings (hybrid search)
-- Select which model to use for analysis (query generation & source selection)
-- Automatically pull models if they're not installed
-
-### Index Management
-
-Index all documents to Meilisearch for fast search:
-```bash
-ji index              # Index all documents
-ji index --clean      # Clear indexes and re-index
-```
-
-
-## Development
-
-```bash
-# Install dependencies
-bun install
-
-# Run in development mode
-bun run dev
-
-# Run tests
-bun test
-
-# Type checking
-bun run typecheck
-
-# Linting
-bun run lint
-```
-
-## Architecture
-
-- **Runtime**: Pure Bun for lightning-fast execution
-- **Storage**: Bun's built-in SQLite database stored in `~/.ji/data.db`
-- **Authentication**: Credentials stored separately in `~/.ji/auth.json` (600 permissions)
-- **Search**: Meilisearch for instant, typo-tolerant search with smart ranking
-- **AI**: Local LLM integration via Ollama for Q&A functionality
-- **Sync**: Background processes for data refresh
-- **Security**: API credentials stored securely, never committed to git
-- **Zero Node.js dependencies**: Runs entirely on Bun
 
 ## License
 
