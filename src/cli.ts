@@ -727,17 +727,29 @@ async function syncWorkspaces() {
       
       for (const workspace of jiraWorkspaces) {
         try {
-          // Sync only recent issues (last 30 days) for performance
-          const jql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
-          const result = await jiraClient.searchIssues(jql, { maxResults: 50 }); // Reduced from 100
+          // Get the most recent issue update time from cache
+          const latestUpdate = await cacheManager.getLatestIssueUpdate(workspace.keyOrId);
           
-          // Save issues in parallel for better performance
-          const savePromises = result.issues.map(issue => 
-            cacheManager.saveIssue(issue).catch(err => null)
-          );
+          let jql: string;
+          if (latestUpdate) {
+            // Incremental sync - only get issues updated since last sync
+            jql = `project = "${workspace.keyOrId}" AND updated > "${latestUpdate}" ORDER BY updated DESC`;
+          } else {
+            // First sync - get recent issues
+            jql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
+          }
           
-          await Promise.all(savePromises);
-          totalIssues += result.issues.length;
+          const result = await jiraClient.searchIssues(jql, { maxResults: 100 });
+          
+          if (result.issues.length > 0) {
+            // Save issues in parallel for better performance
+            const savePromises = result.issues.map(issue => 
+              cacheManager.saveIssue(issue).catch(err => null)
+            );
+            
+            await Promise.all(savePromises);
+            totalIssues += result.issues.length;
+          }
           process.stdout.write('.');
         } catch (error) {
           issueSyncErrors++;
@@ -818,7 +830,6 @@ async function syncWorkspaces() {
     }
     
     // Auto-index everything for search
-    process.stdout.write('Index ');
     const indexPromise = Promise.race([
       (async () => {
         const { syncToMeilisearch } = await import('./lib/sync-meilisearch.js');
@@ -831,11 +842,11 @@ async function syncWorkspaces() {
     const indexResult = await indexPromise;
     
     if (indexResult === 'success') {
-      console.log('✓');
+      // Success - output already handled by syncToMeilisearch
     } else if (indexResult === 'timeout') {
-      console.log('⏳');
+      console.log('Index ⏳');
     } else {
-      console.log('⚠️');
+      console.log('Index ⚠️');
     }
     
     console.log(chalk.green('\n✓ Sync complete'));
