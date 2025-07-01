@@ -697,31 +697,25 @@ async function syncWorkspaces() {
     
     // Sync boards
     if (jiraWorkspaces.length > 0) {
-      process.stdout.write('Boards ');
       const allBoards = [];
       let boardSyncErrors = 0;
       for (const workspace of jiraWorkspaces) {
         try {
           const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
           allBoards.push(...projectBoards);
-          process.stdout.write('.');
         } catch (error) {
           boardSyncErrors++;
-          process.stdout.write('x');
         }
       }
       
       if (allBoards.length > 0) {
         await cacheManager.saveBoards(allBoards);
-        console.log(` ${allBoards.length}`);
-      } else {
-        console.log(' 0');
       }
+      console.log(`Boards: ${allBoards.length}`);
     }
     
     // Sync recent issues for Jira projects
     if (jiraWorkspaces.length > 0) {
-      process.stdout.write('Issues ');
       let totalIssues = 0;
       let issueSyncErrors = 0;
       
@@ -750,18 +744,15 @@ async function syncWorkspaces() {
             await Promise.all(savePromises);
             totalIssues += result.issues.length;
           }
-          process.stdout.write('.');
         } catch (error) {
           issueSyncErrors++;
-          process.stdout.write('x');
         }
       }
-      console.log(` ${totalIssues}`);
+      console.log(`Issues: ${totalIssues}`);
     }
     
     // Sync Confluence spaces (incremental)
     if (confluenceWorkspaces.length > 0) {
-      process.stdout.write('Pages ');
       let totalPages = 0;
       let pageSyncErrors = 0;
       
@@ -820,13 +811,11 @@ async function syncWorkspaces() {
           }
           
           contentManager.close();
-          process.stdout.write('.');
         } catch (error) {
           pageSyncErrors++;
-          process.stdout.write('x');
         }
       }
-      console.log(` ${totalPages}`);
+      console.log(`Pages: ${totalPages}`);
     }
     
     // Auto-index everything for search
