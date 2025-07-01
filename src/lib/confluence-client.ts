@@ -118,6 +118,40 @@ export class ConfluenceClient {
     return PageListResponseSchema.parse(data);
   }
 
+  async getRecentlyUpdatedPages(
+    spaceKey: string,
+    limit: number = 10
+  ): Promise<{ id: string; title: string; version: { number: number; when: string; by: { displayName: string } }; webUrl: string }[]> {
+    // Use CQL to search for recently modified pages in the space
+    const cql = `space="${spaceKey}" and type=page order by lastmodified desc`;
+    const url = `${this.baseUrl}/search?cql=${encodeURIComponent(cql)}&limit=${limit}&expand=version`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to search pages: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as any;
+    
+    return data.results.map((result: any) => ({
+      id: result.content.id,
+      title: result.content.title,
+      version: {
+        number: result.content.version.number,
+        when: result.content.version.when,
+        by: {
+          displayName: result.content.version.by.displayName
+        }
+      },
+      webUrl: result.content._links.webui
+    }));
+  }
+
   async getSpacePagesLightweight(
     spaceKey: string,
     onProgress?: (current: number) => void
