@@ -13,8 +13,9 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}) {
     // Initialize Meilisearch
     await meilisearch.initialize();
     
-    // Get counts
-    const totalCount = db.prepare('SELECT COUNT(*) as count FROM searchable_content').get() as {count: number};
+    // Get last index sync time
+    const lastSyncResult = db.prepare('SELECT value FROM config WHERE key = ?').get('last_meilisearch_sync') as { value: string } | undefined;
+    const lastSyncTime = lastSyncResult ? parseInt(lastSyncResult.value) : 0;
     
     // Clear existing data if requested
     if (options.clean) {
@@ -24,19 +25,44 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}) {
       console.log('✓');
     }
     
+    // Get items that need indexing
+    let query: string;
+    let params: any[];
+    
+    if (options.clean || lastSyncTime === 0) {
+      // Full sync
+      query = 'SELECT COUNT(*) as count FROM searchable_content';
+      params = [];
+    } else {
+      // Incremental sync - only items updated since last index sync
+      query = 'SELECT COUNT(*) as count FROM searchable_content WHERE synced_at > ?';
+      params = [lastSyncTime];
+    }
+    
+    const totalCount = db.prepare(query).get(...params) as {count: number};
+    
+    if (totalCount.count === 0) {
+      console.log('Index: up to date');
+      return;
+    }
+    
     // Sync in batches
-    const batchSize = 1000; // Increased from 100 for much faster syncing
+    const batchSize = 1000;
     let offset = 0;
     let totalSynced = 0;
     
     process.stdout.write(`Indexing `);
     
+    const selectQuery = options.clean || lastSyncTime === 0
+      ? 'SELECT * FROM searchable_content ORDER BY updated_at DESC LIMIT ? OFFSET ?'
+      : 'SELECT * FROM searchable_content WHERE synced_at > ? ORDER BY updated_at DESC LIMIT ? OFFSET ?';
+    
     while (offset < totalCount.count) {
-      const items = db.prepare(`
-        SELECT * FROM searchable_content 
-        ORDER BY updated_at DESC
-        LIMIT ? OFFSET ?
-      `).all(batchSize, offset) as any[];
+      const queryParams = options.clean || lastSyncTime === 0
+        ? [batchSize, offset]
+        : [lastSyncTime, batchSize, offset];
+        
+      const items = db.prepare(selectQuery).all(...queryParams) as any[];
       
       if (items.length === 0) break;
       
@@ -66,6 +92,10 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}) {
     // Wait for indexing to complete
     await meilisearch.waitForIndexing();
     console.log(` ${totalSynced}`);
+    
+    // Update last sync time
+    const now = Date.now();
+    db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)').run('last_meilisearch_sync', now.toString());
     
   } catch (error) {
     console.error(` ❌`);
