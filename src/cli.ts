@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { parseArgs } from "util";
 import { ConfigManager } from './lib/config.js';
-import { JiraClient, type Board } from './lib/jira-client.js';
+import { JiraClient, type Board, type Issue } from './lib/jira-client.js';
 import { CacheManager } from './lib/cache.js';
 import { ContentManager } from './lib/content-manager.js';
 import { type SearchResult } from './lib/content-manager.js';
@@ -716,9 +716,12 @@ async function syncWorkspaces() {
     
     // Sync recent issues for Jira projects
     if (jiraWorkspaces.length > 0) {
+      process.stdout.write('Issues ');
       let totalIssues = 0;
       let issueSyncErrors = 0;
+      let allIssues: Issue[] = [];
       
+      // First, collect all issues that need syncing
       for (const workspace of jiraWorkspaces) {
         try {
           // Get the most recent issue update time from cache
@@ -734,25 +737,35 @@ async function syncWorkspaces() {
           }
           
           const result = await jiraClient.searchIssues(jql, { maxResults: 100 });
-          
           if (result.issues.length > 0) {
-            // Save issues in parallel for better performance
-            const savePromises = result.issues.map(issue => 
-              cacheManager.saveIssue(issue).catch(err => null)
-            );
-            
-            await Promise.all(savePromises);
-            totalIssues += result.issues.length;
+            allIssues.push(...result.issues);
           }
         } catch (error) {
           issueSyncErrors++;
+          process.stdout.write('x');
         }
       }
-      console.log(`Issues: ${totalIssues}`);
+      
+      // Now save all issues with progress dots
+      if (allIssues.length > 0) {
+        const BATCH_SIZE = 20;
+        for (let i = 0; i < allIssues.length; i += BATCH_SIZE) {
+          const batch = allIssues.slice(i, i + BATCH_SIZE);
+          const savePromises = batch.map(issue => 
+            cacheManager.saveIssue(issue).catch(err => null)
+          );
+          await Promise.all(savePromises);
+          process.stdout.write('.');
+        }
+        totalIssues = allIssues.length;
+      }
+      
+      console.log(` ${totalIssues}`);
     }
     
     // Sync Confluence spaces (incremental)
     if (confluenceWorkspaces.length > 0) {
+      process.stdout.write('Pages ');
       let totalPages = 0;
       let pageSyncErrors = 0;
       
@@ -773,7 +786,7 @@ async function syncWorkspaces() {
             // Process pages if there are any
             if (modifiedPages.length > 0) {
               // Sync pages in batches
-              const BATCH_SIZE = 50;
+              const BATCH_SIZE = 10;
               for (let i = 0; i < modifiedPages.length; i += BATCH_SIZE) {
                 const batch = modifiedPages.slice(i, i + BATCH_SIZE);
                 const batchPromises = batch.map(async (pageId) => {
@@ -801,11 +814,13 @@ async function syncWorkspaces() {
                 });
                 
                 await Promise.all(batchPromises);
+                process.stdout.write('.');
               }
             }
           } else {
-            // First sync - count all pages
+            // First sync - show progress dots for initial sync too
             const confluenceClient = new ConfluenceClient(config);
+            process.stdout.write('[initial sync] ');
             const allPages = await confluenceClient.getSpacePagesLightweight(workspace.keyOrId);
             totalPages += allPages.length;
           }
@@ -813,9 +828,10 @@ async function syncWorkspaces() {
           contentManager.close();
         } catch (error) {
           pageSyncErrors++;
+          process.stdout.write('x');
         }
       }
-      console.log(`Pages: ${totalPages}`);
+      console.log(` ${totalPages}`);
     }
     
     // Auto-index everything for search
