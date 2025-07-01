@@ -716,7 +716,7 @@ async function syncWorkspaces() {
     
     // Sync recent issues for Jira projects
     if (jiraWorkspaces.length > 0) {
-      process.stdout.write('Issues ');
+      process.stdout.write('Issues');
       let totalIssues = 0;
       let issueSyncErrors = 0;
       let allIssues: Issue[] = [];
@@ -742,12 +742,13 @@ async function syncWorkspaces() {
           }
         } catch (error) {
           issueSyncErrors++;
-          process.stdout.write('x');
+          process.stdout.write(' x');
         }
       }
       
       // Now save all issues with progress dots
       if (allIssues.length > 0) {
+        process.stdout.write(' ');
         const BATCH_SIZE = 20;
         for (let i = 0; i < allIssues.length; i += BATCH_SIZE) {
           const batch = allIssues.slice(i, i + BATCH_SIZE);
@@ -758,16 +759,18 @@ async function syncWorkspaces() {
           process.stdout.write('.');
         }
         totalIssues = allIssues.length;
+        console.log(` ${totalIssues}`);
+      } else {
+        console.log(`: ${totalIssues}`);
       }
-      
-      console.log(` ${totalIssues}`);
     }
     
     // Sync Confluence spaces (incremental)
     if (confluenceWorkspaces.length > 0) {
-      process.stdout.write('Pages ');
+      process.stdout.write('Pages');
       let totalPages = 0;
       let pageSyncErrors = 0;
+      let hasAnyPages = false;
       
       for (const workspace of confluenceWorkspaces) {
         try {
@@ -785,6 +788,8 @@ async function syncWorkspaces() {
             
             // Process pages if there are any
             if (modifiedPages.length > 0) {
+              hasAnyPages = true;
+              process.stdout.write(' ');
               // Sync pages in batches
               const BATCH_SIZE = 10;
               for (let i = 0; i < modifiedPages.length; i += BATCH_SIZE) {
@@ -820,18 +825,24 @@ async function syncWorkspaces() {
           } else {
             // First sync - show progress dots for initial sync too
             const confluenceClient = new ConfluenceClient(config);
-            process.stdout.write('[initial sync] ');
+            process.stdout.write(' [initial sync]');
             const allPages = await confluenceClient.getSpacePagesLightweight(workspace.keyOrId);
             totalPages += allPages.length;
+            hasAnyPages = true;
           }
           
           contentManager.close();
         } catch (error) {
           pageSyncErrors++;
-          process.stdout.write('x');
+          process.stdout.write(' x');
         }
       }
-      console.log(` ${totalPages}`);
+      
+      if (hasAnyPages) {
+        console.log(` ${totalPages}`);
+      } else {
+        console.log(`: ${totalPages}`);
+      }
     }
     
     // Auto-index everything for search
