@@ -371,16 +371,29 @@ async function showMyBoards(projectFilter?: string) {
         // Get board configuration and issues
         const spinner = ora('Loading board...').start();
         
-        const [boardConfig, issues] = await Promise.all([
-          jiraClient.getBoardConfiguration(board.id),
-          jiraClient.getBoardIssues(board.id)
-        ]);
-        
-        spinner.stop();
-        
-        // Debug: show total issues found
-        if (issues.length === 0) {
-          console.log(chalk.yellow('No issues found on this board. The board might be empty or have filters that exclude all issues.\n'));
+        try {
+          // Add timeout to prevent hanging
+          const timeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Request timed out')), 30000)
+          );
+          
+          const [boardConfig, issues] = await Promise.race([
+            Promise.all([
+              jiraClient.getBoardConfiguration(board.id),
+              jiraClient.getBoardIssues(board.id)
+            ]),
+            timeout
+          ]) as [any, any];
+          
+          spinner.stop();
+          
+          // Debug: show total issues found
+          if (issues.length === 0) {
+            console.log(chalk.yellow('No issues found on this board. The board might be empty or have filters that exclude all issues.\n'));
+          }
+        } catch (timeoutError) {
+          spinner.stop();
+          throw timeoutError;
         }
         
         // Group issues by status
