@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'bun:test';
-import { join } from 'path';
-import { tmpdir } from 'os';
 import { ConfigManager } from './config.js';
 
 describe('ConfigManager', () => {
