@@ -133,12 +133,62 @@ export class OllamaClient {
     }
   }
 
-  // Helper to convert embedding to/from storage format
-  static embeddingToBuffer(embedding: Float32Array): Buffer {
-    return Buffer.from(embedding.buffer);
+  // Helper to convert embedding to/from storage format with compression
+  static embeddingToBuffer(embedding: Float32Array, compress: boolean = true): Buffer {
+    if (!compress) {
+      return Buffer.from(embedding.buffer);
+    }
+    
+    // Quantize to Int8 for 4x compression
+    // Find min/max for normalization
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < embedding.length; i++) {
+      if (embedding[i] < min) min = embedding[i];
+      if (embedding[i] > max) max = embedding[i];
+    }
+    
+    // Create compressed format: [min(4 bytes), max(4 bytes), quantized values(n bytes)]
+    const compressed = new ArrayBuffer(8 + embedding.length);
+    const view = new DataView(compressed);
+    
+    // Store min/max as Float32
+    view.setFloat32(0, min, true);
+    view.setFloat32(4, max, true);
+    
+    // Quantize to Int8
+    const scale = (max - min) / 255;
+    const quantized = new Int8Array(compressed, 8);
+    for (let i = 0; i < embedding.length; i++) {
+      quantized[i] = Math.round((embedding[i] - min) / scale - 128);
+    }
+    
+    return Buffer.from(compressed);
   }
 
   static bufferToEmbedding(buffer: Buffer): Float32Array {
+    // Check if this is compressed format (has min/max header)
+    if (buffer.length > 8) {
+      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      const min = view.getFloat32(0, true);
+      const max = view.getFloat32(4, true);
+      
+      // If min/max look reasonable, assume compressed format
+      if (min >= -10 && min <= 10 && max >= -10 && max <= 10 && max > min) {
+        const scale = (max - min) / 255;
+        const quantized = new Int8Array(buffer.buffer, buffer.byteOffset + 8, buffer.byteLength - 8);
+        const embedding = new Float32Array(quantized.length);
+        
+        // Dequantize
+        for (let i = 0; i < quantized.length; i++) {
+          embedding[i] = (quantized[i] + 128) * scale + min;
+        }
+        
+        return embedding;
+      }
+    }
+    
+    // Fall back to uncompressed format
     return new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
   }
 
