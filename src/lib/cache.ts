@@ -394,6 +394,60 @@ export class CacheManager {
     return stmt.all(...params);
   }
 
+  async getCachedSprintIssues(sprintId: string): Promise<any[]> {
+    const stmt = this.db.prepare(`
+      SELECT * FROM sprint_issues_cache
+      WHERE sprint_id = ?
+      ORDER BY priority_order, updated DESC
+    `);
+    return stmt.all(sprintId) as any[];
+  }
+
+  async setCachedSprintIssues(sprintId: string, issues: any[]): Promise<void> {
+    // Delete existing cached issues for this sprint
+    const deleteStmt = this.db.prepare('DELETE FROM sprint_issues_cache WHERE sprint_id = ?');
+    deleteStmt.run(sprintId);
+
+    if (issues.length === 0) return;
+
+    // Insert new cached issues
+    const insertStmt = this.db.prepare(`
+      INSERT INTO sprint_issues_cache (
+        sprint_id, key, project_key, summary, status, priority, priority_order,
+        assignee_name, assignee_email, updated, cached_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const now = Date.now();
+    const priorityOrder: Record<string, number> = { 'Highest': 1, 'High': 2, 'Medium': 3, 'Low': 4, 'Lowest': 5 };
+
+    for (const issue of issues) {
+      insertStmt.run(
+        sprintId,
+        issue.key,
+        issue.project_key,
+        issue.summary,
+        issue.status,
+        issue.priority,
+        priorityOrder[issue.priority] || 6,
+        issue.assignee_name,
+        issue.assignee_email,
+        issue.updated,
+        now
+      );
+    }
+  }
+
+  async getSprintCacheAge(sprintId: string): Promise<number | null> {
+    const stmt = this.db.prepare(`
+      SELECT MIN(cached_at) as oldest_cache 
+      FROM sprint_issues_cache 
+      WHERE sprint_id = ?
+    `);
+    const result = stmt.get(sprintId) as { oldest_cache: number | null };
+    return result?.oldest_cache || null;
+  }
+
   close() {
     this.db.close();
   }

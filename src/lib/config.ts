@@ -235,6 +235,25 @@ export class ConfigManager {
         this.db.run(`ALTER TABLE issues ADD COLUMN sprint_id TEXT`);
         this.db.run(`ALTER TABLE issues ADD COLUMN sprint_name TEXT`);
       }
+
+      // Create sprint issues cache table for fast access
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS sprint_issues_cache (
+          id INTEGER PRIMARY KEY,
+          sprint_id TEXT NOT NULL,
+          key TEXT NOT NULL,
+          project_key TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          status TEXT NOT NULL,
+          priority TEXT NOT NULL,
+          priority_order INTEGER DEFAULT 6,
+          assignee_name TEXT,
+          assignee_email TEXT,
+          updated TEXT NOT NULL,
+          cached_at INTEGER NOT NULL,
+          UNIQUE(sprint_id, key)
+        )
+      `);
       
       // Check if reporter_email has NOT NULL constraint
       const tableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as any[];
