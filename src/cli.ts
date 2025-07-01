@@ -1493,7 +1493,7 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       
       if (newestModifiedDate) {
         // Only fetch pages modified after our newest stored page
-        const spinner = ora({ text: 'Checking for recently modified pages...', indent: 2 }).start();
+        const spinner = ora('Checking for recently modified pages...').start();
         
         const modifiedPageIds = await confluenceClient.getPagesSince(spaceKey, newestModifiedDate, (current) => {
           spinner.text = `Found ${current} modified pages...`;
@@ -1513,7 +1513,7 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
         console.log(chalk.dim('  No previous sync found. Fetching all pages...'));
         
         let lastUpdate = Date.now();
-        const spinner = ora({ text: 'Fetching page list...', indent: 2 }).start();
+        const spinner = ora('Fetching page list...').start();
         
         const allPages = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
           const now = Date.now();
