@@ -20,8 +20,9 @@ export class OllamaClient {
 
 
 
-  async generate(prompt: string, options?: { model?: string }): Promise<string> {
+  async generate(prompt: string, options?: { model?: string; temperature?: number }): Promise<string> {
     const model = options?.model || 'gemma3n:latest';
+    const temperature = options?.temperature ?? 0.7;
     
     try {
       const response = await fetch(`${this.baseUrl}/api/generate`, {
@@ -32,7 +33,7 @@ export class OllamaClient {
           prompt,
           stream: false,
           options: {
-            temperature: 0.7,
+            temperature,
             top_p: 0.9,
           }
         })

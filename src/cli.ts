@@ -1567,7 +1567,7 @@ Consider:
 
 Respond with ONLY one of: "jira", "confluence", or "both"`;
         
-        const sourceAnalysis = await ollama.generate(analysisPrompt, { model: analysisModel });
+        const sourceAnalysis = await ollama.generate(analysisPrompt, { model: analysisModel, temperature: 0.3 });
         const suggestedSource = sourceAnalysis.trim().toLowerCase();
         
         if (suggestedSource === 'jira') {
@@ -1629,7 +1629,7 @@ Return only the queries, one per line:`;
     let round1Queries = [question];
     
     try {
-      const response = await ollama.generate(round1Prompt, { model: analysisModel });
+      const response = await ollama.generate(round1Prompt, { model: analysisModel, temperature: 0.3 });
       if (response) {
         const generated = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 4);
         if (generated.length > 0) {
@@ -1707,7 +1707,7 @@ For the question "${question}", generate 2-3 more targeted search queries focusi
 Return only the queries, one per line:`;
 
       try {
-        const response = await ollama.generate(round2Prompt, { model: analysisModel });
+        const response = await ollama.generate(round2Prompt, { model: analysisModel, temperature: 0.3 });
         if (response) {
           const round2Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 3);
           
@@ -1763,7 +1763,7 @@ Generate 1-2 queries to find missing context such as:
 Return only the queries, one per line:`;
 
       try {
-        const response = await ollama.generate(round3Prompt, { model: analysisModel });
+        const response = await ollama.generate(round3Prompt, { model: analysisModel, temperature: 0.3 });
         if (response) {
           const round3Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 2);
           
@@ -1929,9 +1929,32 @@ Return only the queries, one per line:`;
       return;
     }
     
-    // Build context string for the prompt
-    const contextStr = limitedContexts.map((ctx, i) => {
-      // Building context for each document
+    // Extract context with smart document analysis
+    spinner.text = 'Analyzing documents for relevant content...';
+    
+    // Pre-analyze the question once for all documents
+    const questionAnalysisPrompt = `Analyze this question and identify what specific information is being asked for:
+"${question}"
+
+Provide a brief list of the key information needed (max 3 items), one per line:`;
+    
+    let globalKeyInfo: string[] = [];
+    try {
+      const analysisResponse = await ollama.generate(questionAnalysisPrompt, { model: analysisModel, temperature: 0.1 });
+      globalKeyInfo = analysisResponse.trim().split('\n').filter(l => l.trim()).slice(0, 3);
+    } catch {
+      // Fallback to keyword extraction if LLM fails
+      const questionLower = question.toLowerCase();
+      globalKeyInfo = questionLower
+        .replace(/[?!.,;:'"]/g, '')
+        .split(/\s+/)
+        .filter(word => 
+          word.length > 3 && !['what', 'which', 'who', 'works', 'owns', 'team', 'responsible', 'does', 'that', 'this', 'with', 'from'].includes(word)
+        );
+    }
+    
+    // Process documents to extract relevant content
+    const contextPromises = limitedContexts.map(async (ctx, i) => {
       const { content } = ctx;
       let contextBlock = `[${i + 1}] `;
       
@@ -1949,55 +1972,87 @@ Return only the queries, one per line:`;
       // Extract relevant content based on the question
       let snippet = '';
       
-      // For very large documents, try to find relevant sections
+      // For very large documents, use smart extraction
       if (content.content.length > 5000) {
-        // Extract keywords from the question
+        // Fast path: Check if this is a simple document that doesn't need complex analysis
+        const titleLower = content.title.toLowerCase();
         const questionLower = question.toLowerCase();
-        const keywords = questionLower
-          .replace(/[?!.,;:'"]/g, '') // Remove punctuation
-          .split(/\s+/)
-          .filter(word => 
-            word.length > 3 && !['what', 'which', 'who', 'works', 'owns', 'team', 'responsible', 'does', 'that', 'this', 'with', 'from'].includes(word)
-          );
+        const isDirectMatch = titleLower.includes(questionLower) || 
+                             globalKeyInfo.some(info => titleLower.includes(info.toLowerCase()));
         
-        // Try to find sections containing these keywords
-        let bestSection = '';
-        let bestScore = 0;
-        
-        // Check chunks of the content
-        const chunkSize = 1500;
-        const overlap = 500;
-        
-        for (let i = 0; i < content.content.length - chunkSize; i += (chunkSize - overlap)) {
-          const chunk = content.content.substring(i, i + chunkSize);
-          const chunkLower = chunk.toLowerCase();
-          
-          // Score based on keyword matches
-          let score = 0;
-          for (const keyword of keywords) {
-            if (chunkLower.includes(keyword)) {
-              score += 10;
-              // Extra points if the keyword appears multiple times
-              const matches = (chunkLower.match(new RegExp(keyword, 'g')) || []).length;
-              score += matches * 2;
-            }
-          }
-          
-          
-          if (score > bestScore) {
-            bestScore = score;
-            bestSection = chunk;
-          }
-        }
-        
-        // Use the best section if we found relevant content
-        if (bestScore > 10) {
-          snippet = bestSection;
-          // Found relevant section
+        if (isDirectMatch) {
+          // Direct match - just take the beginning
+          snippet = content.content.substring(0, 2500);
         } else {
-          // Fallback to beginning of document
-          snippet = content.content.substring(0, 2000);
-          // Using beginning of document
+          // Complex extraction for large documents
+          const chunkSize = 2000;
+          const overlap = 400;
+          const chunks: Array<{ text: string; index: number; score: number }> = [];
+          
+          // Create chunks with overlap
+          for (let j = 0; j < content.content.length - overlap; j += (chunkSize - overlap)) {
+            const chunk = content.content.substring(j, Math.min(j + chunkSize, content.content.length));
+            chunks.push({ text: chunk, index: j, score: 0 });
+          }
+          
+          // Quick keyword-based scoring to avoid expensive LLM calls for obviously irrelevant chunks
+          for (const chunk of chunks) {
+            const chunkLower = chunk.text.toLowerCase();
+            let score = 0;
+            
+            // Score based on keyword matches
+            for (const info of globalKeyInfo) {
+              const infoLower = info.toLowerCase();
+              const words = infoLower.split(/\s+/);
+              for (const word of words) {
+                if (word.length > 3 && chunkLower.includes(word)) {
+                  score += 10;
+                  // Extra points for multiple occurrences
+                  const matches = (chunkLower.match(new RegExp(word, 'g')) || []).length;
+                  score += Math.min(matches * 2, 10);
+                }
+              }
+            }
+            
+            // Look for potential section headers
+            if (chunk.text.includes('\n#') || chunk.text.includes('\n##')) {
+              score += 5;
+            }
+            
+            chunk.score = Math.min(score, 100);
+          }
+          
+          // Sort by score and take top candidates
+          chunks.sort((a, b) => b.score - a.score);
+          const topChunks = chunks.slice(0, 3).filter(c => c.score > 10);
+          
+          if (topChunks.length > 0) {
+            // Sort by position for proper ordering
+            topChunks.sort((a, b) => a.index - b.index);
+            
+            // Extract and merge relevant sections
+            const sections = topChunks.map(chunk => {
+              // Try to extend to natural boundaries
+              let start = chunk.index;
+              let end = chunk.index + chunk.text.length;
+              
+              // Look for paragraph boundaries
+              const fullText = content.content;
+              while (start > 0 && fullText[start - 1] !== '\n') start--;
+              while (end < fullText.length && fullText[end] !== '\n') end++;
+              
+              return fullText.substring(start, end).trim();
+            });
+            
+            snippet = sections.join('\n\n[...]\n\n');
+            
+            if (snippet.length > 3000) {
+              snippet = snippet.substring(0, 3000);
+            }
+          } else {
+            // No high-scoring chunks, fall back to beginning
+            snippet = content.content.substring(0, 2000);
+          }
         }
       } else {
         // For smaller documents, include more content
@@ -2009,10 +2064,8 @@ Return only the queries, one per line:`;
       snippet = snippet.trim();
       
       // Process table structures for better clarity
-      // Look for markdown table patterns and convert to more readable format
       if (snippet.includes('|')) {
         snippet = snippet.replace(/\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|/g, (match, col1, col2) => {
-          // Simple two-column table conversion
           return `\n${col1.trim()}: ${col2.trim()}\n`;
         });
       }
@@ -2022,7 +2075,11 @@ Return only the queries, one per line:`;
       contextBlock += `Content: ${snippet}...\n`;
       
       return contextBlock;
-    }).join('\n');
+    });
+    
+    // Wait for all context extractions to complete
+    const contextBlocks = await Promise.all(contextPromises);
+    const contextStr = contextBlocks.join('\n');
     
     // Build the prompt
     const hasJira = limitedContexts.some(c => c.content.source === 'jira');
