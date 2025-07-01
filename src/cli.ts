@@ -358,6 +358,182 @@ function triggerBackgroundSync(projectKey: string, config: any) {
   subprocess.unref();
 }
 
+async function showSprint(options: { 
+  unassigned?: boolean;
+  projectFilter?: string;
+}) {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  const cacheManager = new CacheManager();
+  const jiraClient = new JiraClient(config);
+  
+  try {
+    // First, detect user's active sprints
+    let activeSprints: Array<{
+      sprintId: string;
+      sprintName: string;
+      boardId: number;
+      projectKey: string;
+    }> = [];
+    
+    // Check cached sprints first
+    const cachedSprints = await cacheManager.getUserActiveSprints(config.email);
+    
+    if (cachedSprints.length === 0) {
+      // No cached sprints, try to detect from user's current issues
+      console.log(chalk.dim('Detecting your active sprints...'));
+      
+      // Get user's assigned issues
+      const myIssues = await cacheManager.listMyOpenIssues(config.email);
+      const projectKeys = [...new Set(myIssues.map(i => i.project_key))];
+      
+      // For each project, check boards and sprints
+      for (const projectKey of projectKeys) {
+        try {
+          const boards = await jiraClient.getBoardsForProject(projectKey);
+          
+          for (const board of boards) {
+            const sprints = await jiraClient.getActiveSprints(board.id);
+            
+            for (const sprint of sprints) {
+              await cacheManager.trackUserSprint(config.email, {
+                id: sprint.id.toString(),
+                name: sprint.name,
+                boardId: board.id,
+                projectKey: projectKey
+              });
+              
+              activeSprints.push({
+                sprintId: sprint.id.toString(),
+                sprintName: sprint.name,
+                boardId: board.id,
+                projectKey: projectKey
+              });
+            }
+          }
+        } catch (error) {
+          // Skip projects without boards
+          continue;
+        }
+      }
+    } else {
+      activeSprints = cachedSprints;
+    }
+    
+    // Filter by project if specified
+    if (options.projectFilter) {
+      activeSprints = activeSprints.filter(s => 
+        s.projectKey.toLowerCase() === options.projectFilter!.toLowerCase()
+      );
+    }
+    
+    if (activeSprints.length === 0) {
+      console.log(chalk.yellow('No active sprints found.'));
+      console.log(chalk.dim('💡 Make sure you have issues assigned in active sprints.'));
+      return;
+    }
+    
+    // Display sprints with their issues
+    for (const sprint of activeSprints) {
+      const allIssues = await cacheManager.getSprintIssues(sprint.sprintId);
+      const unassignedIssues = allIssues.filter(i => !i.assignee_email);
+      
+      // Skip if showing only unassigned and there are none
+      if (options.unassigned && unassignedIssues.length === 0) {
+        continue;
+      }
+      
+      // Sprint header with subtle coloring
+      console.log(`\n${chalk.bold(sprint.sprintName)} ${chalk.dim(`(${sprint.projectKey})`)}`);
+      
+      if (options.unassigned) {
+        // Show only unassigned issues
+        if (unassignedIssues.length === 0) {
+          console.log(chalk.dim('  No unassigned issues'));
+        } else {
+          console.log(chalk.dim(`  ${unassignedIssues.length} unassigned issue${unassignedIssues.length !== 1 ? 's' : ''}:`));
+          
+          unassignedIssues.forEach(issue => {
+            const priorityColor = issue.priority === 'High' || issue.priority === 'Highest' 
+              ? chalk.red 
+              : issue.priority === 'Medium' 
+                ? chalk.yellow 
+                : chalk.dim;
+            
+            console.log(`  ${chalk.cyan(issue.key)}: ${issue.summary}`);
+            console.log(`    ${priorityColor(`Priority: ${issue.priority || 'None'}`)} ${chalk.dim('|')} ${chalk.dim(`Type: ${issue.status}`)}`);
+          });
+        }
+      } else {
+        // Show all issues grouped by status
+        const statusGroups = new Map<string, typeof allIssues>();
+        allIssues.forEach(issue => {
+          const status = issue.status;
+          if (!statusGroups.has(status)) {
+            statusGroups.set(status, []);
+          }
+          statusGroups.get(status)!.push(issue);
+        });
+        
+        // Common statuses in logical order
+        const statusOrder = ['To Do', 'In Progress', 'In Review', 'Done'];
+        const sortedStatuses = Array.from(statusGroups.keys()).sort((a, b) => {
+          const aIndex = statusOrder.indexOf(a);
+          const bIndex = statusOrder.indexOf(b);
+          if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+          if (aIndex !== -1) return -1;
+          if (bIndex !== -1) return 1;
+          return a.localeCompare(b);
+        });
+        
+        sortedStatuses.forEach(status => {
+          const issues = statusGroups.get(status)!;
+          const unassignedCount = issues.filter(i => !i.assignee_email).length;
+          
+          // Status header with count
+          const statusColor = status === 'Done' ? chalk.green : 
+                            status === 'In Progress' ? chalk.blue :
+                            status === 'In Review' ? chalk.magenta :
+                            chalk.gray;
+          
+          console.log(`  ${statusColor(status)} ${chalk.dim(`(${issues.length}${unassignedCount > 0 ? `, ${unassignedCount} unassigned` : ''})`)}`);
+          
+          // Show first few issues
+          issues.slice(0, 5).forEach(issue => {
+            const assignee = issue.assignee_name || chalk.yellow('unassigned');
+            console.log(`    ${chalk.cyan(issue.key)}: ${issue.summary} ${chalk.dim(`@${assignee}`)}`);
+          });
+          
+          if (issues.length > 5) {
+            console.log(chalk.dim(`    ... and ${issues.length - 5} more`));
+          }
+        });
+      }
+    }
+    
+    // Footer with helpful tips
+    console.log();
+    if (options.unassigned) {
+      console.log(chalk.dim(`💡 Use ${chalk.cyan('ji take <issue-key>')} to assign an issue to yourself`));
+    } else {
+      console.log(chalk.dim(`💡 Use ${chalk.cyan('ji sprint unassigned')} to see only unassigned issues`));
+    }
+    
+  } catch (error) {
+    console.error(`Failed to show sprint: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    configManager.close();
+    cacheManager.close();
+  }
+}
+
 async function showMyBoards(projectFilter?: string) {
   const configManager = new ConfigManager();
   const cacheManager = new CacheManager();
@@ -2782,6 +2958,8 @@ async function main() {
     console.log('  ji auth                       - Set up authentication');
     console.log('  ji mine                       - Show your open issues');
     console.log('  ji board [project]            - Show boards (all or by project)');
+    console.log('  ji sprint [project]           - Show current sprint(s)');
+    console.log('  ji sprint unassigned [proj]   - Show unassigned sprint issues');
     console.log('  ji sync                       - Sync all your active workspaces');
     console.log('  ji issue view <key>           - View an issue');
     console.log('  ji issue sync <project>       - Sync all issues from a project');
@@ -3005,6 +3183,16 @@ async function main() {
   } else if (command === 'board') {
     const projectFilter = args[1]; // Optional project filter
     await showMyBoards(projectFilter);
+  } else if (command === 'sprint' && args[1] === 'unassigned') {
+    // Show only unassigned issues in sprints
+    const projectFilter = args[2]; // Optional project filter
+    await showSprint({ unassigned: true, projectFilter });
+  } else if (command === 'sprint' && args[1]) {
+    // Show specific project's sprint
+    await showSprint({ projectFilter: args[1] });
+  } else if (command === 'sprint') {
+    // Show all active sprints
+    await showSprint({});
   } else if (command === 'sync') {
     await syncWorkspaces();
   } else {

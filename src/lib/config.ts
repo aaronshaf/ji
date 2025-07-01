@@ -128,6 +128,21 @@ export class ConfigManager {
         synced_at INTEGER
       )
     `);
+    
+    // Create user sprints table to track active sprints
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS user_sprints (
+        id INTEGER PRIMARY KEY,
+        user_email TEXT NOT NULL,
+        sprint_id TEXT NOT NULL,
+        sprint_name TEXT,
+        board_id INTEGER,
+        project_key TEXT,
+        last_accessed INTEGER NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        UNIQUE(user_email, sprint_id)
+      )
+    `);
 
     // Create ask memory table for progressive learning
     this.db.run(`
@@ -210,6 +225,16 @@ export class ConfigManager {
         this.db.run(`ALTER TABLE searchable_content ADD COLUMN content_hash TEXT`);
       }
       
+      
+      // Add sprint fields to issues table if they don't exist
+      const issuesTableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as any[];
+      const hasSprintId = issuesTableInfo.some((col: any) => col.name === 'sprint_id');
+      
+      if (!hasSprintId) {
+        console.log('Migrating database: Adding sprint fields to issues...');
+        this.db.run(`ALTER TABLE issues ADD COLUMN sprint_id TEXT`);
+        this.db.run(`ALTER TABLE issues ADD COLUMN sprint_name TEXT`);
+      }
       
       // Check if reporter_email has NOT NULL constraint
       const tableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as any[];

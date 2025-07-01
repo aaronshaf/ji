@@ -236,6 +236,72 @@ export class CacheManager {
     stmt.run(autoSync ? 1 : 0, autoSync, Date.now(), id);
   }
 
+  // Sprint management methods
+  async trackUserSprint(userEmail: string, sprint: {
+    id: string;
+    name: string;
+    boardId: number;
+    projectKey: string;
+  }): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO user_sprints 
+      (user_email, sprint_id, sprint_name, board_id, project_key, last_accessed, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, 1)
+    `);
+    
+    stmt.run(userEmail, sprint.id, sprint.name, sprint.boardId, sprint.projectKey, Date.now());
+  }
+
+  async getUserActiveSprints(userEmail: string): Promise<Array<{
+    sprintId: string;
+    sprintName: string;
+    boardId: number;
+    projectKey: string;
+    lastAccessed: number;
+  }>> {
+    const stmt = this.db.prepare(`
+      SELECT sprint_id, sprint_name, board_id, project_key, last_accessed
+      FROM user_sprints
+      WHERE user_email = ? AND is_active = 1
+      ORDER BY last_accessed DESC
+    `);
+    
+    const rows = stmt.all(userEmail) as any[];
+    return rows.map(row => ({
+      sprintId: row.sprint_id,
+      sprintName: row.sprint_name,
+      boardId: row.board_id,
+      projectKey: row.project_key,
+      lastAccessed: row.last_accessed
+    }));
+  }
+
+  async getSprintIssues(sprintId: string, options?: { 
+    assignee?: string | null 
+  }): Promise<any[]> {
+    let query = `
+      SELECT key, project_key, summary, status, priority, assignee_name, assignee_email, updated, sprint_id, sprint_name
+      FROM issues
+      WHERE sprint_id = ?
+    `;
+    
+    const params: any[] = [sprintId];
+    
+    if (options?.assignee === null) {
+      // Only unassigned issues
+      query += ` AND (assignee_email IS NULL OR assignee_email = '')`;
+    } else if (options?.assignee) {
+      // Specific assignee
+      query += ` AND assignee_email = ?`;
+      params.push(options.assignee);
+    }
+    
+    query += ` ORDER BY priority DESC, updated DESC`;
+    
+    const stmt = this.db.prepare(query);
+    return stmt.all(...params);
+  }
+
   close() {
     this.db.close();
   }
