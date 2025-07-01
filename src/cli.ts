@@ -695,23 +695,34 @@ async function syncWorkspaces() {
     console.log(chalk.dim(`Jira: ${jiraProjectKeys || 'none'}`));
     console.log(chalk.dim(`Confluence: ${confluenceSpaceKeys || 'none'}\n`));
     
-    // Sync boards
+    // Sync boards (only if not synced recently)
     if (jiraWorkspaces.length > 0) {
-      const allBoards = [];
-      let boardSyncErrors = 0;
-      for (const workspace of jiraWorkspaces) {
-        try {
-          const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
-          allBoards.push(...projectBoards);
-        } catch (error) {
-          boardSyncErrors++;
-        }
-      }
+      const boardsLastSync = await cacheManager.getBoardsLastSync();
       
-      if (allBoards.length > 0) {
-        await cacheManager.saveBoards(allBoards);
+      const shouldSyncBoards = !boardsLastSync || 
+        (Date.now() - boardsLastSync) > (24 * 60 * 60 * 1000); // 24 hours
+      
+      if (shouldSyncBoards) {
+        const allBoards = [];
+        let boardSyncErrors = 0;
+        for (const workspace of jiraWorkspaces) {
+          try {
+            const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
+            allBoards.push(...projectBoards);
+          } catch (error) {
+            boardSyncErrors++;
+          }
+        }
+        
+        if (allBoards.length > 0) {
+          await cacheManager.saveBoards(allBoards);
+        }
+        console.log(`Boards: ${allBoards.length}`);
+      } else {
+        // Get count from cache
+        const boardCount = await cacheManager.getBoardCount();
+        console.log(`Boards: ${boardCount} (cached)`);
       }
-      console.log(`Boards: ${allBoards.length}`);
     }
     
     // Sync recent issues for Jira projects
@@ -724,21 +735,32 @@ async function syncWorkspaces() {
       // First, collect all issues that need syncing
       for (const workspace of jiraWorkspaces) {
         try {
-          // Get the most recent issue update time from cache
-          const latestUpdate = await cacheManager.getLatestIssueUpdate(workspace.keyOrId);
+          // Gap-filling strategy: sync both newer and older issues
+          const updateRange = await cacheManager.getIssueUpdateRange(workspace.keyOrId);
           
-          let jql: string;
-          if (latestUpdate) {
-            // Incremental sync - only get issues updated since last sync
-            jql = `project = "${workspace.keyOrId}" AND updated > "${latestUpdate}" ORDER BY updated DESC`;
+          if (updateRange.newest && updateRange.oldest) {
+            // We have issues - do forward and backward fill
+            
+            // Forward fill: get issues newer than our newest
+            const forwardJql = `project = "${workspace.keyOrId}" AND updated > "${updateRange.newest}" ORDER BY updated DESC`;
+            const forwardResult = await jiraClient.searchIssues(forwardJql, { maxResults: 100 });
+            if (forwardResult.issues.length > 0) {
+              allIssues.push(...forwardResult.issues);
+            }
+            
+            // Backward fill: get issues older than our oldest (limit to avoid huge syncs)
+            const backwardJql = `project = "${workspace.keyOrId}" AND updated < "${updateRange.oldest}" ORDER BY updated DESC`;
+            const backwardResult = await jiraClient.searchIssues(backwardJql, { maxResults: 50 });
+            if (backwardResult.issues.length > 0) {
+              allIssues.push(...backwardResult.issues);
+            }
           } else {
             // First sync - get recent issues
-            jql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
-          }
-          
-          const result = await jiraClient.searchIssues(jql, { maxResults: 100 });
-          if (result.issues.length > 0) {
-            allIssues.push(...result.issues);
+            const initialJql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
+            const initialResult = await jiraClient.searchIssues(initialJql, { maxResults: 100 });
+            if (initialResult.issues.length > 0) {
+              allIssues.push(...initialResult.issues);
+            }
           }
         } catch (error) {
           issueSyncErrors++;
