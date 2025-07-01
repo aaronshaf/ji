@@ -667,7 +667,7 @@ async function showMyBoards(projectFilter?: string) {
   }
 }
 
-async function syncWorkspaces() {
+async function syncWorkspaces(options: { clean?: boolean } = {}) {
   const configManager = new ConfigManager();
   const cacheManager = new CacheManager();
   const config = await configManager.getConfig();
@@ -694,6 +694,16 @@ async function syncWorkspaces() {
     
     console.log(chalk.dim(`Jira: ${jiraProjectKeys || 'none'}`));
     console.log(chalk.dim(`Confluence: ${confluenceSpaceKeys || 'none'}\n`));
+    
+    // Handle clean flag - clear all project data if requested
+    if (options.clean) {
+      for (const workspace of jiraWorkspaces) {
+        await cacheManager.deleteProjectIssues(workspace.keyOrId);
+        await cacheManager.clearBackfillLimit(workspace.keyOrId);
+      }
+      // Clear Confluence spaces too
+      // TODO: Add confluence clean support when needed
+    }
     
     // Sync boards and show how many were updated
     if (jiraWorkspaces.length > 0) {
@@ -3490,7 +3500,10 @@ async function main() {
     // Show all active sprints
     await showSprint({});
   } else if (command === 'sync') {
-    await syncWorkspaces();
+    const options = {
+      clean: args.includes('--clean')
+    };
+    await syncWorkspaces(options);
   } else {
     console.error(`Unknown command: ${args.join(' ')}`);
     process.exit(1);
