@@ -309,6 +309,22 @@ export class ContentManager {
     return !existing || existing.content_hash !== newContentHash;
   }
 
+  async getLastSyncTime(spaceKey: string): Promise<Date | null> {
+    const stmt = this.db.prepare(`
+      SELECT MAX(synced_at) as last_sync 
+      FROM searchable_content 
+      WHERE space_key = ? AND source = 'confluence'
+    `);
+    
+    const result = stmt.get(spaceKey) as { last_sync: number | null } | undefined;
+    
+    if (result && result.last_sync) {
+      return new Date(result.last_sync);
+    }
+    
+    return null;
+  }
+
   private extractSprintInfo(issue: Issue): { id: string; name: string } | null {
     // Sprint information is typically stored in customfield_10020 or similar
     // The format is usually an array of sprint strings
