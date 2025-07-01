@@ -319,6 +319,7 @@ async function showMyIssues() {
 
 async function showMyBoards() {
   const configManager = new ConfigManager();
+  const cacheManager = new CacheManager();
   const config = await configManager.getConfig();
   
   if (!config) {
@@ -327,15 +328,15 @@ async function showMyBoards() {
   }
 
   try {
-    const jiraClient = new JiraClient(config);
-    const spinner = ora('Finding your boards...').start();
+    // Track board usage
+    await cacheManager.trackWorkspace('jira_project', 'boards', 'Board Access');
     
-    const boards = await jiraClient.getUserBoards(config.email);
-    spinner.stop();
+    // Get boards from local cache - instant!
+    const boards = await cacheManager.getMyBoards(config.email);
     
     if (boards.length === 0) {
-      console.log('No boards found for your active projects.');
-      console.log(chalk.dim('Note: This searches boards for projects where you have recent activity.'));
+      console.log('No boards found in cache.');
+      console.log(chalk.dim('💡 Run "ji sync" to sync your workspaces and boards.'));
       return;
     }
     
@@ -385,6 +386,121 @@ async function showMyBoards() {
     process.exit(1);
   } finally {
     configManager.close();
+    cacheManager.close();
+  }
+}
+
+async function syncWorkspaces() {
+  const configManager = new ConfigManager();
+  const cacheManager = new CacheManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  try {
+    console.log(chalk.bold('\n🔄 Syncing your workspaces...\n'));
+    
+    // Get active workspaces
+    const workspaces = await cacheManager.getActiveWorkspaces();
+    
+    if (workspaces.length === 0) {
+      console.log('No workspaces detected yet.');
+      console.log(chalk.dim('💡 Use commands like "ji issue sync <project>" or "ji confluence sync <space>" to start tracking workspaces.'));
+      console.log(chalk.dim('    Then run "ji sync" to automatically sync your frequently used workspaces.'));
+      return;
+    }
+    
+    const jiraClient = new JiraClient(config);
+    
+    // Sync Jira projects and their boards
+    const jiraWorkspaces = workspaces.filter(w => w.type === 'jira_project');
+    const confluenceWorkspaces = workspaces.filter(w => w.type === 'confluence_space');
+    
+    console.log(`📊 Found ${jiraWorkspaces.length} Jira projects and ${confluenceWorkspaces.length} Confluence spaces to sync\n`);
+    
+    // Sync boards for all Jira projects (fast)
+    if (jiraWorkspaces.length > 0) {
+      console.log(chalk.blue('📋 Syncing boards...'));
+      
+      const allBoards = [];
+      for (const workspace of jiraWorkspaces) {
+        try {
+          const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
+          allBoards.push(...projectBoards);
+          console.log(`  ✓ ${workspace.name}: ${projectBoards.length} boards`);
+        } catch (error) {
+          console.log(`  ⚠️  ${workspace.name}: ${error instanceof Error ? error.message : 'Failed'}`);
+        }
+      }
+      
+      if (allBoards.length > 0) {
+        await cacheManager.saveBoards(allBoards);
+        console.log(chalk.green(`  📋 Cached ${allBoards.length} boards\n`));
+      }
+    }
+    
+    // Sync recent issues for Jira projects
+    if (jiraWorkspaces.length > 0) {
+      console.log(chalk.blue('📝 Syncing recent issues...'));
+      
+      for (const workspace of jiraWorkspaces) {
+        try {
+          // Sync only recent issues (last 30 days) for performance
+          const jql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
+          const result = await jiraClient.searchIssues(jql, { maxResults: 100 });
+          
+          for (const issue of result.issues) {
+            await cacheManager.saveIssue(issue);
+          }
+          
+          console.log(`  ✓ ${workspace.name}: ${result.issues.length} recent issues`);
+        } catch (error) {
+          console.log(`  ⚠️  ${workspace.name}: ${error instanceof Error ? error.message : 'Failed'}`);
+        }
+      }
+      console.log();
+    }
+    
+    // Sync Confluence spaces (incremental)
+    if (confluenceWorkspaces.length > 0) {
+      console.log(chalk.blue('📚 Syncing Confluence spaces...'));
+      
+      for (const workspace of confluenceWorkspaces) {
+        try {
+          console.log(`  Syncing ${workspace.name}...`);
+          await syncConfluence(workspace.keyOrId, { clean: false }); // Incremental sync
+          console.log(`  ✓ ${workspace.name}: synced`);
+        } catch (error) {
+          console.log(`  ⚠️  ${workspace.name}: ${error instanceof Error ? error.message : 'Failed'}`);
+        }
+      }
+    }
+    
+    // Auto-index everything for search
+    try {
+      console.log(chalk.blue('\n🔍 Updating search index...'));
+      const { syncToMeilisearch } = await import('./lib/sync-meilisearch.js');
+      await syncToMeilisearch({ clean: false });
+      console.log(chalk.green('  ✓ Search index updated'));
+    } catch (error) {
+      console.log(chalk.yellow('  ⚠️  Search indexing skipped (Meilisearch may not be running)'));
+    }
+    
+    const totalWorkspaces = jiraWorkspaces.length + confluenceWorkspaces.length;
+    console.log(chalk.green(`\n✅ Sync complete! Updated ${totalWorkspaces} workspaces.`));
+    
+    console.log(chalk.dim('\n💡 Your boards and recent content are now cached locally for instant access.'));
+    console.log(chalk.dim('    Run "ji sync" regularly or after working on new projects to keep everything up to date.'));
+    
+  } catch (error) {
+    console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    configManager.close();
+    cacheManager.close();
   }
 }
 
@@ -817,6 +933,9 @@ async function syncJiraProject(projectKey: string, options: { fresh?: boolean } 
   try {
     console.log(`\n🔍 Syncing Jira project ${chalk.bold.blue(projectKey)}...\n`);
     
+    // Track this project as a workspace
+    await cacheManager.trackWorkspace('jira_project', projectKey, `Project ${projectKey}`);
+    
     // If --clean flag is set, delete existing issues first
     if (options.fresh) {
       console.log(chalk.yellow('🧹 Clearing existing issues for clean sync...\n'));
@@ -970,6 +1089,7 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
 
   const confluenceClient = new ConfluenceClient(config);
   const contentManager = new ContentManager();
+  const cacheManager = new CacheManager();
 
   try {
     console.log(`\n🔍 Syncing Confluence space ${chalk.bold.blue(spaceKey)}...\n`);
@@ -977,6 +1097,9 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
     // First verify the space exists
     const space = await confluenceClient.getSpace(spaceKey);
     console.log(`📚 Space: ${chalk.bold(space.name)}\n`);
+    
+    // Track this space as a workspace
+    await cacheManager.trackWorkspace('confluence_space', spaceKey, space.name);
 
     const startTime = Date.now();
     let pagesToSync: string[] = [];
@@ -1112,6 +1235,7 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
   } finally {
     configManager.close();
     contentManager.close();
+    cacheManager.close();
   }
 }
 
@@ -2344,6 +2468,8 @@ async function main() {
     process.exit(1);
   } else if (command === 'board') {
     await showMyBoards();
+  } else if (command === 'sync') {
+    await syncWorkspaces();
   } else {
     console.error(`Unknown command: ${args.join(' ')}`);
     process.exit(1);

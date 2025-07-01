@@ -102,6 +102,33 @@ export class ConfigManager {
       )
     `);
     
+    // Create boards table for cached board data
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS boards (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        project_key TEXT,
+        project_name TEXT,
+        self_url TEXT,
+        synced_at INTEGER NOT NULL
+      )
+    `);
+    
+    // Create user workspaces table to track frequently used spaces/projects
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS user_workspaces (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL CHECK(type IN ('jira_project', 'confluence_space')),
+        name TEXT NOT NULL,
+        key_or_id TEXT NOT NULL,
+        usage_count INTEGER DEFAULT 1,
+        last_used INTEGER NOT NULL,
+        auto_sync INTEGER DEFAULT 0,
+        synced_at INTEGER
+      )
+    `);
+
     // Create ask memory table for progressive learning
     this.db.run(`
       CREATE TABLE IF NOT EXISTS ask_memory (
