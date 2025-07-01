@@ -360,32 +360,92 @@ async function showMyBoards(projectFilter?: string) {
       boardsByProject[projectKey].push(board);
     });
     
-    // Display by project
-    const projectEntries = Object.entries(boardsByProject);
-    projectEntries.forEach(([projectKey, projectBoards], index) => {
-      if (projectBoards.length === 1) {
-        // Single board - put it on the same line as project
-        const board = projectBoards[0];
-        const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
-        console.log(`${chalk.bold.blue(projectKey)}: ${typeIcon} ${chalk.bold(board.name)} ${chalk.cyan(`→ ${board.id}`)}`);
-      } else {
-        // Multiple boards - use the original format
-        console.log(`${chalk.bold.blue(projectKey)} (${projectBoards.length}):`);
+    // If filtering by project and single board, show columns and issues
+    if (projectFilter && boards.length === 1) {
+      const board = boards[0];
+      const jiraClient = new JiraClient(config);
+      
+      try {
+        console.log(`${chalk.bold.blue(board.name)} ${chalk.dim(`(${board.type})`)}\n`);
         
-        projectBoards.forEach(board => {
-          const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
-          
-          // Compact single-line format
-          console.log(`  ${typeIcon} ${chalk.bold(board.name)} ${chalk.dim(`(${board.type})`)} ${chalk.cyan(`→ ${board.id}`)}`);
+        // Get board configuration and issues
+        const [boardConfig, issues] = await Promise.all([
+          jiraClient.getBoardConfiguration(board.id),
+          jiraClient.getBoardIssues(board.id)
+        ]);
+        
+        // Group issues by status
+        const issuesByStatus = new Map<string, typeof issues>();
+        issues.forEach(issue => {
+          const status = issue.fields.status.name;
+          if (!issuesByStatus.has(status)) {
+            issuesByStatus.set(status, []);
+          }
+          issuesByStatus.get(status)!.push(issue);
         });
+        
+        // Display columns with their issues
+        boardConfig.columns.forEach(column => {
+          const columnIssues: typeof issues = [];
+          
+          // Collect all issues for this column's statuses
+          column.statuses.forEach(status => {
+            const statusIssues = issuesByStatus.get(status.name) || [];
+            columnIssues.push(...statusIssues);
+          });
+          
+          console.log(chalk.bold(`${column.name} (${columnIssues.length})`));
+          
+          if (columnIssues.length === 0) {
+            console.log(chalk.dim('  No issues'));
+          } else {
+            columnIssues.forEach(issue => {
+              const assignee = issue.fields.assignee ? 
+                chalk.dim(`@${issue.fields.assignee.displayName.split(' ')[0]}`) : 
+                chalk.dim('unassigned');
+              console.log(`  ${chalk.cyan(issue.key)} ${issue.fields.summary} ${assignee}`);
+            });
+          }
+          console.log();
+        });
+        
+        console.log(chalk.dim(`Board URL: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`));
+        
+      } catch (error) {
+        console.error(`Failed to load board details: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // Fall back to simple board display
+        const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
+        console.log(`${chalk.bold.blue(projectFilter)}: ${typeIcon} ${chalk.bold(board.name)} ${chalk.cyan(`→ ${board.id}`)}`);
       }
-    });
-    
-    // Show actual clickable links for each board
-    console.log(); // blank line before links
-    boards.forEach(board => {
-      console.log(chalk.dim(`${board.name}: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`));
-    });
+      
+    } else {
+      // Display normal board list
+      const projectEntries = Object.entries(boardsByProject);
+      projectEntries.forEach(([projectKey, projectBoards], index) => {
+        if (projectBoards.length === 1) {
+          // Single board - put it on the same line as project
+          const board = projectBoards[0];
+          const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
+          console.log(`${chalk.bold.blue(projectKey)}: ${typeIcon} ${chalk.bold(board.name)} ${chalk.cyan(`→ ${board.id}`)}`);
+        } else {
+          // Multiple boards - use the original format
+          console.log(`${chalk.bold.blue(projectKey)} (${projectBoards.length}):`);
+          
+          projectBoards.forEach(board => {
+            const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
+            
+            // Compact single-line format
+            console.log(`  ${typeIcon} ${chalk.bold(board.name)} ${chalk.dim(`(${board.type})`)} ${chalk.cyan(`→ ${board.id}`)}`);
+          });
+        }
+      });
+      
+      // Show actual clickable links for each board
+      console.log(); // blank line before links
+      boards.forEach(board => {
+        console.log(chalk.dim(`${board.name}: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`));
+      });
+    }
     
   } catch (error) {
     console.error(`Failed to retrieve boards: ${error instanceof Error ? error.message : 'Unknown error'}`);
