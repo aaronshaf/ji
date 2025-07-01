@@ -118,7 +118,10 @@ export class ConfluenceClient {
     return PageListResponseSchema.parse(data);
   }
 
-  async getSpacePagesLightweight(spaceKey: string): Promise<{ id: string; title: string; version: { number: number; when: string }; }[]> {
+  async getSpacePagesLightweight(
+    spaceKey: string,
+    onProgress?: (current: number) => void
+  ): Promise<{ id: string; title: string; version: { number: number; when: string }; }[]> {
     const allPages: { id: string; title: string; version: { number: number; when: string }; }[] = [];
     let start = 0;
     const limit = 100;
@@ -137,6 +140,11 @@ export class ConfluenceClient {
       }));
 
       allPages.push(...lightweightPages);
+      
+      // Report progress
+      if (onProgress) {
+        onProgress(allPages.length);
+      }
 
       if (response.results.length < limit) {
         break;
