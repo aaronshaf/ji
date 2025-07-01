@@ -16,6 +16,7 @@ export type Config = z.infer<typeof ConfigSchema>;
 export interface Settings {
   askModel?: string;
   embeddingModel?: string;
+  analysisModel?: string;  // Smaller, faster model for source selection and query generation
 }
 
 export class ConfigManager {
@@ -267,10 +268,12 @@ export class ConfigManager {
   async getSettings(): Promise<Settings> {
     const askModel = await this.getSetting('askModel');
     const embeddingModel = await this.getSetting('embeddingModel');
+    const analysisModel = await this.getSetting('analysisModel');
     
     return {
       askModel: askModel || undefined,
-      embeddingModel: embeddingModel || undefined
+      embeddingModel: embeddingModel || undefined,
+      analysisModel: analysisModel || undefined
     };
   }
 
