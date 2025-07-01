@@ -13,6 +13,29 @@ export class MeilisearchAdapter {
     this.client = new MeiliSearch({ host, apiKey });
   }
 
+  private async getEmbedderConfig(embeddingModel: string) {
+    // Check if Ollama is available
+    try {
+      const response = await fetch('http://localhost:11434/api/tags');
+      if (response.ok) {
+        // Ollama is available, use hybrid search
+        return {
+          'hybrid': {
+            source: 'ollama' as const,
+            model: embeddingModel,
+            url: 'http://localhost:11434/api/embeddings',
+            documentTemplate: '{{doc.title}} {{doc.content}}'
+          }
+        };
+      }
+    } catch {
+      // Ollama not available
+    }
+    
+    // Return undefined - will use keyword search only
+    return undefined;
+  }
+
   async initialize() {
     if (this.initialized) return;
 
@@ -73,14 +96,7 @@ export class MeilisearchAdapter {
         'error': ['exception', 'failure', 'issue'],
         'setup': ['configuration', 'install']
       },
-      embedders: {
-        'hybrid': {
-          source: 'ollama',
-          model: embeddingModel,
-          url: 'http://localhost:11434/api/embeddings',
-          documentTemplate: '{{doc.title}} {{doc.content}}'
-        }
-      }
+      embedders: await this.getEmbedderConfig(embeddingModel)
     });
 
     // Configure Confluence index
@@ -104,14 +120,7 @@ export class MeilisearchAdapter {
           twoTypos: 6
         }
       },
-      embedders: {
-        'hybrid': {
-          source: 'ollama',
-          model: embeddingModel,
-          url: 'http://localhost:11434/api/embeddings',
-          documentTemplate: '{{doc.title}} {{doc.content}}'
-        }
-      }
+      embedders: await this.getEmbedderConfig(embeddingModel)
     });
 
     await new Promise(resolve => setTimeout(resolve, 1000));

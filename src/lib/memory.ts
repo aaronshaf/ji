@@ -41,6 +41,12 @@ export class MemoryManager {
   // Extract key facts from a successful ask session
   async extractMemory(question: string, answer: string, sourceDocIds: string[]): Promise<void> {
     try {
+      // Check if Ollama is available
+      if (!await this.ollama.isAvailable()) {
+        // Skip memory extraction if Ollama is not available
+        return;
+      }
+      
       // Only extract memory for certain types of questions to reduce false memories
       if (!this.shouldExtractMemory(question, answer)) {
         return;
