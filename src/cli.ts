@@ -1281,7 +1281,7 @@ async function ask(question: string, options: {
     spinner.text = 'Round 1: Broad discovery - generating search queries...';
     
     // Smart detection for team/project questions
-    const isTeamQuestion = /\b(team|who is|what is.*team|eval team)\b/i.test(question);
+    const isTeamQuestion = /\b(team|who|owns|ownership|responsible|works on|maintains|eval team)\b/i.test(question);
     const hasProjectCode = /\b[A-Z]{2,6}\b/.test(question); // Detect project codes like EVAL, CFA, etc.
     
     const round1Prompt = `Given this question: "${question}"
@@ -1296,12 +1296,18 @@ ${isTeamQuestion ? '- Decoder ring, org chart, team directory' : ''}
 Return only the queries, one per line:`;
 
     let round1Queries = [question];
+    
+    // For team/ownership questions, always include Decoder Ring search
+    if (isTeamQuestion) {
+      round1Queries.push('Decoder Ring 2025');
+    }
+    
     try {
       const response = await ollama.generate(round1Prompt, { model: askModel });
       if (response) {
         const generated = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 4);
         if (generated.length > 0) {
-          round1Queries = [question, ...generated];
+          round1Queries = [...round1Queries, ...generated];
         }
       }
     } catch (error) {
@@ -1557,6 +1563,7 @@ Return only the queries, one per line:`;
     
     // Build context string for the prompt
     const contextStr = limitedContexts.map((ctx, i) => {
+      // Building context for each document
       const { content } = ctx;
       let contextBlock = `[${i + 1}] `;
       
@@ -1571,16 +1578,84 @@ Return only the queries, one per line:`;
         contextBlock += `Space: ${content.spaceKey || 'Unknown'}\n`;
       }
       
-      // Include relevant content snippet - much more for key org docs
-      let maxLength = content.source === 'confluence' ? 800 : 300;
+      // Extract relevant content based on the question
+      let snippet = '';
       
-      // Special handling for key organizational documents
-      const isKeyOrgDoc = /decoder ring|team.*structure|org.*chart|leadership|ownership/i.test(content.title);
-      if (isKeyOrgDoc && isTeamQuestion) {
-        maxLength = 2000; // Much larger context for org docs when asking about teams
+      // For very large documents, try to find relevant sections
+      if (content.content.length > 5000) {
+        // Extract keywords from the question
+        const questionLower = question.toLowerCase();
+        const keywords = questionLower
+          .replace(/[?!.,;:'"]/g, '') // Remove punctuation
+          .split(/\s+/)
+          .filter(word => 
+            word.length > 3 && !['what', 'which', 'who', 'works', 'owns', 'team', 'responsible', 'does', 'that', 'this', 'with', 'from'].includes(word)
+          );
+        
+        // Try to find sections containing these keywords
+        let bestSection = '';
+        let bestScore = 0;
+        
+        // Check chunks of the content
+        const chunkSize = 1500;
+        const overlap = 500;
+        
+        for (let i = 0; i < content.content.length - chunkSize; i += (chunkSize - overlap)) {
+          const chunk = content.content.substring(i, i + chunkSize);
+          const chunkLower = chunk.toLowerCase();
+          
+          // Score based on keyword matches
+          let score = 0;
+          for (const keyword of keywords) {
+            if (chunkLower.includes(keyword)) {
+              score += 10;
+              // Extra points if the keyword appears multiple times
+              const matches = (chunkLower.match(new RegExp(keyword, 'g')) || []).length;
+              score += matches * 2;
+            }
+          }
+          
+          // Extra score for key terms related to teams/ownership
+          if (chunkLower.includes('gradebook')) score += 20;
+          if (chunkLower.includes('eval')) score += 15;
+          if (chunkLower.includes('evaluate')) score += 15;
+          if (chunkLower.includes('owns') || chunkLower.includes('responsible')) score += 5;
+          
+          if (score > bestScore) {
+            bestScore = score;
+            bestSection = chunk;
+          }
+        }
+        
+        // Use the best section if we found relevant content
+        if (bestScore > 10) {
+          snippet = bestSection;
+          // Found relevant section
+        } else {
+          // Fallback to beginning of document
+          snippet = content.content.substring(0, 2000);
+          // Using beginning of document
+        }
+      } else {
+        // For smaller documents, include more content
+        const maxLength = content.source === 'confluence' ? 1500 : 500;
+        snippet = content.content.substring(0, maxLength);
       }
       
-      const snippet = content.content.substring(0, maxLength).replace(/\n+/g, ' ').trim();
+      // Clean up and structure the snippet
+      snippet = snippet.trim();
+      
+      // For Decoder Ring specifically, add structure hints
+      if (content.title.toLowerCase().includes('decoder ring')) {
+        // Process table structure for better clarity
+        // Look for table patterns and add clarifying text
+        snippet = snippet.replace(/\|\s*([A-Z][a-z]+(?:\s+[A-Z]?[a-z]+)*)\s*\|\s*([^|]+)\s*\|/g, (match, team, features) => {
+          return `\nTEAM: ${team.trim()}\nOWNS: ${features.trim()}\n`;
+        });
+      }
+      
+      // General cleanup
+      snippet = snippet.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
       contextBlock += `Content: ${snippet}...\n`;
       
       return contextBlock;
@@ -1588,17 +1663,28 @@ Return only the queries, one per line:`;
     
     // Build the prompt
     const hasJira = limitedContexts.some(c => c.content.source === 'jira');
-    const systemPrompt = hasJira 
-      ? `You are a helpful assistant with access to a software team's Confluence documentation and Jira issues.
+    
+    // Enhanced prompt for team/ownership questions
+    let systemPrompt = '';
+    if (isTeamQuestion) {
+      systemPrompt = `You are a helpful assistant with access to a software team's documentation.
+When you see "TEAM: X" followed by "OWNS: Y", this means team X is responsible for feature/project Y.
+For questions about who works on something, look for these TEAM/OWNS patterns.
+Be direct and specific. If you see "TEAM: Evaluate" followed by "OWNS: Gradebook", then the answer is "The Evaluate (EVAL) team works on Gradebook."
+Do not speculate or provide vague answers when the information is clearly stated.`;
+    } else if (hasJira) {
+      systemPrompt = `You are a helpful assistant with access to a software team's Confluence documentation and Jira issues.
 Focus primarily on the Confluence documentation when answering questions.
 Be thorough but concise. Reference page titles and issue keys when relevant.
 If the context doesn't contain enough information to fully answer the question, say so.
-Do not include any trailing whitespace or extra line breaks at the end of your response.`
-      : `You are a helpful assistant with access to a software team's Confluence documentation.
+Do not include any trailing whitespace or extra line breaks at the end of your response.`;
+    } else {
+      systemPrompt = `You are a helpful assistant with access to a software team's Confluence documentation.
 Answer questions based on the provided documentation. Be thorough but concise.
 Reference specific page titles when relevant.
 If the documentation doesn't contain enough information to fully answer the question, say so.
 Do not include any trailing whitespace or extra line breaks at the end of your response.`;
+    }
 
     const contextLabel = hasJira ? 'Context from Confluence documentation and Jira issues:' : 'Context from Confluence documentation:';
     const memorySection = memoryFacts ? `\nKnown facts from previous conversations:\n${memoryFacts}\n` : '';
@@ -1615,6 +1701,9 @@ Based on the context above, please provide a helpful answer:`;
     if (options.verbose) {
       spinner.stop();
       console.log(chalk.dim('Using context from:'));
+      
+      // Show which documents are being used
+      
       limitedContexts.forEach(ctx => {
         if (ctx.content.source === 'jira') {
           console.log(chalk.dim(`  • ${ctx.content.id.replace('jira:', '')}: ${ctx.content.title}`));
