@@ -271,4 +271,54 @@ export class JiraClient {
     
     return uniqueBoards.sort((a, b) => a.name.localeCompare(b.name));
   }
+
+  async getBoardConfiguration(boardId: number): Promise<{ columns: Array<{ name: string; statuses: Array<{ id: string; name: string }> }> }> {
+    const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/configuration`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch board configuration: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as any;
+    return {
+      columns: data.columnConfig?.columns || []
+    };
+  }
+
+  async getBoardIssues(boardId: number): Promise<Issue[]> {
+    const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/issue?maxResults=100`;
+
+    const response = await fetch(url, {
+      method: 'GET', 
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch board issues: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as any;
+    // Map the agile API response to our Issue type
+    return (data.issues || []).map((issue: any) => ({
+      key: issue.key,
+      self: issue.self,
+      fields: {
+        summary: issue.fields.summary,
+        description: issue.fields.description,
+        status: issue.fields.status,
+        assignee: issue.fields.assignee,
+        reporter: issue.fields.reporter,
+        priority: issue.fields.priority,
+        created: issue.fields.created,
+        updated: issue.fields.updated
+      }
+    }));
+  }
 }
