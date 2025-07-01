@@ -1508,19 +1508,40 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
     } else {
       console.log('⚡ Incremental sync: checking for changes...\n');
       
-      // Get lightweight page list with progress
-      let lastUpdate = Date.now();
-      const spinner = ora({ text: 'Fetching page metadata...', indent: 2 }).start();
+      // Get last sync time
+      const lastSyncTime = await contentManager.getLastSyncTime(spaceKey);
       
-      const pageSummaries = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
-        const now = Date.now();
-        if (now - lastUpdate > 100) { // Update every 100ms
-          spinner.text = `Fetching page metadata... ${current} pages`;
-          lastUpdate = now;
-        }
-      });
+      let pageSummaries: { id: string; title: string; version: { number: number; when: string } }[];
       
-      spinner.succeed(`Fetched metadata for ${pageSummaries.length} pages`);
+      if (lastSyncTime) {
+        // Use efficient date-based filtering
+        const spinner = ora({ text: 'Fetching recently modified pages...', indent: 2 }).start();
+        
+        // Add a buffer of 1 day to catch any edge cases
+        const syncSince = new Date(lastSyncTime.getTime() - 24 * 60 * 60 * 1000);
+        
+        pageSummaries = await confluenceClient.getPagesSince(spaceKey, syncSince, (current) => {
+          spinner.text = `Fetching recently modified pages... ${current} found`;
+        });
+        
+        spinner.succeed(`Found ${pageSummaries.length} pages modified since ${syncSince.toLocaleDateString()}`);
+      } else {
+        // First sync or no previous data - fetch all page metadata
+        console.log(chalk.dim('  No previous sync found. Fetching all page metadata...'));
+        
+        let lastUpdate = Date.now();
+        const spinner = ora({ text: 'Fetching page metadata...', indent: 2 }).start();
+        
+        pageSummaries = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
+          const now = Date.now();
+          if (now - lastUpdate > 100) { // Update every 100ms
+            spinner.text = `Fetching page metadata... ${current} pages`;
+            lastUpdate = now;
+          }
+        });
+        
+        spinner.succeed(`Fetched metadata for ${pageSummaries.length} pages`);
+      }
       
       if (pageSummaries.length === 0) {
         console.log(chalk.yellow('⚠️  No pages found in this space.'));

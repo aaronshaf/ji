@@ -118,6 +118,60 @@ export class ConfluenceClient {
     return PageListResponseSchema.parse(data);
   }
 
+  async getPagesSince(
+    spaceKey: string,
+    sinceDate: Date,
+    onProgress?: (current: number) => void
+  ): Promise<{ id: string; title: string; version: { number: number; when: string } }[]> {
+    const allPages: { id: string; title: string; version: { number: number; when: string } }[] = [];
+    let start = 0;
+    const limit = 100;
+    
+    // Format date for CQL (YYYY-MM-DD)
+    const formattedDate = sinceDate.toISOString().split('T')[0];
+    const cql = `space="${spaceKey}" and type=page and lastmodified >= "${formattedDate}" order by lastmodified desc`;
+    
+    while (true) {
+      const url = `${this.baseUrl}/search?cql=${encodeURIComponent(cql)}&start=${start}&limit=${limit}&expand=version`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to search pages: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json() as any;
+      
+      const pages = data.results.map((result: any) => ({
+        id: result.content.id,
+        title: result.content.title,
+        version: {
+          number: result.content.version.number,
+          when: result.content.version.when
+        }
+      }));
+      
+      allPages.push(...pages);
+      
+      if (onProgress) {
+        onProgress(allPages.length);
+      }
+      
+      // Check if there are more results
+      if (data.results.length < limit || !data._links?.next) {
+        break;
+      }
+      
+      start += limit;
+    }
+    
+    return allPages;
+  }
+
   async getRecentlyUpdatedPages(
     spaceKey: string,
     limit: number = 10
