@@ -356,10 +356,10 @@ async function showMyBoards() {
         // Single board - put it on the same line as project
         const board = projectBoards[0];
         const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
-        console.log(`\n${chalk.bold.blue(projectKey)}: ${typeIcon} ${chalk.bold(board.name)} ${chalk.cyan(`→ ${board.id}`)}`);
+        console.log(`${chalk.bold.blue(projectKey)}: ${typeIcon} ${chalk.bold(board.name)} ${chalk.cyan(`→ ${board.id}`)}`);
       } else {
         // Multiple boards - use the original format
-        console.log(`\n${chalk.bold.blue(projectKey)} (${projectBoards.length}):`);
+        console.log(`${chalk.bold.blue(projectKey)} (${projectBoards.length}):`);
         
         projectBoards.forEach(board => {
           const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
@@ -367,11 +367,6 @@ async function showMyBoards() {
           // Compact single-line format
           console.log(`  ${typeIcon} ${chalk.bold(board.name)} ${chalk.dim(`(${board.type})`)} ${chalk.cyan(`→ ${board.id}`)}`);
         });
-      }
-      
-      // Only add blank line between projects, not after the last one
-      if (index < projectEntries.length - 1) {
-        console.log();
       }
     });
     
