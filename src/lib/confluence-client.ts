@@ -152,14 +152,49 @@ export class ConfluenceClient {
     spaceKey: string,
     sinceDate: Date,
     onProgress?: (current: number) => void
-  ): Promise<{ id: string; title: string; version: { number: number; when: string } }[]> {
-    // Unfortunately, the Confluence search API doesn't return version info
-    // So we'll fall back to getting all pages with the regular method
-    // This is still more efficient than before because we track last sync time
+  ): Promise<string[]> {
+    // Use CQL to find pages modified since the given date
+    // Returns just the page IDs that need to be synced
+    const pageIds: string[] = [];
+    let start = 0;
+    const limit = 100;
     
-    // For now, just use the regular getSpacePagesLightweight method
-    // which does return version information
-    return this.getSpacePagesLightweight(spaceKey, onProgress);
+    // Format date for CQL (YYYY-MM-DD HH:MM)
+    const formattedDate = sinceDate.toISOString().replace('T', ' ').substring(0, 16);
+    const cql = `space="${spaceKey}" and type=page and lastmodified > "${formattedDate}" order by lastmodified desc`;
+    
+    while (true) {
+      const url = `${this.baseUrl}/search?cql=${encodeURIComponent(cql)}&start=${start}&limit=${limit}`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to search pages: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json() as any;
+      
+      // Extract just the page IDs
+      const ids = data.results.map((result: any) => result.content.id);
+      pageIds.push(...ids);
+      
+      if (onProgress) {
+        onProgress(pageIds.length);
+      }
+      
+      // Check if there are more results
+      if (data.results.length < limit || !data._links?.next) {
+        break;
+      }
+      
+      start += limit;
+    }
+    
+    return pageIds;
   }
 
   async getRecentlyUpdatedPages(
