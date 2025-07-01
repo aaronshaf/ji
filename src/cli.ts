@@ -1205,9 +1205,10 @@ async function ask(question: string, options: {
   const ollama = new OllamaClient();
   const memoryManager = new MemoryManager();
   
-  // Get configured model or detect available model
+  // Get configured models or detect available models
   const settings = await configManager.getSettings();
   let askModel = settings.askModel || options.model;
+  let analysisModel = settings.analysisModel; // Smaller model for analysis tasks
   
   if (!askModel) {
     // No model configured, try to find a suitable one
@@ -1238,6 +1239,11 @@ async function ask(question: string, options: {
       console.log(chalk.cyan('  ollama pull llama3.1'));
       process.exit(1);
     }
+  }
+  
+  // Default analysis model to ask model if not set
+  if (!analysisModel) {
+    analysisModel = askModel;
   }
   
   const spinner = ora({
@@ -1273,7 +1279,7 @@ Consider:
 
 Respond with ONLY one of: "jira", "confluence", or "both"`;
         
-        const sourceAnalysis = await ollama.generate(analysisPrompt, { model: askModel });
+        const sourceAnalysis = await ollama.generate(analysisPrompt, { model: analysisModel });
         const suggestedSource = sourceAnalysis.trim().toLowerCase();
         
         if (suggestedSource === 'jira') {
@@ -1334,7 +1340,7 @@ Return only the queries, one per line:`;
     let round1Queries = [question];
     
     try {
-      const response = await ollama.generate(round1Prompt, { model: askModel });
+      const response = await ollama.generate(round1Prompt, { model: analysisModel });
       if (response) {
         const generated = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 4);
         if (generated.length > 0) {
@@ -1345,15 +1351,23 @@ Return only the queries, one per line:`;
       if (options.verbose) console.error('Round 1 query generation failed:', error);
     }
 
-    // Execute Round 1 searches using Meilisearch
+    // Execute Round 1 searches in parallel for better performance
     spinner.text = 'Gathering documentation...';
-    for (const query of round1Queries) {
-      const results = await meilisearch.search(query, {
+    const round1StartTime = Date.now();
+    
+    // Execute all Round 1 queries in parallel
+    const round1Promises = round1Queries.map(query => 
+      meilisearch.search(query, {
         source: effectiveSource,
         limit: 8,
         includeAll: true
-      });
-      
+      })
+    );
+    
+    const round1Results = await Promise.all(round1Promises);
+    
+    // Process all results
+    for (const results of round1Results) {
       for (const result of results) {
         if (!seenIds.has(result.content.id)) {
           seenIds.add(result.content.id);
@@ -1361,10 +1375,29 @@ Return only the queries, one per line:`;
         }
       }
     }
+    
+    const round1Time = Date.now() - round1StartTime;
+    if (options.verbose) {
+      console.log(chalk.dim(`\n⏱️  Round 1: ${round1Time}ms for ${round1Queries.length} queries`));
+    }
 
+    // Calculate average relevance score of Round 1 results
+    const avgRound1Score = allContexts.length > 0 
+      ? allContexts.reduce((sum, ctx) => sum + ctx.score, 0) / allContexts.length
+      : 0;
+    
+    // High confidence threshold - skip additional rounds if we have excellent matches
+    const highConfidenceThreshold = 85;
+    const skipAdditionalRounds = avgRound1Score > highConfidenceThreshold && allContexts.length >= 3;
+    
+    if (options.verbose && skipAdditionalRounds) {
+      console.log(chalk.dim(`\n🎯 High confidence results (avg score: ${avgRound1Score.toFixed(1)}), skipping additional rounds`));
+    }
+    
     // Round 2: Focused Refinement - Analyze initial results for key concepts
-    if (allContexts.length > 0) {
+    if (allContexts.length > 0 && !skipAdditionalRounds) {
       spinner.text = 'Refining search results...';
+      const round2StartTime = Date.now();
       
       const topResults = allContexts.slice(0, 5);
       const conceptsFound = topResults.map(r => r.content.title).join(', ');
@@ -1380,24 +1413,35 @@ For the question "${question}", generate 2-3 more targeted search queries focusi
 Return only the queries, one per line:`;
 
       try {
-        const response = await ollama.generate(round2Prompt, { model: askModel });
+        const response = await ollama.generate(round2Prompt, { model: analysisModel });
         if (response) {
           const round2Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 3);
           
           spinner.text = 'Looking for more specific information...';
-          for (const query of round2Queries) {
-            const results = await meilisearch.search(query, {
+          
+          // Parallel execution for Round 2
+          const round2Promises = round2Queries.map(query =>
+            meilisearch.search(query, {
               source: effectiveSource,
               limit: 6,
               includeAll: true
-            });
-            
+            })
+          );
+          
+          const round2Results = await Promise.all(round2Promises);
+          
+          for (const results of round2Results) {
             for (const result of results) {
               if (!seenIds.has(result.content.id)) {
                 seenIds.add(result.content.id);
                 allContexts.push({ ...result, searchRound: 2 });
               }
             }
+          }
+          
+          const round2Time = Date.now() - round2StartTime;
+          if (options.verbose) {
+            console.log(chalk.dim(`⏱️  Round 2: ${round2Time}ms for ${round2Queries.length} queries`));
           }
         }
       } catch (error) {
@@ -1410,8 +1454,9 @@ Return only the queries, one per line:`;
     }
 
     // Round 3: Gap Filling - Look for missing context or prerequisites
-    if (allContexts.length > 0) {
+    if (allContexts.length > 0 && !skipAdditionalRounds && allContexts.length < 15) {
       spinner.text = 'Checking for additional context...';
+      const round3StartTime = Date.now();
       
       const round3Prompt = `For the question "${question}", and considering we found information about: "${allContexts.slice(0, 3).map(r => r.content.title).join(', ')}"
 
@@ -1424,24 +1469,35 @@ Generate 1-2 queries to find missing context such as:
 Return only the queries, one per line:`;
 
       try {
-        const response = await ollama.generate(round3Prompt, { model: askModel });
+        const response = await ollama.generate(round3Prompt, { model: analysisModel });
         if (response) {
           const round3Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 2);
           
           spinner.text = 'Finding related information...';
-          for (const query of round3Queries) {
-            const results = await meilisearch.search(query, {
+          
+          // Parallel execution for Round 3
+          const round3Promises = round3Queries.map(query =>
+            meilisearch.search(query, {
               source: effectiveSource,
               limit: 4,
               includeAll: true
-            });
-            
+            })
+          );
+          
+          const round3Results = await Promise.all(round3Promises);
+          
+          for (const results of round3Results) {
             for (const result of results) {
               if (!seenIds.has(result.content.id)) {
                 seenIds.add(result.content.id);
                 allContexts.push({ ...result, searchRound: 3 });
               }
             }
+          }
+          
+          const round3Time = Date.now() - round3StartTime;
+          if (options.verbose) {
+            console.log(chalk.dim(`⏱️  Round 3: ${round3Time}ms for ${round3Queries.length} queries`));
           }
         }
       } catch (error) {
@@ -1456,16 +1512,36 @@ Return only the queries, one per line:`;
 
     spinner.text = 'Analyzing information...';
     
+    // Deduplication: Remove near-duplicate content
+    const deduplicatedContexts: typeof allContexts = [];
+    const contentHashes = new Set<string>();
+    
+    for (const context of allContexts) {
+      // Create a simple hash based on title and first 200 chars of content
+      const contentPreview = context.content.content.substring(0, 200).toLowerCase().replace(/\s+/g, ' ');
+      const hash = `${context.content.title.toLowerCase()}::${contentPreview}`;
+      
+      // Also check for same document ID with different versions
+      const baseId = context.content.id.replace(/:v\d+$/, ''); // Remove version suffix if present
+      
+      if (!contentHashes.has(hash) && !deduplicatedContexts.some(c => c.content.id.startsWith(baseId))) {
+        contentHashes.add(hash);
+        deduplicatedContexts.push(context);
+      }
+    }
+    
     if (options.verbose) {
       const byRound = [1, 2, 3].map(round => 
-        allContexts.filter(c => c.searchRound === round).length
+        deduplicatedContexts.filter(c => c.searchRound === round).length
       );
       spinner.stop();
-      console.log(chalk.dim(`📊 Found ${allContexts.length} relevant documents`));
+      console.log(chalk.dim(`📊 Found ${allContexts.length} documents, ${deduplicatedContexts.length} after deduplication`));
+      const totalSearchTime = Date.now() - round1StartTime;
+      console.log(chalk.dim(`⏱️  Total search time: ${totalSearchTime}ms`));
       spinner.start('Preparing answer...');
     }
     
-    const contexts = allContexts;
+    const contexts = deduplicatedContexts;
     
     // Check if query matches document titles for boosting
     const queryLower = question.toLowerCase();
@@ -1885,11 +1961,30 @@ async function configureModels() {
       }
     }
     
+    // Configure analysis model
+    console.log(chalk.bold('\n⚡ Analysis Model (for query generation & source selection)'));
+    if (currentSettings.analysisModel) {
+      console.log(chalk.dim(`Current: ${currentSettings.analysisModel}`));
+    }
+    console.log('Choose a fast model for quick analysis tasks (recommend: gemma3n:latest):');
+    
+    const analysisChoice = await rl.question('Enter model number (or press Enter to keep current): ');
+    if (analysisChoice.trim() && analysisChoice.trim() !== '0') {
+      const modelIndex = parseInt(analysisChoice) - 1;
+      if (modelIndex >= 0 && modelIndex < models.length) {
+        await configManager.setSetting('analysisModel', models[modelIndex]);
+        console.log(chalk.green(`✓ Set analysis model to: ${models[modelIndex]}`));
+      } else {
+        console.log(chalk.red('Invalid choice, keeping current setting.'));
+      }
+    }
+    
     // Show final configuration
     const finalSettings = await configManager.getSettings();
     console.log(chalk.bold('\n🎉 Configuration Complete!'));
     console.log(`Ask model: ${chalk.cyan(finalSettings.askModel || 'auto-detect')}`);
     console.log(`Embedding model: ${chalk.cyan(finalSettings.embeddingModel || 'mxbai-embed-large (default)')}`);
+    console.log(`Analysis model: ${chalk.cyan(finalSettings.analysisModel || 'same as ask model')}`);
     console.log('\nYou can run this command again anytime to change these settings.');
     
   } catch (error) {
