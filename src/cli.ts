@@ -1278,7 +1278,7 @@ async function ask(question: string, options: {
       : '';
     
     // Round 1: Broad Discovery - Generate diverse initial queries
-    spinner.text = 'Round 1: Broad discovery - generating search queries...';
+    spinner.text = 'Searching for relevant information...';
     
     // Smart detection for team/project questions
     const isTeamQuestion = /\b(team|who|owns|ownership|responsible|works on|maintains|eval team)\b/i.test(question);
@@ -1315,7 +1315,7 @@ Return only the queries, one per line:`;
     }
 
     // Execute Round 1 searches using Meilisearch
-    spinner.text = `Round 1: Searching with ${round1Queries.length} queries...`;
+    spinner.text = 'Gathering documentation...';
     for (const query of round1Queries) {
       const results = await meilisearch.search(query, {
         source: effectiveSource,
@@ -1333,7 +1333,7 @@ Return only the queries, one per line:`;
 
     // Round 2: Focused Refinement - Analyze initial results for key concepts
     if (allContexts.length > 0) {
-      spinner.text = `Round 2: Focused refinement - found ${allContexts.length} documents...`;
+      spinner.text = 'Refining search results...';
       
       const topResults = allContexts.slice(0, 5);
       const conceptsFound = topResults.map(r => r.content.title).join(', ');
@@ -1353,7 +1353,7 @@ Return only the queries, one per line:`;
         if (response) {
           const round2Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 3);
           
-          spinner.text = `Round 2: Searching with ${round2Queries.length} refined queries...`;
+          spinner.text = 'Looking for more specific information...';
           for (const query of round2Queries) {
             const results = await meilisearch.search(query, {
               source: effectiveSource,
@@ -1373,14 +1373,14 @@ Return only the queries, one per line:`;
         if (options.verbose) {
           spinner.stop();
           console.log(chalk.yellow('⚠️  Round 2 query generation failed'));
-          spinner.start('Round 3: Gap filling - looking for missing context...');
+          spinner.start('Checking for additional context...');
         }
       }
     }
 
     // Round 3: Gap Filling - Look for missing context or prerequisites
     if (allContexts.length > 0) {
-      spinner.text = 'Round 3: Gap filling - looking for missing context...';
+      spinner.text = 'Checking for additional context...';
       
       const round3Prompt = `For the question "${question}", and considering we found information about: "${allContexts.slice(0, 3).map(r => r.content.title).join(', ')}"
 
@@ -1397,7 +1397,7 @@ Return only the queries, one per line:`;
         if (response) {
           const round3Queries = response.trim().split('\n').filter(q => q.trim().length > 0).slice(0, 2);
           
-          spinner.text = `Round 3: Searching with ${round3Queries.length} gap-filling queries...`;
+          spinner.text = 'Finding related information...';
           for (const query of round3Queries) {
             const results = await meilisearch.search(query, {
               source: effectiveSource,
@@ -1418,9 +1418,9 @@ Return only the queries, one per line:`;
           spinner.stop();
           console.log(chalk.yellow('⚠️  Round 3 query generation failed'));
           if (isTeamQuestion) {
-            spinner.start('Round 4: Team-specific search for organization info...');
+            spinner.start('Looking up organizational details...');
           } else {
-            spinner.start('Processing documents and generating response...');
+            spinner.start('Preparing answer...');
           }
         }
       }
@@ -1428,7 +1428,7 @@ Return only the queries, one per line:`;
 
     // Round 4: Team-specific targeted search (only for team questions)
     if (isTeamQuestion && allContexts.length > 0) {
-      spinner.text = 'Round 4: Team-specific search for organization info...';
+      spinner.text = 'Looking up organizational details...';
       
       // Look for project codes and specific team searches
       const extractedCodes = question.match(/\b[A-Z]{2,6}\b/g) || [];
@@ -1440,7 +1440,7 @@ Return only the queries, one per line:`;
         'team ownership responsibilities'
       ].filter(q => q.trim().length > 5); // Filter out short queries
 
-      spinner.text = `Round 4: Searching with ${teamSearches.slice(0, 3).length} team-specific queries...`;
+      spinner.text = 'Searching team information...';
       for (const query of teamSearches.slice(0, 3)) {
         const results = await meilisearch.search(query, {
           source: effectiveSource,
@@ -1457,16 +1457,15 @@ Return only the queries, one per line:`;
       }
     }
 
-    spinner.text = `Processing ${allContexts.length} documents and generating response...`;
+    spinner.text = 'Analyzing information...';
     
     if (options.verbose) {
       const byRound = [1, 2, 3, 4].map(round => 
         allContexts.filter(c => c.searchRound === round).length
       );
       spinner.stop();
-      console.log(chalk.dim(`📊 Search completed: ${allContexts.length} unique documents found`));
-      console.log(chalk.dim(`   Round 1: ${byRound[0]}, Round 2: ${byRound[1]}, Round 3: ${byRound[2]}${isTeamQuestion ? `, Round 4: ${byRound[3]}` : ''}`));
-      spinner.start('Processing documents and generating response...');
+      console.log(chalk.dim(`📊 Found ${allContexts.length} relevant documents`));
+      spinner.start('Preparing answer...');
     }
     
     const contexts = allContexts;
@@ -1715,7 +1714,7 @@ Based on the context above, please provide a helpful answer:`;
     }
     
     // Start spinner for response generation
-    spinner.text = 'Generating response...';
+    spinner.text = 'Preparing answer...';
     spinner.start();
     
     const stream = await ollama.generateStream(fullPrompt, { model: askModel });
