@@ -1334,6 +1334,7 @@ Generate 3-4 diverse search queries for finding relevant documentation. Focus on
 - Technical terms and related concepts
 - Different ways to phrase the same question
 - Related components or systems
+- If asking "who" questions, also search for team directories or organizational docs
 
 Return only the queries, one per line:`;
 
@@ -1349,6 +1350,11 @@ Return only the queries, one per line:`;
       }
     } catch (error) {
       if (options.verbose) console.error('Round 1 query generation failed:', error);
+    }
+    
+    if (options.verbose) {
+      console.log(chalk.dim('\n🔍 Round 1 queries:'));
+      round1Queries.forEach((q, i) => console.log(chalk.dim(`   ${i + 1}. ${q}`)));
     }
 
     // Execute Round 1 searches in parallel for better performance
@@ -1561,8 +1567,10 @@ Return only the queries, one per line:`;
       if (titleLower.includes(queryLower)) {
         score *= 2.0;
       }
+      
+      
       // Partial title word matches
-      const queryWords = queryLower.split(/\s+/);
+      const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
       const titleWords = titleLower.split(/\s+/);
       const wordMatches = queryWords.filter(qw => 
         titleWords.some(tw => tw.includes(qw) || qw.includes(tw))
