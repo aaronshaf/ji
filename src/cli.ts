@@ -328,9 +328,6 @@ async function showMyBoards() {
   }
 
   try {
-    // Track board usage
-    await cacheManager.trackWorkspace('jira_project', 'boards', 'Board Access');
-    
     // Get boards from local cache - instant!
     const boards = await cacheManager.getMyBoards(config.email);
     
@@ -415,8 +412,8 @@ async function syncWorkspaces() {
     
     const jiraClient = new JiraClient(config);
     
-    // Sync Jira projects and their boards
-    const jiraWorkspaces = workspaces.filter(w => w.type === 'jira_project');
+    // Sync Jira projects and their boards (skip invalid entries)
+    const jiraWorkspaces = workspaces.filter(w => w.type === 'jira_project' && w.keyOrId !== 'boards');
     const confluenceWorkspaces = workspaces.filter(w => w.type === 'confluence_space');
     
     console.log(`📊 Found ${jiraWorkspaces.length} Jira projects and ${confluenceWorkspaces.length} Confluence spaces to sync\n`);
