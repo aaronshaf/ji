@@ -2678,7 +2678,17 @@ async function searchWithoutAI(question: string, options: {
 }
 
 async function initializeSetup() {
+  // Check for existing configuration
+  const configManager = new ConfigManager();
+  const existingConfig = await configManager.getConfig();
+  configManager.close();
+  
   console.log(chalk.bold.blue('\n🚀 Welcome to ji - Jira & Confluence CLI\n'));
+  
+  if (existingConfig) {
+    console.log(chalk.dim('Existing configuration detected. Press Enter to keep current values.\n'));
+  }
+  
   console.log('Let\'s get you set up! This will:');
   console.log('  1. Configure Jira/Confluence authentication');
   console.log('  2. Install and configure Meilisearch (search engine)');
@@ -2702,15 +2712,32 @@ async function initializeSetup() {
       return;
     }
 
-    // Configure authentication
-    const jiraUrl = await rl.question('\nJira URL (e.g., https://company.atlassian.net): ');
-    const email = await rl.question('Email: ');
-    const apiToken = await rl.question('API Token: ');
+    // Configure authentication with defaults
+    const promptWithDefault = async (question: string, defaultValue?: string): Promise<string> => {
+      if (defaultValue) {
+        const answer = await rl.question(`${question} [${chalk.dim(defaultValue)}]: `);
+        return answer.trim() || defaultValue;
+      }
+      return await rl.question(`${question}: `);
+    };
+    
+    const jiraUrl = await promptWithDefault(
+      '\nJira URL (e.g., https://company.atlassian.net)',
+      existingConfig?.jiraUrl
+    );
+    const email = await promptWithDefault(
+      'Email',
+      existingConfig?.email
+    );
+    const apiToken = await promptWithDefault(
+      'API Token',
+      existingConfig ? '(hidden)' : undefined
+    );
 
     const config = {
       jiraUrl: jiraUrl.endsWith('/') ? jiraUrl.slice(0, -1) : jiraUrl,
       email,
-      apiToken,
+      apiToken: apiToken === '(hidden)' && existingConfig ? existingConfig.apiToken : apiToken,
     };
 
     // Test the authentication
@@ -2868,12 +2895,38 @@ async function initializeSetup() {
 
     // Step 4: Initial sync
     console.log(chalk.bold('\n\nStep 4: Initial Data Sync\n'));
+    
+    // Check for existing synced data
+    const cm = new ContentManager();
+    const existingProjects = cm.db.prepare(
+      'SELECT DISTINCT project_key FROM searchable_content WHERE source = "jira" AND project_key IS NOT NULL'
+    ).all() as { project_key: string }[];
+    const existingSpaces = cm.db.prepare(
+      'SELECT DISTINCT space_key FROM searchable_content WHERE source = "confluence" AND space_key IS NOT NULL'
+    ).all() as { space_key: string }[];
+    cm.close();
+    
+    if (existingProjects.length > 0 || existingSpaces.length > 0) {
+      console.log(chalk.dim('You already have synced data:'));
+      if (existingProjects.length > 0) {
+        console.log(chalk.dim(`  Jira projects: ${existingProjects.map(p => p.project_key).join(', ')}`));
+      }
+      if (existingSpaces.length > 0) {
+        console.log(chalk.dim(`  Confluence spaces: ${existingSpaces.map(s => s.space_key).join(', ')}`));
+      }
+      console.log();
+    }
+    
     console.log('Let\'s sync your first project or space to get started.');
     
     const syncType = await rl.question('\nWhat would you like to sync?\n  1. Jira project\n  2. Confluence space\n  3. Skip for now\n\nChoice (1/2/3): ');
     
     if (syncType === '1') {
-      const projectKey = await rl.question('\nJira project key (e.g., PROJ): ');
+      const defaultProject = existingProjects.length > 0 ? existingProjects[0].project_key : undefined;
+      const projectKey = await promptWithDefault(
+        '\nJira project key (e.g., PROJ)',
+        defaultProject
+      );
       if (projectKey) {
         console.log(chalk.dim('\nSyncing project... This may take a few minutes for large projects.'));
         rl.close();
@@ -2882,7 +2935,11 @@ async function initializeSetup() {
         rl.close();
       }
     } else if (syncType === '2') {
-      const spaceKey = await rl.question('\nConfluence space key (e.g., ENG): ');
+      const defaultSpace = existingSpaces.length > 0 ? existingSpaces[0].space_key : undefined;
+      const spaceKey = await promptWithDefault(
+        '\nConfluence space key (e.g., ENG)',
+        defaultSpace
+      );
       if (spaceKey) {
         console.log(chalk.dim('\nSyncing space... This may take a few minutes for large spaces.'));
         rl.close();
