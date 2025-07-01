@@ -12,9 +12,26 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 - 📚 **Complete integration** - Both Jira issues and Confluence pages
 - 🔄 **Always fresh** - Automatic background sync keeps data up-to-date
 
+## Installation
+
+First, clone and install ji:
+
+```bash
+git clone https://github.com/aaronshaf/ji.git
+cd ji
+bun install
+```
+
+To install globally (recommended):
+```bash
+bun link
+```
+
+Now you can use `ji` from anywhere.
+
 ## Getting Started
 
-The quickest way to get started with ji is to use the interactive setup wizard:
+The quickest way to get started is to use the interactive setup wizard:
 
 ```bash
 ji init
@@ -86,32 +103,6 @@ ollama pull phi4:latest
 
 # Ollama runs as a service automatically
 ```
-
-## Installation
-
-```bash
-bun install
-```
-
-To install globally:
-```bash
-bun link
-```
-
-## Setup
-
-First, authenticate with your Atlassian instance:
-
-```bash
-ji auth
-```
-
-You'll need:
-- Your Atlassian instance URL (e.g., `https://company.atlassian.net`)
-- Your email address
-- An Atlassian API token (create one at https://id.atlassian.com/manage-profile/security/api-tokens)
-
-The authentication credentials are stored securely in `~/.ji/auth.json` with 600 permissions, separate from the database so you can recreate the SQLite database without re-authenticating.
 
 ## Usage
 
