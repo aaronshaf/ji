@@ -734,12 +734,19 @@ async function syncWorkspaces() {
           
           if (updateRange.newest && updateRange.oldest) {
             // We have local issues - do bidirectional sync
+            // Debug: log the date range we're working with
+            if (process.env.DEBUG) {
+              console.log(`\n  [DEBUG] ${workspace.keyOrId} local range: ${updateRange.oldest} to ${updateRange.newest}`);
+            }
             
             // Forward fill: get issues newer than our newest local issue
             const forwardJql = `project = "${workspace.keyOrId}" AND updated > "${updateRange.newest}" ORDER BY updated DESC`;
             const forwardResult = await jiraClient.searchIssues(forwardJql, { maxResults: 200 });
             if (forwardResult.issues.length > 0) {
               allIssues.push(...forwardResult.issues);
+              if (process.env.DEBUG) {
+                console.log(`  [DEBUG] Forward fill found ${forwardResult.issues.length} issues`);
+              }
             }
             
             // Backward fill: get issues older than our oldest local issue
@@ -747,13 +754,22 @@ async function syncWorkspaces() {
             const backwardResult = await jiraClient.searchIssues(backwardJql, { maxResults: 100 });
             if (backwardResult.issues.length > 0) {
               allIssues.push(...backwardResult.issues);
+              if (process.env.DEBUG) {
+                console.log(`  [DEBUG] Backward fill found ${backwardResult.issues.length} issues`);
+              }
             }
           } else {
             // First sync - get recent issues to establish baseline
+            if (process.env.DEBUG) {
+              console.log(`\n  [DEBUG] ${workspace.keyOrId} no local issues found, doing initial sync`);
+            }
             const initialJql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
             const initialResult = await jiraClient.searchIssues(initialJql, { maxResults: 200 });
             if (initialResult.issues.length > 0) {
               allIssues.push(...initialResult.issues);
+              if (process.env.DEBUG) {
+                console.log(`  [DEBUG] Initial sync found ${initialResult.issues.length} issues`);
+              }
             }
           }
         } catch (error) {
