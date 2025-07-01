@@ -50,8 +50,27 @@ const BoardsResponseSchema = z.object({
   total: z.number(),
 });
 
+const SprintSchema = z.object({
+  id: z.number(),
+  self: z.string(),
+  state: z.string(),
+  name: z.string(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  originBoardId: z.number(),
+  goal: z.string().optional(),
+});
+
+const SprintsResponseSchema = z.object({
+  values: z.array(SprintSchema),
+  startAt: z.number(),
+  maxResults: z.number(),
+  total: z.number(),
+});
+
 export type Issue = z.infer<typeof IssueSchema>;
 export type Board = z.infer<typeof BoardSchema>;
+export type Sprint = z.infer<typeof SprintSchema>;
 
 export class JiraClient {
   private config: Config;
@@ -322,5 +341,75 @@ export class JiraClient {
         updated: issue.fields.updated
       }
     }));
+  }
+
+  async getActiveSprints(boardId: number): Promise<Sprint[]> {
+    const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/sprint?state=active`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch active sprints: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    const parsed = SprintsResponseSchema.parse(data);
+    return parsed.values;
+  }
+
+  async getSprintIssues(sprintId: number, options?: {
+    startAt?: number;
+    maxResults?: number;
+  }): Promise<{ issues: Issue[]; total: number }> {
+    const params = new URLSearchParams({
+      startAt: (options?.startAt || 0).toString(),
+      maxResults: (options?.maxResults || 50).toString(),
+    });
+
+    const url = `${this.config.jiraUrl}/rest/agile/1.0/sprint/${sprintId}/issue?${params}`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch sprint issues: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as any;
+    return {
+      issues: data.issues.map((issue: any) => IssueSchema.parse(issue)),
+      total: data.total
+    };
+  }
+
+  async getUserActiveSprints(userEmail: string): Promise<Sprint[]> {
+    // First, get all boards the user has access to
+    const boards = await this.getUserBoards(userEmail);
+    const allSprints: Sprint[] = [];
+    
+    // For each board, get active sprints
+    for (const board of boards) {
+      try {
+        const sprints = await this.getActiveSprints(board.id);
+        allSprints.push(...sprints);
+      } catch (error) {
+        // Skip boards that might not have sprint support
+        continue;
+      }
+    }
+    
+    // Remove duplicates
+    const uniqueSprints = Array.from(
+      new Map(allSprints.map(s => [s.id, s])).values()
+    );
+    
+    return uniqueSprints;
   }
 }

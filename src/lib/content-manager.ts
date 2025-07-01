@@ -42,12 +42,16 @@ export class ContentManager {
     const projectStmt = this.db.prepare('INSERT OR IGNORE INTO projects (key, name) VALUES (?, ?)');
     projectStmt.run(projectKey, projectKey);
     
+    // Extract sprint information from custom fields
+    const sprintInfo = this.extractSprintInfo(issue);
+    
     const issueStmt = this.db.prepare(`
       INSERT OR REPLACE INTO issues (
         key, project_key, summary, status, priority,
         assignee_name, assignee_email, reporter_name, reporter_email,
-        created, updated, description, raw_data, synced_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created, updated, description, raw_data, synced_at,
+        sprint_id, sprint_name
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     issueStmt.run(
@@ -64,7 +68,9 @@ export class ContentManager {
       new Date(issue.fields.updated).getTime(),
       this.extractDescription(issue.fields.description),
       JSON.stringify(issue),
-      Date.now()
+      Date.now(),
+      sprintInfo?.id || null,
+      sprintInfo?.name || null
     );
 
     // Also save to searchable_content
@@ -301,6 +307,59 @@ export class ContentManager {
     const existing = stmt.get(`confluence:${pageId}`) as { content_hash?: string } | undefined;
     
     return !existing || existing.content_hash !== newContentHash;
+  }
+
+  private extractSprintInfo(issue: Issue): { id: string; name: string } | null {
+    // Sprint information is typically stored in customfield_10020 or similar
+    // The format is usually an array of sprint strings
+    const fields = issue.fields as any;
+    
+    // Common sprint field names
+    const sprintFieldNames = [
+      'customfield_10020', // Most common
+      'customfield_10021',
+      'customfield_10016',
+      'sprint',
+      'sprints'
+    ];
+    
+    for (const fieldName of sprintFieldNames) {
+      const sprintData = fields[fieldName];
+      if (!sprintData) continue;
+      
+      // Handle array of sprints (take the most recent/active one)
+      if (Array.isArray(sprintData) && sprintData.length > 0) {
+        const sprintString = sprintData[sprintData.length - 1];
+        if (typeof sprintString === 'string') {
+          // Parse sprint string format: "com.atlassian.greenhopper.service.sprint.Sprint@1234[id=123,name=Sprint 1,...]"  
+          const idMatch = sprintString.match(/\[.*?id=(\d+)/i);
+          const nameMatch = sprintString.match(/\[.*?name=([^,\]]+)/i);
+          
+          if (idMatch && nameMatch) {
+            return {
+              id: idMatch[1],
+              name: nameMatch[1]
+            };
+          }
+        } else if (typeof sprintString === 'object' && sprintString.id && sprintString.name) {
+          // Sometimes it's already an object
+          return {
+            id: String(sprintString.id),
+            name: sprintString.name
+          };
+        }
+      }
+      
+      // Handle single sprint object
+      if (typeof sprintData === 'object' && sprintData.id && sprintData.name) {
+        return {
+          id: String(sprintData.id),
+          name: sprintData.name
+        };
+      }
+    }
+    
+    return null;
   }
 
   close() {
