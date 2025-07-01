@@ -1020,24 +1020,19 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
       }
     }
     
-    // Auto-index everything for search
-    const indexPromise = Promise.race([
-      (async () => {
-        const { syncToMeilisearch } = await import('./lib/sync-meilisearch.js');
-        await syncToMeilisearch({ clean: false });
-        return 'success';
-      })(),
-      new Promise<string>((resolve) => setTimeout(() => resolve('timeout'), 10000)) // 10 second timeout
-    ]).catch(() => 'error');
-    
-    const indexResult = await indexPromise;
-    
-    if (indexResult === 'success') {
-      // Success - output already handled by syncToMeilisearch
-    } else if (indexResult === 'timeout') {
-      console.log('Index ⏳');
-    } else {
-      console.log('Index ⚠️');
+    // Auto-index everything for search with progress indicator
+    try {
+      const indexStart = Date.now();
+      const { syncToMeilisearch } = await import('./lib/sync-meilisearch.js');
+      await syncToMeilisearch({ clean: false });
+      const indexTime = Date.now() - indexStart;
+      
+      // Only show timing if it took more than 1 second
+      if (indexTime > 1000) {
+        console.log(chalk.dim(`Search index updated in ${Math.round(indexTime / 1000)}s`));
+      }
+    } catch (error) {
+      console.log('Index: ⚠️ failed to update search index');
     }
     
     console.log(chalk.green('\n✓ Sync complete'));
