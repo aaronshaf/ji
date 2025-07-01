@@ -11,7 +11,8 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 - 🔄 Automatic background refresh keeps data up-to-date
 - 🔐 Secure API key storage (separate from database)
 - 📝 Clean, intuitive command structure
-- 🔍 Fast full-text search across Jira issues and Confluence pages
+- ⚡ Instant search powered by Meilisearch (<50ms latency)
+- 🔍 Typo-tolerant search with smart ranking
 - 🧠 Semantic search with local vector embeddings (via Ollama)
 - 🤖 AI-powered Q&A to answer questions from your knowledge base
 - 💭 Memory system for progressive learning and fact correction
@@ -22,7 +23,20 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 ## Prerequisites
 
 - [Bun](https://bun.sh) (v1.0 or later)
+- [Meilisearch](https://www.meilisearch.com) (for search functionality)
 - [Ollama](https://ollama.com) (optional, for semantic search and AI Q&A)
+
+### Installing Meilisearch
+
+```bash
+# macOS
+brew install meilisearch
+brew services start meilisearch
+
+# Linux/WSL
+curl -L https://install.meilisearch.com | sh
+./meilisearch
+```
 
 ## Installation
 
@@ -135,6 +149,14 @@ ji confluence view <page-id> --json
 
 ### Search
 
+#### Fast Search Setup
+
+Before searching, index your data to Meilisearch:
+```bash
+ji index              # Index all documents
+ji index --clean      # Clear and re-index everything
+```
+
 Search across all cached content (both Jira and Confluence):
 ```bash
 ji search "performance issues"
@@ -143,11 +165,6 @@ ji search "performance issues"
 By default, closed/resolved/done issues are excluded. To include all issues:
 ```bash
 ji search "performance issues" --all
-```
-
-Semantic search (finds conceptually related content):
-```bash
-ji search --semantic "authentication problems"
 ```
 
 Filter by source:
@@ -161,10 +178,12 @@ Limit results:
 ji search "bug" --limit 5
 ```
 
-Search results show:
-- Title with status icon (for Jira issues)
-- Relevant metadata (status, priority, assignee)
-- Content preview from descriptions
+Search features:
+- ⚡ Instant results (<50ms)
+- 🎯 Typo tolerance (finds "authentcation" → "authentication")
+- 📊 Smart ranking based on relevance
+- 🔍 Highlighted search terms in results
+- 📋 Shows status, priority, and reporter for Jira issues
 
 #### Semantic Search Setup
 
@@ -275,10 +294,19 @@ This interactive command lets you:
 - Select which model to use for embeddings (semantic search)
 - Automatically pull models if they're not installed
 
-### Embeddings Management
+### Search & Embeddings Management
+
+#### Index Management
+
+Index all documents to Meilisearch for fast search:
+```bash
+ji index              # Index all documents
+ji index --clean      # Clear indexes and re-index
+```
+
+#### Embeddings Management
 
 Regenerate all embeddings (useful after changing models):
-
 ```bash
 ji embeddings regenerate
 ```
@@ -307,7 +335,8 @@ bun run lint
 - **Runtime**: Pure Bun for lightning-fast execution
 - **Storage**: Bun's built-in SQLite database stored in `~/.ji/data.db`
 - **Authentication**: Credentials stored separately in `~/.ji/auth.json` (600 permissions)
-- **Search**: Hybrid approach combining SQLite FTS5 and semantic embeddings
+- **Search**: Meilisearch for instant, typo-tolerant search with smart ranking
+- **Semantic Search**: Local vector embeddings via Ollama for concept-based search
 - **AI**: Local LLM integration via Ollama for Q&A functionality
 - **Sync**: Background processes for data refresh and embedding generation
 - **Security**: API credentials stored securely, never committed to git

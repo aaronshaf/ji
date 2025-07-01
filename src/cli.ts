@@ -11,6 +11,7 @@ import { OllamaClient } from './lib/ollama.js';
 import { MemoryManager } from './lib/memory.js';
 import { SearchAnalytics } from './lib/search-analytics.js';
 import { MeilisearchAdapter } from './lib/meilisearch-adapter.js';
+import { MeilisearchFast } from './lib/meilisearch-fast.js';
 import { syncToMeilisearch } from './lib/sync-meilisearch.js';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -494,7 +495,8 @@ async function search(query: string, options: {
   }
 
   try {
-    const meilisearch = new MeilisearchAdapter();
+    // Use fast singleton Meilisearch instance
+    const meilisearch = MeilisearchFast.getInstance();
     
     // Use Meilisearch for all searches now
     const results = await meilisearch.search(query, {
@@ -579,8 +581,19 @@ async function search(query: string, options: {
       }
       
       // Minimal metadata line with clickable URL
-      const timeAgo = formatTimeAgo(content.updatedAt);
-      const isRecent = content.updatedAt && (Date.now() - content.updatedAt) < (7 * 24 * 60 * 60 * 1000);
+      // For Jira issues, check if updatedAt is actually the sync time (within last day)
+      let displayTime = content.updatedAt;
+      if (content.source === 'jira' && content.updatedAt) {
+        const hoursSinceUpdate = (Date.now() - content.updatedAt) / (1000 * 60 * 60);
+        if (hoursSinceUpdate < 24) {
+          // This is likely sync time, not real update time
+          // Don't show misleading recent time
+          displayTime = undefined;
+        }
+      }
+      
+      const timeAgo = displayTime ? formatTimeAgo(displayTime) : 'Unknown';
+      const isRecent = displayTime && (Date.now() - displayTime) < (7 * 24 * 60 * 60 * 1000);
       const timeColor = isRecent ? chalk.green : chalk.dim;
       
       // Build full URL for clicking
