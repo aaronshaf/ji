@@ -12,6 +12,41 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 - 📚 **Complete integration** - Both Jira issues and Confluence pages
 - 🔄 **Always fresh** - Automatic background sync keeps data up-to-date
 
+## Getting Started
+
+The quickest way to get started with ji is to use the interactive setup wizard:
+
+```bash
+ji init
+```
+
+This command will guide you through:
+
+1. **🔐 Authentication Setup** - Configure your Jira/Confluence credentials
+   - Prompts for your Atlassian instance URL (e.g., `https://company.atlassian.net`)
+   - Your email address
+   - API token (creates a link to generate one if needed)
+   - Stores credentials securely in `~/.ji/auth.json` with 600 permissions
+
+2. **🔍 Search Installation** - Sets up Meilisearch for instant search
+   - Detects if Meilisearch is already installed
+   - Installs via Homebrew if needed (macOS)
+   - Provides instructions for other platforms
+   - Starts Meilisearch as a background service
+
+3. **🤖 AI Setup (Optional)** - Configures Ollama for AI features
+   - Checks if you want AI-powered Q&A capabilities
+   - Installs Ollama if desired
+   - Downloads required models for embeddings and language processing
+   - Completely optional - the app works great without it!
+
+4. **📊 Initial Sync** - Gets your first project/space data
+   - Prompts for a Jira project key to sync
+   - Optionally syncs a Confluence space
+   - Shows progress as it downloads and indexes your data
+
+After running `ji init`, you'll have a fully configured ji installation ready to use!
+
 ## Prerequisites
 
 - [Bun](https://bun.sh) (v1.0 or later)
@@ -139,6 +174,29 @@ ji take PROJ-123
 ```
 
 Assigns the specified issue to yourself. Shows the issue details and confirms the assignment.
+
+#### View sprint issues
+
+View all issues in your current sprint(s):
+
+```bash
+ji sprint
+```
+
+View only unassigned issues in the current sprint:
+
+```bash
+ji sprint unassigned
+```
+
+Filter by specific project:
+
+```bash
+ji sprint PROJ
+ji sprint unassigned PROJ
+```
+
+Shows issues grouped by status with assignee information. Uses color coding for better readability.
 
 ### Confluence Commands
 
