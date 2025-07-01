@@ -23,7 +23,11 @@ const IssueSchema = z.object({
     }).nullable(),
     created: z.string(),
     updated: z.string(),
-  }),
+    // Common sprint custom fields - these will be present when we fetch with custom fields
+    customfield_10020: z.any().optional(), // Most common sprint field
+    customfield_10021: z.any().optional(), // Alternative sprint field
+    customfield_10016: z.any().optional(), // Another common sprint field
+  }).catchall(z.any()), // Allow other custom fields to pass through
 });
 
 const SearchResultSchema = z.object({
@@ -72,6 +76,24 @@ export type Issue = z.infer<typeof IssueSchema>;
 export type Board = z.infer<typeof BoardSchema>;
 export type Sprint = z.infer<typeof SprintSchema>;
 
+// Standard fields to fetch for issues including sprint information
+export const ISSUE_FIELDS = [
+  'summary',
+  'description', 
+  'status',
+  'assignee',
+  'reporter',
+  'priority',
+  'created',
+  'updated',
+  // Common sprint custom fields
+  'customfield_10020', // Most common sprint field
+  'customfield_10021', // Alternative sprint field
+  'customfield_10016', // Another common sprint field
+  'customfield_10018', // Sometimes used
+  'customfield_10019', // Sometimes used
+];
+
 export class JiraClient {
   private config: Config;
 
@@ -89,7 +111,10 @@ export class JiraClient {
   }
 
   async getIssue(issueKey: string): Promise<Issue> {
-    const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}`;
+    const params = new URLSearchParams({
+      fields: ISSUE_FIELDS.join(',')
+    });
+    const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}?${params}`;
     
     const response = await fetch(url, {
       method: 'GET',

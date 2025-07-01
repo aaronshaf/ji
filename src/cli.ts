@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { parseArgs } from "util";
 import { ConfigManager } from './lib/config.js';
-import { JiraClient, type Board, type Issue } from './lib/jira-client.js';
+import { JiraClient, type Board, type Issue, ISSUE_FIELDS } from './lib/jira-client.js';
 import { CacheManager } from './lib/cache.js';
 import { ContentManager } from './lib/content-manager.js';
 import { type SearchResult } from './lib/content-manager.js';
@@ -441,7 +441,20 @@ async function showSprint(options: {
     
     // Display sprints with their issues
     for (const sprint of activeSprints) {
-      const allIssues = await cacheManager.getSprintIssues(sprint.sprintId);
+      // Get issues directly from Jira Agile API instead of cache
+      const sprintResult = await jiraClient.getSprintIssues(parseInt(sprint.sprintId));
+      const allIssues = sprintResult.issues.map(issue => ({
+        key: issue.key,
+        project_key: sprint.projectKey,
+        summary: issue.fields.summary,
+        status: issue.fields.status.name,
+        priority: issue.fields.priority?.name || 'None',
+        assignee_name: issue.fields.assignee?.displayName || null,
+        assignee_email: issue.fields.assignee?.emailAddress || null,
+        updated: issue.fields.updated,
+        sprint_id: sprint.sprintId,
+        sprint_name: sprint.sprintName
+      }));
       const unassignedIssues = allIssues.filter(i => !i.assignee_email);
       
       // Skip if showing only unassigned and there are none
@@ -750,7 +763,8 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
               const cleanJql = `project = "${workspace.keyOrId}" ORDER BY updated DESC`;
               const cleanResult = await jiraClient.searchIssues(cleanJql, { 
                 maxResults: pageSize, 
-                startAt: startAt 
+                startAt: startAt,
+                fields: ISSUE_FIELDS
               });
               
               if (cleanResult.issues.length > 0) {
@@ -788,7 +802,7 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
             
             // Forward fill: get issues newer than our newest local issue
             const forwardJql = `project = "${workspace.keyOrId}" AND updated > "${updateRange.newest}" ORDER BY updated DESC`;
-            const forwardResult = await jiraClient.searchIssues(forwardJql, { maxResults: 200 });
+            const forwardResult = await jiraClient.searchIssues(forwardJql, { maxResults: 200, fields: ISSUE_FIELDS });
             if (forwardResult.issues.length > 0) {
               allIssues.push(...forwardResult.issues);
               if (process.env.DEBUG) {
@@ -802,7 +816,7 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
             
             if (!backfillLimit || updateRange.oldest < backfillLimit) {
               const backwardJql = `project = "${workspace.keyOrId}" AND updated < "${updateRange.oldest}" ORDER BY updated DESC`;
-              const backwardResult = await jiraClient.searchIssues(backwardJql, { maxResults: 100 });
+              const backwardResult = await jiraClient.searchIssues(backwardJql, { maxResults: 100, fields: ISSUE_FIELDS });
               if (backwardResult.issues.length > 0) {
                 allIssues.push(...backwardResult.issues);
                 // Track how far back we've gone
@@ -823,7 +837,7 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
               console.log(`\n  [DEBUG] ${workspace.keyOrId} no local issues found, doing initial sync`);
             }
             const initialJql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
-            const initialResult = await jiraClient.searchIssues(initialJql, { maxResults: 200 });
+            const initialResult = await jiraClient.searchIssues(initialJql, { maxResults: 200, fields: ISSUE_FIELDS });
             if (initialResult.issues.length > 0) {
               allIssues.push(...initialResult.issues);
               if (process.env.DEBUG) {
@@ -1461,7 +1475,7 @@ async function syncJiraProject(projectKey: string, options: { fresh?: boolean } 
         // Fetch all newer issues (they're recent, so shouldn't be too many)
         let startAt = 0;
         while (startAt < newerCount.total) {
-          const batch = await jiraClient.searchIssues(newerJql, { startAt, maxResults: batchSize });
+          const batch = await jiraClient.searchIssues(newerJql, { startAt, maxResults: batchSize, fields: ISSUE_FIELDS });
           
           if (batch.issues.length > 0) {
             await saveIssuesBatch(batch.issues, cacheManager, contentManager);
@@ -1486,7 +1500,7 @@ async function syncJiraProject(projectKey: string, options: { fresh?: boolean } 
       // Get batch of issues older than our current oldest
       const olderJql = `project = ${projectKey} AND updated < "${formatJqlDate(currentOldest)}" ORDER BY updated DESC`;
       
-      const batch = await jiraClient.searchIssues(olderJql, { startAt: 0, maxResults: batchSize });
+      const batch = await jiraClient.searchIssues(olderJql, { startAt: 0, maxResults: batchSize, fields: ISSUE_FIELDS });
       
       if (batch.issues.length === 0) {
         // No more older issues
