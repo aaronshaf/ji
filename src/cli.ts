@@ -443,18 +443,31 @@ async function syncWorkspaces() {
     if (jiraWorkspaces.length > 0) {
       console.log(chalk.blue('📝 Syncing recent issues...'));
       
-      for (const workspace of jiraWorkspaces) {
+      for (let i = 0; i < jiraWorkspaces.length; i++) {
+        const workspace = jiraWorkspaces[i];
+        const progress = `(${i + 1}/${jiraWorkspaces.length})`;
+        process.stdout.write(`  Syncing ${workspace.name} ${progress}...`);
+        
         try {
           // Sync only recent issues (last 30 days) for performance
           const jql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
-          const result = await jiraClient.searchIssues(jql, { maxResults: 100 });
+          const result = await jiraClient.searchIssues(jql, { maxResults: 50 }); // Reduced from 100
           
-          for (const issue of result.issues) {
-            await cacheManager.saveIssue(issue);
-          }
+          // Save issues in parallel for better performance
+          const savePromises = result.issues.map(issue => 
+            cacheManager.saveIssue(issue).catch(err => 
+              console.warn(`    Failed to save ${issue.key}: ${err.message}`)
+            )
+          );
           
+          await Promise.all(savePromises);
+          
+          // Clear the progress line and show result
+          process.stdout.write('\r' + ' '.repeat(80) + '\r');
           console.log(`  ✓ ${workspace.name}: ${result.issues.length} recent issues`);
         } catch (error) {
+          // Clear the progress line and show error
+          process.stdout.write('\r' + ' '.repeat(80) + '\r');
           console.log(`  ⚠️  ${workspace.name}: ${error instanceof Error ? error.message : 'Failed'}`);
         }
       }
@@ -476,13 +489,26 @@ async function syncWorkspaces() {
       }
     }
     
-    // Auto-index everything for search
-    try {
-      console.log(chalk.blue('\n🔍 Updating search index...'));
-      const { syncToMeilisearch } = await import('./lib/sync-meilisearch.js');
-      await syncToMeilisearch({ clean: false });
+    // Auto-index everything for search (optional, don't let it block)
+    console.log(chalk.blue('\n🔍 Updating search index...'));
+    
+    // Run indexing in background with timeout
+    const indexPromise = Promise.race([
+      (async () => {
+        const { syncToMeilisearch } = await import('./lib/sync-meilisearch.js');
+        await syncToMeilisearch({ clean: false });
+        return 'success';
+      })(),
+      new Promise<string>((resolve) => setTimeout(() => resolve('timeout'), 10000)) // 10 second timeout
+    ]).catch(() => 'error');
+    
+    const indexResult = await indexPromise;
+    
+    if (indexResult === 'success') {
       console.log(chalk.green('  ✓ Search index updated'));
-    } catch (error) {
+    } else if (indexResult === 'timeout') {
+      console.log(chalk.yellow('  ⚠️  Search indexing is taking longer than expected (continuing in background)'));
+    } else {
       console.log(chalk.yellow('  ⚠️  Search indexing skipped (Meilisearch may not be running)'));
     }
     
