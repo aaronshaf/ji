@@ -2059,6 +2059,17 @@ async function main() {
     // Extract the fact from all remaining arguments
     const fact = args.slice(1).join(' ');
     await addMemory(fact);
+  } else if (command === 'memories' && (args[1] === '--help' || args[1] === '-h' || !args[1])) {
+    console.log('\nMemory Management Commands:\n');
+    console.log('  ji memories list                  - List stored memories');
+    console.log('  ji memories search <term>         - Search memories');
+    console.log('  ji memories delete <id>           - Delete a memory by ID');
+    console.log('  ji memories clear                 - Clear manually added memories');
+    console.log('  ji memories clear --all           - Clear ALL memories');
+    console.log('  ji memories stats                 - Show memory statistics');
+    console.log('\nOptions:');
+    console.log('  --limit <n>                       - Limit results (for list/search)');
+    console.log('  --help, -h                        - Show this help message\n');
   } else if (command === 'memories' && args[1] === 'list') {
     const limitIndex = args.indexOf('--limit');
     const options = {
@@ -2083,6 +2094,9 @@ async function main() {
     await clearMemories(options);
   } else if (command === 'memories' && args[1] === 'stats') {
     await showMemoryStats();
+  } else if (command === 'memories') {
+    console.error('Unknown memories subcommand. Use "ji memories --help" for usage.');
+    process.exit(1);
   } else {
     console.error(`Unknown command: ${args.join(' ')}`);
     process.exit(1);
