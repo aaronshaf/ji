@@ -84,14 +84,35 @@ export class MeilisearchFast {
     // Merge and sort results by ranking score
     const allHits = results.flatMap(r => r.hits);
     
-    // Filter out low relevance results (below 50% is not very relevant)
-    const relevanceThreshold = 0.5;
-    const relevantHits = allHits.filter(hit => (hit._rankingScore || 0) >= relevanceThreshold);
+    // Sort first to analyze score distribution
+    const sortedHits = allHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
     
-    const sortedHits = relevantHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
+    // Smart filtering based on score distribution
+    let filteredHits = sortedHits;
+    
+    if (sortedHits.length > 0) {
+      const topScore = sortedHits[0]._rankingScore || 0;
+      
+      // If we have high-quality matches (>= 90%), filter more aggressively
+      if (topScore >= 0.9) {
+        // Only show results within 40% of the top score
+        const cutoffScore = topScore * 0.6;
+        filteredHits = sortedHits.filter(hit => (hit._rankingScore || 0) >= cutoffScore);
+      } else if (topScore >= 0.8) {
+        // For good matches, show results within 50% of top score
+        const cutoffScore = topScore * 0.5;
+        filteredHits = sortedHits.filter(hit => (hit._rankingScore || 0) >= cutoffScore);
+      } else {
+        // For lower quality results, use fixed 50% threshold
+        filteredHits = sortedHits.filter(hit => (hit._rankingScore || 0) >= 0.5);
+      }
+      
+      // Also apply a minimum absolute threshold
+      filteredHits = filteredHits.filter(hit => (hit._rankingScore || 0) >= 0.5);
+    }
     
     // Limit to requested total
-    const limitedHits = sortedHits.slice(0, totalLimit);
+    const limitedHits = filteredHits.slice(0, totalLimit);
 
     // Convert to SearchResult format
     return limitedHits.map(hit => ({
