@@ -363,88 +363,54 @@ async function showMyBoards(projectFilter?: string) {
     // If filtering by project and single board, show columns and issues
     if (projectFilter && boards.length === 1) {
       const board = boards[0];
-      const jiraClient = new JiraClient(config);
       
-      try {
-        console.log(`${chalk.bold.blue(board.name)} ${chalk.dim(`(${board.type})`)}\n`);
-        
-        // Get board configuration and issues
-        const spinner = ora('Loading board...').start();
-        
-        let boardConfig: any;
-        let issues: any[];
-        
-        try {
-          // Add timeout to prevent hanging
-          const timeout = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Request timed out')), 30000)
-          );
-          
-          const result = await Promise.race([
-            Promise.all([
-              jiraClient.getBoardConfiguration(board.id),
-              jiraClient.getBoardIssues(board.id)
-            ]),
-            timeout
-          ]) as [any, any];
-          
-          boardConfig = result[0];
-          issues = result[1];
-          
-          spinner.stop();
-          
-          // Debug: show total issues found
-          if (issues.length === 0) {
-            console.log(chalk.yellow('No issues found on this board. The board might be empty or have filters that exclude all issues.\n'));
-          }
-        } catch (timeoutError) {
-          spinner.stop();
-          throw timeoutError;
-        }
-        
-        // Group issues by status
-        const issuesByStatus = new Map<string, typeof issues>();
+      console.log(`${chalk.bold.blue(board.name)} ${chalk.dim(`(${board.type})`)}\n`);
+      
+      // Use cached issues instead of board API
+      const issues = await cacheManager.listIssuesByProject(projectFilter);
+      
+      if (issues.length === 0) {
+        console.log(chalk.yellow('No cached issues for this project. Run "ji sync" to update.\n'));
+      } else {
+        // Group by status
+        const statusGroups = new Map<string, typeof issues>();
         issues.forEach(issue => {
-          const status = issue.fields.status.name;
-          if (!issuesByStatus.has(status)) {
-            issuesByStatus.set(status, []);
+          const status = issue.status;
+          if (!statusGroups.has(status)) {
+            statusGroups.set(status, []);
           }
-          issuesByStatus.get(status)!.push(issue);
+          statusGroups.get(status)!.push(issue);
         });
         
-        // Display columns with their issues
-        boardConfig.columns.forEach(column => {
-          const columnIssues: typeof issues = [];
+        // Common board statuses in order
+        const commonStatuses = ['To Do', 'In Progress', 'In Review', 'Done'];
+        const allStatuses = Array.from(statusGroups.keys()).sort((a, b) => {
+          const aIndex = commonStatuses.indexOf(a);
+          const bIndex = commonStatuses.indexOf(b);
+          if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+          if (aIndex !== -1) return -1;
+          if (bIndex !== -1) return 1;
+          return a.localeCompare(b);
+        });
+        
+        // Display by status
+        allStatuses.forEach(status => {
+          const statusIssues = statusGroups.get(status)!;
+          console.log(chalk.bold(`${status} (${statusIssues.length})`));
           
-          // Collect all issues for this column's statuses
-          column.statuses.forEach(status => {
-            const statusIssues = issuesByStatus.get(status.name) || [];
-            columnIssues.push(...statusIssues);
+          statusIssues.slice(0, 10).forEach(issue => {
+            const assignee = issue.assignee_name || 'unassigned';
+            console.log(`  ${chalk.cyan(issue.key)} ${issue.summary} ${chalk.dim(`@${assignee}`)}`);
           });
           
-          console.log(chalk.bold(`${column.name} (${columnIssues.length})`));
-          
-          if (columnIssues.length === 0) {
-            console.log(chalk.dim('  No issues'));
-          } else {
-            columnIssues.forEach(issue => {
-              const assignee = issue.fields.assignee ? 
-                chalk.dim(`@${issue.fields.assignee.displayName.split(' ')[0]}`) : 
-                chalk.dim('unassigned');
-              console.log(`  ${chalk.cyan(issue.key)} ${issue.fields.summary} ${assignee}`);
-            });
+          if (statusIssues.length > 10) {
+            console.log(chalk.dim(`  ... and ${statusIssues.length - 10} more`));
           }
           console.log();
         });
-        
-        console.log(chalk.dim(`Board URL: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`));
-        
-      } catch (error) {
-        console.error(`Failed to load board details: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        // Fall back to simple board display
-        const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
-        console.log(`${chalk.bold.blue(projectFilter)}: ${typeIcon} ${chalk.bold(board.name)} ${chalk.cyan(`→ ${board.id}`)}`);
       }
+      
+      console.log(chalk.dim(`Board URL: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`));
       
     } else {
       // Display normal board list
