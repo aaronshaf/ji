@@ -369,10 +369,19 @@ async function showMyBoards(projectFilter?: string) {
         console.log(`${chalk.bold.blue(board.name)} ${chalk.dim(`(${board.type})`)}\n`);
         
         // Get board configuration and issues
+        const spinner = ora('Loading board...').start();
+        
         const [boardConfig, issues] = await Promise.all([
           jiraClient.getBoardConfiguration(board.id),
           jiraClient.getBoardIssues(board.id)
         ]);
+        
+        spinner.stop();
+        
+        // Debug: show total issues found
+        if (issues.length === 0) {
+          console.log(chalk.yellow('No issues found on this board. The board might be empty or have filters that exclude all issues.\n'));
+        }
         
         // Group issues by status
         const issuesByStatus = new Map<string, typeof issues>();
