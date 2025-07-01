@@ -381,8 +381,11 @@ async function showMyBoards(projectFilter?: string) {
       }
     });
     
-    // Show command to open boards
-    console.log(chalk.dim(`\n💡 Open a board: ${chalk.cyan(`open ${config.jiraUrl}/secure/RapidBoard.jspa?rapidView={id}`)}`));
+    // Show actual clickable links for each board
+    console.log(); // blank line before links
+    boards.forEach(board => {
+      console.log(chalk.dim(`${board.name}: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`));
+    });
     
   } catch (error) {
     console.error(`Failed to retrieve boards: ${error instanceof Error ? error.message : 'Unknown error'}`);
