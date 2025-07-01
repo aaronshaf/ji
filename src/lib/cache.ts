@@ -124,6 +124,22 @@ export class CacheManager {
     };
   }
 
+  async getBackfillLimit(projectKey: string): Promise<string | null> {
+    // Get the timestamp of when we last did a backfill for this project
+    const stmt = this.db.prepare(`
+      SELECT value FROM config WHERE key = ?
+    `);
+    const result = stmt.get(`backfill_limit_${projectKey}`) as { value: string } | undefined;
+    return result?.value || null;
+  }
+
+  async setBackfillLimit(projectKey: string, timestamp: string): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)
+    `);
+    stmt.run(`backfill_limit_${projectKey}`, timestamp);
+  }
+
   async getWorkspaceLastSync(type: string, key: string): Promise<Date | null> {
     const stmt = this.db.prepare(`
       SELECT last_synced

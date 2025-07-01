@@ -750,12 +750,24 @@ async function syncWorkspaces() {
             }
             
             // Backward fill: get issues older than our oldest local issue
-            const backwardJql = `project = "${workspace.keyOrId}" AND updated < "${updateRange.oldest}" ORDER BY updated DESC`;
-            const backwardResult = await jiraClient.searchIssues(backwardJql, { maxResults: 100 });
-            if (backwardResult.issues.length > 0) {
-              allIssues.push(...backwardResult.issues);
+            // But only if we haven't already backfilled to that point
+            const backfillLimit = await cacheManager.getBackfillLimit(workspace.keyOrId);
+            
+            if (!backfillLimit || updateRange.oldest < backfillLimit) {
+              const backwardJql = `project = "${workspace.keyOrId}" AND updated < "${updateRange.oldest}" ORDER BY updated DESC`;
+              const backwardResult = await jiraClient.searchIssues(backwardJql, { maxResults: 100 });
+              if (backwardResult.issues.length > 0) {
+                allIssues.push(...backwardResult.issues);
+                // Track how far back we've gone
+                const oldestFetched = backwardResult.issues[backwardResult.issues.length - 1].fields.updated;
+                await cacheManager.setBackfillLimit(workspace.keyOrId, oldestFetched);
+                if (process.env.DEBUG) {
+                  console.log(`  [DEBUG] Backward fill found ${backwardResult.issues.length} issues, limit set to ${oldestFetched}`);
+                }
+              }
+            } else {
               if (process.env.DEBUG) {
-                console.log(`  [DEBUG] Backward fill found ${backwardResult.issues.length} issues`);
+                console.log(`  [DEBUG] Backward fill skipped - already backfilled to ${backfillLimit}`);
               }
             }
           } else {
