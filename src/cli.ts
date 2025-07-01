@@ -1467,23 +1467,21 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
     if (options.clean) {
       console.log('🧹 Clean sync: fetching all pages...\n');
       
-      // Full sync - get all page IDs
-      const spinner = ora('Fetching all page IDs...').start();
+      // Full sync - get all pages from the space
+      const spinner = ora('Fetching all pages...').start();
       
-      // For clean sync, we can use a very old date to get all pages
-      const veryOldDate = new Date('2000-01-01');
-      const allPageIds = await confluenceClient.getPagesSince(spaceKey, veryOldDate, (current) => {
-        spinner.text = `Fetching page IDs... ${current} found`;
+      const allPages = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
+        spinner.text = `Fetching pages... ${current} found`;
       });
       
-      spinner.succeed(`Found ${allPageIds.length} pages`);
+      spinner.succeed(`Found ${allPages.length} pages`);
 
-      if (allPageIds.length === 0) {
+      if (allPages.length === 0) {
         console.log(chalk.yellow('⚠️  No pages found in this space.'));
         return;
       }
       
-      pagesToSync = allPageIds;
+      pagesToSync = allPages.map(p => p.id);
       console.log(`\n💾 Will sync all ${pagesToSync.length} pages...\n`);
     } else {
       console.log('⚡ Incremental sync: checking for changes...\n');

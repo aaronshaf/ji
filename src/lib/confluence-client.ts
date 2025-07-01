@@ -163,6 +163,7 @@ export class ConfluenceClient {
     const formattedDate = sinceDate.toISOString().replace('T', ' ').substring(0, 16);
     const cql = `space="${spaceKey}" and type=page and lastmodified > "${formattedDate}" order by lastmodified desc`;
     
+    
     while (true) {
       const url = `${this.baseUrl}/search?cql=${encodeURIComponent(cql)}&start=${start}&limit=${limit}`;
       
@@ -181,6 +182,7 @@ export class ConfluenceClient {
       // Extract just the page IDs
       const ids = data.results.map((result: any) => result.content.id);
       pageIds.push(...ids);
+      
       
       if (onProgress) {
         onProgress(pageIds.length);
