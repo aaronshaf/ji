@@ -44,6 +44,9 @@ ollama pull mxbai-embed-large
 # Pull the language model for AI Q&A
 ollama pull gemma3n
 
+# For better analysis and reasoning, consider upgrading to:
+ollama pull phi4:latest
+
 # Ollama runs as a service automatically
 ```
 
@@ -234,6 +237,9 @@ For AI Q&A to work, you need the language model:
 ```bash
 # Pull the default language model
 ollama pull gemma3n
+
+# For better analysis and reasoning, consider upgrading to:
+ollama pull phi4:latest
 ```
 
 ### Memory Management
