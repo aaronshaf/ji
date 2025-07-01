@@ -353,6 +353,18 @@ async function takeIssue(issueKey: string) {
     }
     console.log(`${chalk.dim('Now assigned to:')} ${chalk.green(currentUser.displayName)}`);
     
+    // Sync the issue to update local cache
+    spinner.start('Updating local cache...');
+    try {
+      const cacheManager = new CacheManager();
+      const updatedIssue = await jiraClient.getIssue(issueKey);
+      await cacheManager.saveIssue(updatedIssue);
+      cacheManager.close();
+      spinner.succeed('Local cache updated');
+    } catch (syncError) {
+      spinner.warn('Failed to update local cache (will sync on next view)');
+    }
+    
   } catch (error) {
     spinner.fail(`Failed to take issue: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
