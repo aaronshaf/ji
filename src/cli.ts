@@ -160,6 +160,30 @@ async function refreshInBackground(issueKey: string, config: any) {
   }
 }
 
+async function refreshSprintInBackground(sprintId: string, config: any) {
+  const cacheManager = new CacheManager();
+  try {
+    const client = new JiraClient(config);
+    const sprintResult = await client.getSprintIssues(parseInt(sprintId));
+    const issues = sprintResult.issues.map(issue => ({
+      key: issue.key,
+      project_key: issue.key.split('-')[0], // Extract project key from issue key
+      summary: issue.fields.summary,
+      status: issue.fields.status.name,
+      priority: issue.fields.priority?.name || 'None',
+      assignee_name: issue.fields.assignee?.displayName || null,
+      assignee_email: issue.fields.assignee?.emailAddress || null,
+      updated: issue.fields.updated
+    }));
+    await cacheManager.setCachedSprintIssues(sprintId, issues);
+  } catch (error) {
+    // Silently fail - this is a background refresh
+    // Don't log to console since we're in a detached process
+  } finally {
+    cacheManager.close();
+  }
+}
+
 function formatDescription(description: any): string {
   if (typeof description === 'string') {
     return description;
@@ -441,20 +465,65 @@ async function showSprint(options: {
     
     // Display sprints with their issues
     for (const sprint of activeSprints) {
-      // Get issues directly from Jira Agile API instead of cache
-      const sprintResult = await jiraClient.getSprintIssues(parseInt(sprint.sprintId));
-      const allIssues = sprintResult.issues.map(issue => ({
-        key: issue.key,
-        project_key: sprint.projectKey,
-        summary: issue.fields.summary,
-        status: issue.fields.status.name,
-        priority: issue.fields.priority?.name || 'None',
-        assignee_name: issue.fields.assignee?.displayName || null,
-        assignee_email: issue.fields.assignee?.emailAddress || null,
-        updated: issue.fields.updated,
-        sprint_id: sprint.sprintId,
-        sprint_name: sprint.sprintName
-      }));
+      let allIssues: any[] = [];
+      let fromCache = false;
+
+      // Try cache first (unless it's stale)
+      const cacheAge = await cacheManager.getSprintCacheAge(sprint.sprintId);
+      const isStale = !cacheAge || (Date.now() - cacheAge) > 5 * 60 * 1000; // 5 minutes
+
+      if (!isStale) {
+        const cachedIssues = await cacheManager.getCachedSprintIssues(sprint.sprintId);
+        if (cachedIssues.length > 0) {
+          allIssues = cachedIssues.map(issue => ({
+            key: issue.key,
+            project_key: issue.project_key,
+            summary: issue.summary,
+            status: issue.status,
+            priority: issue.priority,
+            assignee_name: issue.assignee_name,
+            assignee_email: issue.assignee_email,
+            updated: issue.updated,
+            sprint_id: sprint.sprintId,
+            sprint_name: sprint.sprintName
+          }));
+          fromCache = true;
+        }
+      }
+
+      // If no cached data or stale, fetch from API
+      if (allIssues.length === 0) {
+        const sprintResult = await jiraClient.getSprintIssues(parseInt(sprint.sprintId));
+        allIssues = sprintResult.issues.map(issue => ({
+          key: issue.key,
+          project_key: sprint.projectKey,
+          summary: issue.fields.summary,
+          status: issue.fields.status.name,
+          priority: issue.fields.priority?.name || 'None',
+          assignee_name: issue.fields.assignee?.displayName || null,
+          assignee_email: issue.fields.assignee?.emailAddress || null,
+          updated: issue.fields.updated,
+          sprint_id: sprint.sprintId,
+          sprint_name: sprint.sprintName
+        }));
+        
+        // Cache the fresh data
+        await cacheManager.setCachedSprintIssues(sprint.sprintId, allIssues);
+        fromCache = false;
+      }
+
+      // Background refresh if we showed cached data
+      if (fromCache) {
+        const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-sprint-refresh', sprint.sprintId], {
+          stdio: ['ignore', 'ignore', 'ignore'],
+          env: {
+            ...process.env,
+            JI_CONFIG: JSON.stringify(config)
+          }
+        });
+        proc.unref();
+      }
+
       const unassignedIssues = allIssues.filter(i => !i.assignee_email);
       
       // Skip if showing only unassigned and there are none
@@ -3272,6 +3341,15 @@ async function main() {
     const config = JSON.parse(process.env.JI_CONFIG || '{}');
     if (config.jiraUrl) {
       await refreshInBackground(args[1], config);
+    }
+    process.exit(0);
+  }
+
+  // Handle internal sprint refresh command (hidden from users)
+  if (args[0] === 'internal-sprint-refresh' && args[1]) {
+    const config = JSON.parse(process.env.JI_CONFIG || '{}');
+    if (config.jiraUrl) {
+      await refreshSprintInBackground(args[1], config);
     }
     process.exit(0);
   }
