@@ -2375,6 +2375,238 @@ async function searchWithoutAI(question: string, options: {
   }
 }
 
+async function initializeSetup() {
+  console.log(chalk.bold.blue('\n🚀 Welcome to ji - Jira & Confluence CLI\n'));
+  console.log('Let\'s get you set up! This will:');
+  console.log('  1. Configure Jira/Confluence authentication');
+  console.log('  2. Install and configure Meilisearch (search engine)');
+  console.log('  3. Install and configure Ollama (AI features)');
+  console.log('  4. Sync your first project/space\n');
+
+  const rl = readline.createInterface({ input, output });
+
+  try {
+    // Step 1: Authentication
+    console.log(chalk.bold('Step 1: Jira/Confluence Authentication\n'));
+    console.log('You\'ll need:');
+    console.log('  - Your Atlassian URL (e.g., https://company.atlassian.net)');
+    console.log('  - Your email address');
+    console.log('  - An API token from https://id.atlassian.com/manage-profile/security/api-tokens\n');
+
+    const proceed = await rl.question('Ready to continue? (Y/n): ');
+    if (proceed.toLowerCase() === 'n') {
+      console.log('\nSetup cancelled. Run "ji init" when you\'re ready!');
+      rl.close();
+      return;
+    }
+
+    // Configure authentication
+    const jiraUrl = await rl.question('\nJira URL (e.g., https://company.atlassian.net): ');
+    const email = await rl.question('Email: ');
+    const apiToken = await rl.question('API Token: ');
+
+    const config = {
+      jiraUrl: jiraUrl.endsWith('/') ? jiraUrl.slice(0, -1) : jiraUrl,
+      email,
+      apiToken,
+    };
+
+    // Test the authentication
+    console.log('\nVerifying credentials...');
+    
+    try {
+      const response = await fetch(`${config.jiraUrl}/rest/api/3/myself`, {
+        headers: {
+          'Authorization': `Basic ${Buffer.from(`${config.email}:${config.apiToken}`).toString('base64')}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Authentication failed: ${response.status} ${response.statusText}`);
+      }
+
+      const user = await response.json();
+      if (typeof user === 'object' && user !== null && 'displayName' in user) {
+        console.log(chalk.green(`✅ Authenticated as ${user.displayName}`));
+      }
+
+      // Save config
+      const configManager = new ConfigManager();
+      await configManager.setConfig(config);
+      configManager.close();
+
+    } catch (error) {
+      console.error(chalk.red('\n❌ Authentication failed. Please check your credentials.'));
+      console.error('Make sure you\'re using an API token, not your password.');
+      rl.close();
+      process.exit(1);
+    }
+
+    // Step 2: Install Meilisearch
+    console.log(chalk.bold('\n\nStep 2: Setting up Meilisearch (search engine)\n'));
+    
+    // Check if Meilisearch is already installed
+    const meilisearchCheck = await Bun.spawn(['which', 'meilisearch'], {
+      stdout: 'pipe',
+      stderr: 'pipe'
+    }).exited;
+
+    if (meilisearchCheck !== 0) {
+      console.log('Meilisearch is not installed. Let\'s install it with Homebrew.');
+      
+      // Check if Homebrew is installed
+      const brewCheck = await Bun.spawn(['which', 'brew'], {
+        stdout: 'pipe',
+        stderr: 'pipe'
+      }).exited;
+
+      if (brewCheck !== 0) {
+        console.log(chalk.yellow('\n⚠️  Homebrew is not installed.'));
+        console.log('Please install Homebrew first: https://brew.sh');
+        console.log('Then run "ji init" again.');
+        rl.close();
+        process.exit(1);
+      }
+
+      const installMeilisearch = await rl.question('\nInstall Meilisearch now? (Y/n): ');
+      if (installMeilisearch.toLowerCase() !== 'n') {
+        console.log('\nInstalling Meilisearch...');
+        const proc = Bun.spawn(['brew', 'install', 'meilisearch'], {
+          stdout: 'inherit',
+          stderr: 'inherit'
+        });
+        await proc.exited;
+        
+        console.log('\nStarting Meilisearch service...');
+        await Bun.spawn(['brew', 'services', 'start', 'meilisearch'], {
+          stdout: 'inherit',
+          stderr: 'inherit'
+        }).exited;
+        
+        console.log(chalk.green('✅ Meilisearch installed and started'));
+      }
+    } else {
+      // Check if Meilisearch is running
+      try {
+        const response = await fetch('http://localhost:7700/health');
+        if (response.ok) {
+          console.log(chalk.green('✅ Meilisearch is already installed and running'));
+        } else {
+          throw new Error('Not running');
+        }
+      } catch {
+        console.log('Meilisearch is installed but not running.');
+        const startMeilisearch = await rl.question('\nStart Meilisearch now? (Y/n): ');
+        if (startMeilisearch.toLowerCase() !== 'n') {
+          await Bun.spawn(['brew', 'services', 'start', 'meilisearch'], {
+            stdout: 'inherit',
+            stderr: 'inherit'
+          }).exited;
+          console.log(chalk.green('✅ Meilisearch started'));
+        }
+      }
+    }
+
+    // Step 3: Install Ollama (optional)
+    console.log(chalk.bold('\n\nStep 3: Setting up Ollama (AI features) - Optional\n'));
+    console.log('Ollama enables AI-powered features like:');
+    console.log('  - Natural language Q&A with "ji ask"');
+    console.log('  - Semantic search');
+    console.log('  - Smart memory extraction\n');
+
+    const installOllama = await rl.question('Would you like to install Ollama? (Y/n): ');
+    
+    if (installOllama.toLowerCase() !== 'n') {
+      // Check if Ollama is already installed
+      const ollamaCheck = await Bun.spawn(['which', 'ollama'], {
+        stdout: 'pipe',
+        stderr: 'pipe'
+      }).exited;
+
+      if (ollamaCheck !== 0) {
+        console.log('\nOllama is not installed. Let\'s install it.');
+        console.log(chalk.dim('This will download Ollama from https://ollama.ai\n'));
+        
+        const confirmInstall = await rl.question('Proceed with Ollama installation? (Y/n): ');
+        if (confirmInstall.toLowerCase() !== 'n') {
+          console.log('\nDownloading and installing Ollama...');
+          
+          // Download and run Ollama installer
+          const proc = Bun.spawn(['sh', '-c', 'curl -fsSL https://ollama.ai/install.sh | sh'], {
+            stdout: 'inherit',
+            stderr: 'inherit'
+          });
+          await proc.exited;
+          
+          console.log(chalk.green('✅ Ollama installed'));
+          
+          // Pull a default model
+          console.log('\nPulling recommended AI model (this may take a few minutes)...');
+          await Bun.spawn(['ollama', 'pull', 'llama3.2'], {
+            stdout: 'inherit',
+            stderr: 'inherit'
+          }).exited;
+          
+          console.log(chalk.green('✅ AI model ready'));
+        }
+      } else {
+        // Check if Ollama is running
+        const ollama = new OllamaClient();
+        if (await ollama.isAvailable()) {
+          console.log(chalk.green('✅ Ollama is already installed and running'));
+        } else {
+          console.log('Ollama is installed but not running.');
+          console.log(chalk.dim('Start it manually with: ollama serve'));
+        }
+      }
+    } else {
+      console.log(chalk.dim('\nSkipping Ollama installation. You can install it later to enable AI features.'));
+    }
+
+    // Step 4: Initial sync
+    console.log(chalk.bold('\n\nStep 4: Initial Data Sync\n'));
+    console.log('Let\'s sync your first project or space to get started.');
+    
+    const syncType = await rl.question('\nWhat would you like to sync?\n  1. Jira project\n  2. Confluence space\n  3. Skip for now\n\nChoice (1/2/3): ');
+    
+    if (syncType === '1') {
+      const projectKey = await rl.question('\nJira project key (e.g., PROJ): ');
+      if (projectKey) {
+        console.log(chalk.dim('\nSyncing project... This may take a few minutes for large projects.'));
+        rl.close();
+        await syncJiraProject(projectKey.toUpperCase());
+      } else {
+        rl.close();
+      }
+    } else if (syncType === '2') {
+      const spaceKey = await rl.question('\nConfluence space key (e.g., ENG): ');
+      if (spaceKey) {
+        console.log(chalk.dim('\nSyncing space... This may take a few minutes for large spaces.'));
+        rl.close();
+        await syncConfluence(spaceKey.toUpperCase());
+      } else {
+        rl.close();
+      }
+    } else {
+      rl.close();
+    }
+
+    // Final message
+    console.log(chalk.bold.green('\n\n🎉 Setup complete!\n'));
+    console.log('Quick start commands:');
+    console.log(`  ${chalk.cyan('ji mine')}              - View your assigned issues`);
+    console.log(`  ${chalk.cyan('ji search "query"')}    - Search across all synced content`);
+    console.log(`  ${chalk.cyan('ji ask "question"')}    - Ask questions about your docs`);
+    console.log(`  ${chalk.cyan('ji sync')}              - Sync your frequently used workspaces`);
+    console.log(`\nRun ${chalk.cyan('ji --help')} to see all available commands.`);
+  } catch (error) {
+    console.error(chalk.red('\n❌ Setup failed:'), error);
+    rl.close();
+    process.exit(1);
+  }
+}
+
 async function configureModels() {
   const configManager = new ConfigManager();
   const ollama = new OllamaClient();
@@ -2546,6 +2778,7 @@ async function main() {
   function showHelp() {
     console.log('ji - Jira & Confluence CLI\n');
     console.log('Usage:');
+    console.log('  ji init                       - First-time setup wizard');
     console.log('  ji auth                       - Set up authentication');
     console.log('  ji mine                       - Show your open issues');
     console.log('  ji board [project]            - Show boards (all or by project)');
@@ -2587,7 +2820,23 @@ async function main() {
 
   const command = args[0];
 
-  if (command === 'auth') {
+  // Check if this is a first-time user (no config)
+  if (command !== 'init' && command !== 'auth' && command !== '--help' && command !== '-h') {
+    const configManager = new ConfigManager();
+    const config = await configManager.getConfig();
+    configManager.close();
+    
+    if (!config) {
+      console.log(chalk.yellow('\n⚠️  No configuration found.'));
+      console.log(`\nRun ${chalk.cyan('ji init')} to get started with the setup wizard.`);
+      console.log(`Or run ${chalk.cyan('ji auth')} to configure authentication manually.\n`);
+      process.exit(1);
+    }
+  }
+
+  if (command === 'init') {
+    await initializeSetup();
+  } else if (command === 'auth') {
     await auth();
   } else if (command === 'mine') {
     await showMyIssues();
