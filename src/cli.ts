@@ -271,10 +271,12 @@ async function showMyIssues() {
   const cacheManager = new CacheManager();
   
   try {
+    // Get cached issues immediately for instant display
     const issues = await cacheManager.listMyOpenIssues(config.email);
     
     if (issues.length === 0) {
       console.log('No open issues assigned to you.');
+      console.log(chalk.dim('💡 Run "ji sync" to update your workspaces.'));
       return;
     }
     
@@ -308,6 +310,24 @@ async function showMyIssues() {
       }
     });
     
+    // Check if data might be stale and trigger background refresh if needed
+    const projectKeys = Object.keys(byProject);
+    if (projectKeys.length > 0) {
+      // Check when we last synced these projects
+      const now = Date.now();
+      const staleThreshold = 60 * 60 * 1000; // 1 hour
+      
+      for (const projectKey of projectKeys) {
+        const lastSync = await cacheManager.getProjectLastSync(projectKey);
+        
+        if (!lastSync || (now - lastSync.getTime()) > staleThreshold) {
+          // Data is stale, trigger background refresh
+          triggerBackgroundSync(projectKey, config);
+          break; // Only trigger one background sync to avoid overload
+        }
+      }
+    }
+    
   } catch (error) {
     console.error(`Failed to retrieve issues: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
@@ -315,6 +335,27 @@ async function showMyIssues() {
     cacheManager.close();
     configManager.close();
   }
+}
+
+// Trigger a background sync for a specific project
+function triggerBackgroundSync(projectKey: string, config: any) {
+  // Use Bun's subprocess to run the sync in background
+  // This won't block the current process
+  const subprocess = Bun.spawn([
+    process.execPath,
+    process.argv[1],
+    'issue',
+    'sync',
+    projectKey
+  ], {
+    stdout: 'ignore',
+    stderr: 'ignore',
+    stdin: 'ignore',
+    env: process.env
+  });
+  
+  // Detach the subprocess so it runs independently
+  subprocess.unref();
 }
 
 async function showMyBoards(projectFilter?: string) {
