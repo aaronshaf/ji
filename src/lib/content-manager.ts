@@ -265,6 +265,44 @@ export class ContentManager {
 
 
 
+  async getSpacePageVersions(spaceKey: string): Promise<Map<string, { version: number; updatedAt: number; syncedAt: number }>> {
+    const stmt = this.db.prepare(`
+      SELECT id, updated_at, synced_at, 
+             JSON_EXTRACT(metadata, '$.version.number') as version_number
+      FROM searchable_content 
+      WHERE space_key = ? AND source = 'confluence'
+    `);
+    
+    const rows = stmt.all(spaceKey) as Array<{
+      id: string;
+      updated_at: number;
+      synced_at: number;
+      version_number: number;
+    }>;
+    
+    const versionMap = new Map<string, { version: number; updatedAt: number; syncedAt: number }>();
+    
+    for (const row of rows) {
+      const pageId = row.id.replace('confluence:', '');
+      versionMap.set(pageId, {
+        version: row.version_number || 1,
+        updatedAt: row.updated_at,
+        syncedAt: row.synced_at
+      });
+    }
+    
+    return versionMap;
+  }
+
+  async hasContentChanged(pageId: string, newContentHash: string): Promise<boolean> {
+    const stmt = this.db.prepare(
+      'SELECT content_hash FROM searchable_content WHERE id = ?'
+    );
+    const existing = stmt.get(`confluence:${pageId}`) as { content_hash?: string } | undefined;
+    
+    return !existing || existing.content_hash !== newContentHash;
+  }
+
   close() {
     this.db.close();
   }

@@ -959,7 +959,7 @@ function createProgressBar(percent: number, width: number = 30): string {
 }
 
 
-async function syncConfluence(spaceKey: string) {
+async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {}) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
   
@@ -978,39 +978,92 @@ async function syncConfluence(spaceKey: string) {
     const space = await confluenceClient.getSpace(spaceKey);
     console.log(`📚 Space: ${chalk.bold(space.name)}\n`);
 
-    // Fetch all pages with progress
     const startTime = Date.now();
-    let lastProgress = 0;
-    const pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
-      if (total === 0) return;
-      
-      const percent = Math.round((current / total) * 100);
-      const progressBar = createProgressBar(percent, 20);
-      const statusLine = `📥 ${progressBar} ${percent}% | ${current}/${total} pages`;
-      process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
-      lastProgress = percent;
-    });
+    let pagesToSync: string[] = [];
+    let pages: Array<{ id: string; title: string; body?: any; space: any; version: any; _links: any }> | undefined;
     
-    if (lastProgress < 100 && pages.length > 0) {
-      const progressBar = createProgressBar(100, 20);
-      const statusLine = `📥 ${progressBar} 100% | ${pages.length}/${pages.length} pages`;
-      process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
-    }
-    console.log(''); // New line after progress
+    if (options.clean) {
+      console.log('🧹 Clean sync: fetching all pages...\n');
+      
+      // Full sync - get all pages
+      let lastProgress = 0;
+      const pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
+        if (total === 0) return;
+        
+        const percent = Math.round((current / total) * 100);
+        const progressBar = createProgressBar(percent, 20);
+        const statusLine = `📥 ${progressBar} ${percent}% | ${current}/${total} pages`;
+        process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
+        lastProgress = percent;
+      });
+      
+      if (lastProgress < 100 && pages.length > 0) {
+        const progressBar = createProgressBar(100, 20);
+        const statusLine = `📥 ${progressBar} 100% | ${pages.length}/${pages.length} pages`;
+        process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
+      }
+      console.log(''); // New line after progress
 
-    if (pages.length === 0) {
-      console.log(chalk.yellow('⚠️  No pages found in this space.'));
-      return;
-    }
+      if (pages.length === 0) {
+        console.log(chalk.yellow('⚠️  No pages found in this space.'));
+        return;
+      }
 
-    console.log(`\n💾 Saving ${pages.length} pages...\n`);
+      console.log(`\n💾 Saving ${pages.length} pages...\n`);
+      pagesToSync = pages.map(p => p.id);
+    } else {
+      console.log('⚡ Incremental sync: checking for changes...\n');
+      
+      // Get lightweight page list
+      const pageSummaries = await confluenceClient.getSpacePagesLightweight(spaceKey);
+      
+      if (pageSummaries.length === 0) {
+        console.log(chalk.yellow('⚠️  No pages found in this space.'));
+        return;
+      }
+      
+      // Get current versions from database  
+      const localVersions = await contentManager.getSpacePageVersions(spaceKey);
+      
+      // Identify pages that need syncing
+      const newPages: string[] = [];
+      const updatedPages: string[] = [];
+      
+      for (const summary of pageSummaries) {
+        const local = localVersions.get(summary.id);
+        
+        if (!local) {
+          // New page
+          newPages.push(summary.id);
+        } else if (summary.version.number > local.version) {
+          // Updated page
+          updatedPages.push(summary.id);
+        }
+      }
+      
+      pagesToSync = [...newPages, ...updatedPages];
+      
+      console.log(`📊 Found ${pageSummaries.length} pages: ${chalk.green(newPages.length + ' new')}, ${chalk.blue(updatedPages.length + ' updated')}, ${chalk.gray((pageSummaries.length - pagesToSync.length) + ' unchanged')}`);
+      
+      if (pagesToSync.length === 0) {
+        console.log(chalk.green('\n✅ All pages are up to date!'));
+        return;
+      }
+      
+      console.log(`\n💾 Syncing ${pagesToSync.length} pages...\n`);
+    }
     
     // Save each page to the content manager
-    for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
+    for (let i = 0; i < pagesToSync.length; i++) {
+      const pageId = pagesToSync[i];
+      
+      // Fetch full page content if needed
+      const page = options.clean ? 
+        pages!.find(p => p.id === pageId)! : 
+        await confluenceClient.getPage(pageId);
       
       // Update progress
-      const percent = Math.round(((i + 1) / pages.length) * 100);
+      const percent = Math.round(((i + 1) / pagesToSync.length) * 100);
       const progressBar = createProgressBar(percent, 20);
       const title = page.title.length > 40 ? page.title.substring(0, 40) + '...' : page.title;
       const statusLine = `💾 ${progressBar} ${percent}% | ${title}`;
@@ -1046,7 +1099,7 @@ async function syncConfluence(spaceKey: string) {
     console.log(''); // New line after progress
     
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(chalk.green(`\n✅ Successfully synced ${pages.length} pages from ${space.name} in ${totalTime}s\n`));
+    console.log(chalk.green(`\n✅ Successfully synced ${pagesToSync.length} pages from ${space.name} in ${totalTime}s\n`));
     
     console.log(`💡 Next steps:`);
     console.log(`   • Search all content: ${chalk.cyan('ji search <query>')}`);
@@ -2156,7 +2209,10 @@ async function main() {
     await syncJiraProject(projectKey, options);
   } else if (command === 'confluence' && args[1] === 'sync' && args[2]) {
     const spaceKey = args[2];
-    await syncConfluence(spaceKey);
+    const options = {
+      clean: args.includes('--clean')
+    };
+    await syncConfluence(spaceKey, options);
   } else if (command === 'confluence' && args[1] === 'view' && args[2]) {
     const pageId = args[2];
     const options = {
