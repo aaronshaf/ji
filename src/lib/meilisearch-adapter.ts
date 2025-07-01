@@ -206,7 +206,7 @@ export class MeilisearchAdapter {
     }
 
     await Promise.all(tasks);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Removed unnecessary 1-second delay - Meilisearch handles queuing internally
   }
 
   async search(query: string, options: {

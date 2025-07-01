@@ -36,7 +36,7 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}) {
     console.log(`  Confluence: ${chalk.yellow(statsBefore.confluence.numberOfDocuments.toString())}\n`);
     
     // Sync in batches
-    const batchSize = 100;
+    const batchSize = 1000; // Increased from 100 for much faster syncing
     let offset = 0;
     let totalSynced = 0;
     
