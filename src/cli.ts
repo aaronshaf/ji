@@ -371,19 +371,25 @@ async function showMyBoards(projectFilter?: string) {
         // Get board configuration and issues
         const spinner = ora('Loading board...').start();
         
+        let boardConfig: any;
+        let issues: any[];
+        
         try {
           // Add timeout to prevent hanging
           const timeout = new Promise((_, reject) => 
             setTimeout(() => reject(new Error('Request timed out')), 30000)
           );
           
-          const [boardConfig, issues] = await Promise.race([
+          const result = await Promise.race([
             Promise.all([
               jiraClient.getBoardConfiguration(board.id),
               jiraClient.getBoardIssues(board.id)
             ]),
             timeout
           ]) as [any, any];
+          
+          boardConfig = result[0];
+          issues = result[1];
           
           spinner.stop();
           
