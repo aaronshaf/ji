@@ -88,18 +88,7 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}) {
     console.log(chalk.green('\n✅ Sync complete!\n'));
     console.log('📊 Meilisearch Statistics:');
     console.log(`   Jira issues: ${chalk.cyan(statsAfter.jira.numberOfDocuments.toString())}`);
-    console.log(`   Confluence pages: ${chalk.cyan(statsAfter.confluence.numberOfDocuments.toString())}`);
-    
-    // Test search
-    console.log('\n🔍 Testing search...');
-    const testResults = await meilisearch.search('xsslint', { limit: 5 });
-    console.log(`Found ${chalk.cyan(testResults.length.toString())} results for "xsslint"`);
-    if (testResults.length > 0) {
-      console.log('\nTop results:');
-      testResults.slice(0, 3).forEach((result, i) => {
-        console.log(`  ${i + 1}. ${result.content.title} (score: ${result.score.toFixed(2)})`);
-      });
-    }
+    console.log(`   Confluence pages: ${chalk.cyan(statsAfter.confluence.numberOfDocuments.toString())}`)
     
   } catch (error) {
     console.error(chalk.red('\n❌ Sync failed:'), error);
