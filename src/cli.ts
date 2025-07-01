@@ -725,29 +725,33 @@ async function syncWorkspaces() {
       // First, collect all issues that need syncing
       for (const workspace of jiraWorkspaces) {
         try {
-          // Gap-filling strategy: sync both newer and older issues
+          // Two-direction sync strategy:
+          // 1. Look for local issues in SQLite, sorted by Jira's updated field
+          // 2. Find newest and oldest by Jira's updated date
+          // 3. Ask Jira for issues updated AFTER our newest (forward fill)
+          // 4. Ask Jira for issues updated BEFORE our oldest (backward fill)
           const updateRange = await cacheManager.getIssueUpdateRange(workspace.keyOrId);
           
           if (updateRange.newest && updateRange.oldest) {
-            // We have issues - do forward and backward fill
+            // We have local issues - do bidirectional sync
             
-            // Forward fill: get issues newer than our newest
+            // Forward fill: get issues newer than our newest local issue
             const forwardJql = `project = "${workspace.keyOrId}" AND updated > "${updateRange.newest}" ORDER BY updated DESC`;
-            const forwardResult = await jiraClient.searchIssues(forwardJql, { maxResults: 100 });
+            const forwardResult = await jiraClient.searchIssues(forwardJql, { maxResults: 200 });
             if (forwardResult.issues.length > 0) {
               allIssues.push(...forwardResult.issues);
             }
             
-            // Backward fill: get issues older than our oldest (limit to avoid huge syncs)
+            // Backward fill: get issues older than our oldest local issue
             const backwardJql = `project = "${workspace.keyOrId}" AND updated < "${updateRange.oldest}" ORDER BY updated DESC`;
-            const backwardResult = await jiraClient.searchIssues(backwardJql, { maxResults: 50 });
+            const backwardResult = await jiraClient.searchIssues(backwardJql, { maxResults: 100 });
             if (backwardResult.issues.length > 0) {
               allIssues.push(...backwardResult.issues);
             }
           } else {
-            // First sync - get recent issues
+            // First sync - get recent issues to establish baseline
             const initialJql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
-            const initialResult = await jiraClient.searchIssues(initialJql, { maxResults: 100 });
+            const initialResult = await jiraClient.searchIssues(initialJql, { maxResults: 200 });
             if (initialResult.issues.length > 0) {
               allIssues.push(...initialResult.issues);
             }
