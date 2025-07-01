@@ -501,7 +501,7 @@ async function search(query: string, options: {
     // Use Meilisearch for all searches now
     const results = await meilisearch.search(query, {
       source: options.source,
-      limit: options.limit || 20,
+      limit: options.limit || 5,  // Default to 5 results for cleaner output
       includeAll: options.includeAll
     });
 
@@ -1926,7 +1926,7 @@ async function main() {
     console.log('  --sync, -s                    - Force sync from API');
     console.log('  --clean                       - Clear local data before sync');
     console.log('  --source [jira|confluence]    - Filter by source');
-    console.log('  --limit <n>                   - Limit results (default: 10)');
+    console.log('  --limit <n>                   - Limit results (default: 5)');
     console.log('  --all                         - Include closed/resolved issues');
     console.log('  --verbose, -v                 - Show additional details');
     console.log('  --model <name>                - LLM model for ask (default: gemma3n)');

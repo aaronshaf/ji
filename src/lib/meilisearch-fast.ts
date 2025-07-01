@@ -30,8 +30,12 @@ export class MeilisearchFast {
     limit?: number;
     includeAll?: boolean;
   } = {}): Promise<SearchResult[]> {
+    // Calculate per-index limit based on total desired limit
+    const totalLimit = options.limit || 5;
+    const perIndexLimit = options.source ? totalLimit : Math.ceil(totalLimit * 0.6);
+    
     const baseSearchParams: any = {
-      limit: options.limit || 20,
+      limit: perIndexLimit,
       attributesToHighlight: ['title', 'content'],
       highlightPreTag: '<mark>',
       highlightPostTag: '</mark>',
@@ -80,9 +84,12 @@ export class MeilisearchFast {
     // Merge and sort results by ranking score
     const allHits = results.flatMap(r => r.hits);
     const sortedHits = allHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
+    
+    // Limit to requested total
+    const limitedHits = sortedHits.slice(0, totalLimit);
 
     // Convert to SearchResult format
-    return sortedHits.map(hit => ({
+    return limitedHits.map(hit => ({
       content: {
         id: hit.originalId || hit.id.replace('_', ':'), // Convert back to original ID format
         source: hit.source as 'jira' | 'confluence',
