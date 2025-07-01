@@ -4,7 +4,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { MeilisearchAdapter } from './meilisearch-adapter.js';
 
-export async function syncToMeilisearch(options: { clean?: boolean } = {}) {
+export async function syncToMeilisearch(options: { clean?: boolean } = {}): Promise<{ indexedItems: number }> {
   const dbPath = join(homedir(), '.ji', 'data.db');
   const db = new Database(dbPath);
   const meilisearch = new MeilisearchAdapter();
@@ -43,7 +43,7 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}) {
     
     if (totalCount.count === 0) {
       console.log('Index: up to date');
-      return;
+      return { indexedItems: 0 };
     }
     
     // Sync in batches
@@ -97,6 +97,7 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}) {
     const now = Date.now();
     db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)').run('last_meilisearch_sync', now.toString());
     
+    return { indexedItems: totalSynced };
   } catch (error) {
     console.error(` ❌`);
     throw error;

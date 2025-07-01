@@ -1024,11 +1024,11 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
     try {
       const indexStart = Date.now();
       const { syncToMeilisearch } = await import('./lib/sync-meilisearch.js');
-      await syncToMeilisearch({ clean: false });
+      const result = await syncToMeilisearch({ clean: false });
       const indexTime = Date.now() - indexStart;
       
-      // Only show timing if it took more than 1 second
-      if (indexTime > 1000) {
+      // Only show timing if actual indexing work was done and it took more than 1 second
+      if (result.indexedItems > 0 && indexTime > 1000) {
         console.log(chalk.dim(`Search index updated in ${Math.round(indexTime / 1000)}s`));
       }
     } catch (error) {
