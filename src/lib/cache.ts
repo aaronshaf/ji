@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
-import type { Issue } from './jira-client.js';
+import type { Issue, Board } from './jira-client.js';
 import { ContentManager } from './content-manager.js';
 
 export class CacheManager {
@@ -128,6 +128,112 @@ export class CacheManager {
     }
     
     return text.trim();
+  }
+
+  // Board management methods
+  async saveBoards(boards: Board[]): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO boards (id, name, type, project_key, project_name, self_url, synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    const now = Date.now();
+    for (const board of boards) {
+      stmt.run(
+        board.id,
+        board.name,
+        board.type,
+        board.location?.projectKey || null,
+        board.location?.projectName || null,
+        null, // self_url not available in Board schema
+        now
+      );
+    }
+  }
+
+  async getMyBoards(userEmail: string): Promise<Board[]> {
+    // Get boards for projects where user has recent activity
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT b.*
+      FROM boards b
+      JOIN issues i ON b.project_key = i.project_key
+      WHERE i.assignee_email = ? 
+        AND i.updated > (strftime('%s', 'now', '-30 days') * 1000)
+        AND b.synced_at > (strftime('%s', 'now', '-7 days') * 1000)
+      ORDER BY b.project_key, b.name
+    `);
+    
+    const rows = stmt.all(userEmail) as any[];
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      location: {
+        projectKey: row.project_key,
+        projectName: row.project_name
+      }
+    }));
+  }
+
+  async getAllCachedBoards(): Promise<Board[]> {
+    const stmt = this.db.prepare(`
+      SELECT * FROM boards
+      WHERE synced_at > (strftime('%s', 'now', '-7 days') * 1000)
+      ORDER BY project_key, name
+    `);
+    
+    const rows = stmt.all() as any[];
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      location: {
+        projectKey: row.project_key,
+        projectName: row.project_name
+      }
+    }));
+  }
+
+  // Workspace management methods
+  async trackWorkspace(type: 'jira_project' | 'confluence_space', keyOrId: string, name: string): Promise<void> {
+    const id = `${type}:${keyOrId}`;
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO user_workspaces (id, type, name, key_or_id, usage_count, last_used, auto_sync)
+      VALUES (?, ?, ?, ?, COALESCE((SELECT usage_count FROM user_workspaces WHERE id = ?) + 1, 1), ?, 0)
+    `);
+    
+    stmt.run(id, type, name, keyOrId, id, Date.now());
+  }
+
+  async getActiveWorkspaces(): Promise<Array<{id: string; type: string; name: string; keyOrId: string; usageCount: number; lastUsed: number; autoSync: boolean}>> {
+    const stmt = this.db.prepare(`
+      SELECT id, type, name, key_or_id, usage_count, last_used, auto_sync
+      FROM user_workspaces
+      WHERE last_used > (strftime('%s', 'now', '-60 days') * 1000)
+      ORDER BY usage_count DESC, last_used DESC
+      LIMIT 10
+    `);
+    
+    const rows = stmt.all() as any[];
+    return rows.map(row => ({
+      id: row.id,
+      type: row.type,
+      name: row.name,
+      keyOrId: row.key_or_id,
+      usageCount: row.usage_count,
+      lastUsed: row.last_used,
+      autoSync: row.auto_sync === 1
+    }));
+  }
+
+  async setWorkspaceAutoSync(id: string, autoSync: boolean): Promise<void> {
+    const stmt = this.db.prepare(`
+      UPDATE user_workspaces 
+      SET auto_sync = ?, synced_at = CASE WHEN ? THEN ? ELSE synced_at END
+      WHERE id = ?
+    `);
+    
+    stmt.run(autoSync ? 1 : 0, autoSync, Date.now(), id);
   }
 
   close() {
