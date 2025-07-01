@@ -118,6 +118,36 @@ export class ConfluenceClient {
     return PageListResponseSchema.parse(data);
   }
 
+  async getSpacePagesLightweight(spaceKey: string): Promise<{ id: string; title: string; version: { number: number; when: string }; }[]> {
+    const allPages: { id: string; title: string; version: { number: number; when: string }; }[] = [];
+    let start = 0;
+    const limit = 100;
+
+    while (true) {
+      const response = await this.getSpaceContent(spaceKey, {
+        start,
+        limit,
+        expand: ['version'] // Only get version info, no body content
+      });
+
+      const lightweightPages = response.results.map(page => ({
+        id: page.id,
+        title: page.title,
+        version: page.version
+      }));
+
+      allPages.push(...lightweightPages);
+
+      if (response.results.length < limit) {
+        break;
+      }
+
+      start += limit;
+    }
+
+    return allPages;
+  }
+
   async getAllSpacePages(spaceKey: string, onProgress?: (current: number, total: number) => void): Promise<Page[]> {
     const allPages: Page[] = [];
     let start = 0;
