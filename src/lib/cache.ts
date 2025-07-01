@@ -91,6 +91,16 @@ export class CacheManager {
     return results.map(r => r.key);
   }
 
+  async getLatestIssueUpdate(projectKey: string): Promise<string | null> {
+    const stmt = this.db.prepare(`
+      SELECT MAX(updated) as latest_update
+      FROM issues
+      WHERE project_key = ?
+    `);
+    const result = stmt.get(projectKey) as { latest_update: string | null };
+    return result?.latest_update || null;
+  }
+
   private extractDescription(description: any): string {
     if (typeof description === 'string') {
       return description;
