@@ -127,7 +127,7 @@ export class ConfluenceClient {
       const response = await this.getSpaceContent(spaceKey, {
         start,
         limit,
-        expand: ['version'] // Only get version info, no body content
+        expand: ['version', 'space'] // Get version and space info, no body content
       });
 
       const lightweightPages = response.results.map(page => ({
