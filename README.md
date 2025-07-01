@@ -120,6 +120,14 @@ ji mine
 
 Shows all open issues assigned to you, grouped by project.
 
+#### Take ownership of an issue
+
+```bash
+ji take PROJ-123
+```
+
+Assigns the specified issue to yourself. Shows the issue details and confirms the assignment.
+
 ### Confluence Commands
 
 #### Sync a Confluence space

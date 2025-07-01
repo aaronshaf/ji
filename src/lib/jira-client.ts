@@ -137,4 +137,44 @@ export class JiraClient {
 
     return allIssues;
   }
+
+  async getCurrentUser(): Promise<{ accountId: string; displayName: string; emailAddress?: string }> {
+    const url = `${this.config.jiraUrl}/rest/api/3/myself`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to get current user: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as {
+      accountId: string;
+      displayName: string;
+      emailAddress?: string;
+    };
+    return {
+      accountId: data.accountId,
+      displayName: data.displayName,
+      emailAddress: data.emailAddress,
+    };
+  }
+
+  async assignIssue(issueKey: string, accountId: string): Promise<void> {
+    const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}/assignee`;
+    
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ accountId }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to assign issue: ${response.status} - ${errorText}`);
+    }
+  }
 }
