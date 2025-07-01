@@ -39,18 +39,6 @@ export class CacheManager {
   async saveIssue(issue: Issue): Promise<void> {
     // Save using content manager (handles both tables)
     await this.contentManager.saveJiraIssue(issue);
-    
-    // Generate embeddings in background
-    this.generateEmbeddingsInBackground(issue);
-  }
-
-  private async generateEmbeddingsInBackground(issue: Issue): Promise<void> {
-    // Spawn a detached process for embedding generation
-    const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-embed', `jira:${issue.key}`], {
-      stdio: ['ignore', 'ignore', 'ignore'],
-      env: process.env
-    });
-    proc.unref();
   }
 
   async listIssuesByProject(projectKey: string): Promise<any[]> {

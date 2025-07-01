@@ -1,6 +1,7 @@
 import { MeiliSearch, Index } from 'meilisearch';
 import type { SearchableContent } from './content-manager.js';
-import type { SearchResult } from './embeddings.js';
+import type { SearchResult } from './content-manager.js';
+import { ConfigManager } from './config.js';
 
 export class MeilisearchAdapter {
   private client: MeiliSearch;
@@ -14,6 +15,12 @@ export class MeilisearchAdapter {
 
   async initialize() {
     if (this.initialized) return;
+
+    // Get configured embedding model
+    const configManager = new ConfigManager();
+    const settings = await configManager.getSettings();
+    const embeddingModel = settings.embeddingModel || 'mxbai-embed-large';
+    configManager.close();
 
     // Get or create indexes
     this.jiraIndex = this.client.index('jira-issues');
@@ -65,6 +72,14 @@ export class MeilisearchAdapter {
         'api': ['endpoint', 'service'],
         'error': ['exception', 'failure', 'issue'],
         'setup': ['configuration', 'install']
+      },
+      embedders: {
+        'hybrid': {
+          source: 'ollama',
+          model: embeddingModel,
+          url: 'http://localhost:11434/api/embeddings',
+          documentTemplate: '{{doc.title}} {{doc.content}}'
+        }
       }
     });
 
@@ -87,6 +102,14 @@ export class MeilisearchAdapter {
         minWordSizeForTypos: {
           oneTypo: 3,
           twoTypos: 6
+        }
+      },
+      embedders: {
+        'hybrid': {
+          source: 'ollama',
+          model: embeddingModel,
+          url: 'http://localhost:11434/api/embeddings',
+          documentTemplate: '{{doc.title}} {{doc.content}}'
         }
       }
     });
