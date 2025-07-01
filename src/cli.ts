@@ -1413,7 +1413,7 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       
       // Full sync - get all pages
       let lastProgress = 0;
-      const pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
+      pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
         if (total === 0) return;
         
         const percent = Math.round((current / total) * 100);
