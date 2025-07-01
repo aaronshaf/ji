@@ -678,56 +678,54 @@ async function syncWorkspaces() {
   }
 
   try {
-    console.log(chalk.bold('\n🔄 Syncing your workspaces...\n'));
-    
-    // Get active workspaces
     const workspaces = await cacheManager.getActiveWorkspaces();
     
     if (workspaces.length === 0) {
-      console.log('No workspaces detected yet.');
-      console.log(chalk.dim('💡 Use commands like "ji issue sync <project>" or "ji confluence sync <space>" to start tracking workspaces.'));
-      console.log(chalk.dim('    Then run "ji sync" to automatically sync your frequently used workspaces.'));
+      console.log('No workspaces found. Run "ji issue sync <project>" or "ji confluence sync <space>" first.');
       return;
     }
     
     const jiraClient = new JiraClient(config);
-    
-    // Sync Jira projects and their boards (skip invalid entries)
     const jiraWorkspaces = workspaces.filter(w => w.type === 'jira_project' && w.keyOrId !== 'boards');
     const confluenceWorkspaces = workspaces.filter(w => w.type === 'confluence_space');
     
-    console.log(`📊 Found ${jiraWorkspaces.length} Jira projects and ${confluenceWorkspaces.length} Confluence spaces to sync\n`);
+    const jiraProjectKeys = jiraWorkspaces.map(w => w.keyOrId).join(', ');
+    const confluenceSpaceKeys = confluenceWorkspaces.map(w => w.keyOrId).join(', ');
     
-    // Sync boards for all Jira projects (fast)
+    console.log(chalk.dim(`Jira: ${jiraProjectKeys || 'none'}`));
+    console.log(chalk.dim(`Confluence: ${confluenceSpaceKeys || 'none'}\n`));
+    
+    // Sync boards
     if (jiraWorkspaces.length > 0) {
-      console.log(chalk.blue('📋 Syncing boards...'));
-      
+      process.stdout.write('Boards ');
       const allBoards = [];
+      let boardSyncErrors = 0;
       for (const workspace of jiraWorkspaces) {
         try {
           const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
           allBoards.push(...projectBoards);
-          console.log(`  ✓ ${workspace.name}: ${projectBoards.length} boards`);
+          process.stdout.write('.');
         } catch (error) {
-          console.log(`  ⚠️  ${workspace.name}: ${error instanceof Error ? error.message : 'Failed'}`);
+          boardSyncErrors++;
+          process.stdout.write('x');
         }
       }
       
       if (allBoards.length > 0) {
         await cacheManager.saveBoards(allBoards);
-        console.log(chalk.green(`  📋 Cached ${allBoards.length} boards\n`));
+        console.log(` ${allBoards.length}`);
+      } else {
+        console.log(' 0');
       }
     }
     
     // Sync recent issues for Jira projects
     if (jiraWorkspaces.length > 0) {
-      console.log(chalk.blue('📝 Syncing recent issues...'));
+      process.stdout.write('Issues ');
+      let totalIssues = 0;
+      let issueSyncErrors = 0;
       
-      for (let i = 0; i < jiraWorkspaces.length; i++) {
-        const workspace = jiraWorkspaces[i];
-        const progress = `(${i + 1}/${jiraWorkspaces.length})`;
-        process.stdout.write(`  Syncing ${workspace.name} ${progress}...`);
-        
+      for (const workspace of jiraWorkspaces) {
         try {
           // Sync only recent issues (last 30 days) for performance
           const jql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
@@ -735,44 +733,92 @@ async function syncWorkspaces() {
           
           // Save issues in parallel for better performance
           const savePromises = result.issues.map(issue => 
-            cacheManager.saveIssue(issue).catch(err => 
-              console.warn(`    Failed to save ${issue.key}: ${err.message}`)
-            )
+            cacheManager.saveIssue(issue).catch(err => null)
           );
           
           await Promise.all(savePromises);
-          
-          // Clear the progress line and show result
-          process.stdout.write('\r' + ' '.repeat(80) + '\r');
-          console.log(`  ✓ ${workspace.name}: ${result.issues.length} recent issues`);
+          totalIssues += result.issues.length;
+          process.stdout.write('.');
         } catch (error) {
-          // Clear the progress line and show error
-          process.stdout.write('\r' + ' '.repeat(80) + '\r');
-          console.log(`  ⚠️  ${workspace.name}: ${error instanceof Error ? error.message : 'Failed'}`);
+          issueSyncErrors++;
+          process.stdout.write('x');
         }
       }
-      console.log();
+      console.log(` ${totalIssues}`);
     }
     
     // Sync Confluence spaces (incremental)
     if (confluenceWorkspaces.length > 0) {
-      console.log(chalk.blue('📚 Syncing Confluence spaces...'));
+      process.stdout.write('Pages ');
+      let totalPages = 0;
+      let pageSyncErrors = 0;
       
       for (const workspace of confluenceWorkspaces) {
         try {
-          console.log(`  Syncing ${workspace.name}...`);
-          await syncConfluence(workspace.keyOrId, { clean: false }); // Incremental sync
-          console.log(`  ✓ ${workspace.name}: synced`);
+          const startTime = Date.now();
+          
+          // Get content manager for page counting
+          const contentManager = new ContentManager();
+          const newestModified = await contentManager.getNewestPageModifiedDate(workspace.keyOrId);
+          
+          if (newestModified) {
+            // Incremental sync - get only modified pages
+            const confluenceClient = new ConfluenceClient(config);
+            const modifiedPages = await confluenceClient.getPagesSince(workspace.keyOrId, newestModified);
+            totalPages += modifiedPages.length;
+            
+            // Process pages if there are any
+            if (modifiedPages.length > 0) {
+              // Sync pages in batches
+              const BATCH_SIZE = 50;
+              for (let i = 0; i < modifiedPages.length; i += BATCH_SIZE) {
+                const batch = modifiedPages.slice(i, i + BATCH_SIZE);
+                const batchPromises = batch.map(async (pageId) => {
+                  const page = await confluenceClient.getPage(pageId);
+                  const plainText = confluenceToMarkdown(page.body?.storage?.value || '');
+                  
+                  await contentManager.saveContent({
+                    id: `confluence:${page.id}`,
+                    source: 'confluence',
+                    type: 'page',
+                    title: page.title,
+                    content: plainText,
+                    url: page._links.webui,
+                    spaceKey: page.space.key,
+                    metadata: {
+                      spaceKey: page.space.key,
+                      spaceName: page.space.name,
+                      version: page.version.number,
+                      lastModified: page.version.when,
+                      webUrl: page._links.webui
+                    },
+                    updatedAt: new Date(page.version.when).getTime(),
+                    syncedAt: Date.now()
+                  });
+                });
+                
+                await Promise.all(batchPromises);
+              }
+            }
+          } else {
+            // First sync - count all pages
+            const confluenceClient = new ConfluenceClient(config);
+            const allPages = await confluenceClient.getSpacePagesLightweight(workspace.keyOrId);
+            totalPages += allPages.length;
+          }
+          
+          contentManager.close();
+          process.stdout.write('.');
         } catch (error) {
-          console.log(`  ⚠️  ${workspace.name}: ${error instanceof Error ? error.message : 'Failed'}`);
+          pageSyncErrors++;
+          process.stdout.write('x');
         }
       }
+      console.log(` ${totalPages}`);
     }
     
-    // Auto-index everything for search (optional, don't let it block)
-    console.log(chalk.blue('\n🔍 Updating search index...'));
-    
-    // Run indexing in background with timeout
+    // Auto-index everything for search
+    process.stdout.write('Index ');
     const indexPromise = Promise.race([
       (async () => {
         const { syncToMeilisearch } = await import('./lib/sync-meilisearch.js');
@@ -785,18 +831,14 @@ async function syncWorkspaces() {
     const indexResult = await indexPromise;
     
     if (indexResult === 'success') {
-      console.log(chalk.green('  ✓ Search index updated'));
+      console.log('✓');
     } else if (indexResult === 'timeout') {
-      console.log(chalk.yellow('  ⚠️  Search indexing is taking longer than expected (continuing in background)'));
+      console.log('⏳');
     } else {
-      console.log(chalk.yellow('  ⚠️  Search indexing skipped (Meilisearch may not be running)'));
+      console.log('⚠️');
     }
     
-    const totalWorkspaces = jiraWorkspaces.length + confluenceWorkspaces.length;
-    console.log(chalk.green(`\n✅ Sync complete! Updated ${totalWorkspaces} workspaces.`));
-    
-    console.log(chalk.dim('\n💡 Your boards and recent content are now cached locally for instant access.'));
-    console.log(chalk.dim('    Run "ji sync" regularly or after working on new projects to keep everything up to date.'));
+    console.log(chalk.green('\n✓ Sync complete'));
     
   } catch (error) {
     console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
