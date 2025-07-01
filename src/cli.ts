@@ -1449,11 +1449,11 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       console.log(`\n💾 Saving ${pages.length} pages...\n`);
       pagesToSync = pages.map(p => p.id);
     } else {
-      console.log('⚡ Incremental sync: checking for changes...');
+      console.log('⚡ Incremental sync: checking for changes...\n');
       
       // Get lightweight page list with progress
       let lastUpdate = Date.now();
-      const spinner = ora('Fetching page metadata...').start();
+      const spinner = ora({ text: 'Fetching page metadata...', indent: 2 }).start();
       
       const pageSummaries = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
         const now = Date.now();
@@ -1471,7 +1471,7 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       }
       
       // Get current versions from database
-      const checkSpinner = ora('Checking local versions...').start();
+      const checkSpinner = ora({ text: 'Checking local versions...', indent: 2 }).start();
       const localVersions = await contentManager.getSpacePageVersions(spaceKey);
       checkSpinner.text = 'Comparing versions...';
       
