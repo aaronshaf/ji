@@ -34,6 +34,9 @@ export class CacheManager {
     
     deleteIssuesStmt.run(projectKey);
     deleteContentStmt.run(projectKey, 'jira');
+    
+    // Also clear the backfill limit for this project
+    await this.clearBackfillLimit(projectKey);
   }
 
   async saveIssue(issue: Issue): Promise<void> {
@@ -138,6 +141,13 @@ export class CacheManager {
       INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)
     `);
     stmt.run(`backfill_limit_${projectKey}`, timestamp);
+  }
+
+  async clearBackfillLimit(projectKey: string): Promise<void> {
+    const stmt = this.db.prepare(`
+      DELETE FROM config WHERE key = ?
+    `);
+    stmt.run(`backfill_limit_${projectKey}`);
   }
 
   async getWorkspaceLastSync(type: string, key: string): Promise<Date | null> {
