@@ -317,7 +317,7 @@ async function showMyIssues() {
   }
 }
 
-async function showMyBoards() {
+async function showMyBoards(projectFilter?: string) {
   const configManager = new ConfigManager();
   const cacheManager = new CacheManager();
   const config = await configManager.getConfig();
@@ -329,7 +329,20 @@ async function showMyBoards() {
 
   try {
     // Get boards from local cache - instant!
-    const boards = await cacheManager.getMyBoards(config.email);
+    let boards = await cacheManager.getMyBoards(config.email);
+    
+    // Filter by project if specified
+    if (projectFilter) {
+      boards = boards.filter(board => 
+        board.location?.projectKey?.toLowerCase() === projectFilter.toLowerCase()
+      );
+      
+      if (boards.length === 0) {
+        console.log(`No boards found for project ${projectFilter}.`);
+        console.log(chalk.dim('💡 Run "ji sync" to sync your workspaces and boards.'));
+        return;
+      }
+    }
     
     if (boards.length === 0) {
       console.log('No boards found in cache.');
@@ -347,7 +360,12 @@ async function showMyBoards() {
       boardsByProject[projectKey].push(board);
     });
     
-    console.log(chalk.bold(`\n${boards.length} boards:`));
+    // Different header for filtered vs all boards
+    if (projectFilter) {
+      console.log(chalk.bold(`\n${boards.length} board${boards.length === 1 ? '' : 's'} for ${projectFilter}:`));
+    } else {
+      console.log(chalk.bold(`\n${boards.length} boards:`));
+    }
     
     // Display by project
     const projectEntries = Object.entries(boardsByProject);
@@ -2288,7 +2306,7 @@ async function main() {
     console.log('Usage:');
     console.log('  ji auth                       - Set up authentication');
     console.log('  ji mine                       - Show your open issues');
-    console.log('  ji board                      - Show your boards (instant, cached)');
+    console.log('  ji board [project]            - Show boards (all or by project)');
     console.log('  ji sync                       - Sync all your active workspaces');
     console.log('  ji issue view <key>           - View an issue');
     console.log('  ji issue sync <project>       - Sync all issues from a project');
@@ -2487,7 +2505,8 @@ async function main() {
     console.error('Unknown memories subcommand. Use "ji memories --help" for usage.');
     process.exit(1);
   } else if (command === 'board') {
-    await showMyBoards();
+    const projectFilter = args[1]; // Optional project filter
+    await showMyBoards(projectFilter);
   } else if (command === 'sync') {
     await syncWorkspaces();
   } else {
