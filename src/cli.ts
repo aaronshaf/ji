@@ -695,34 +695,32 @@ async function syncWorkspaces() {
     console.log(chalk.dim(`Jira: ${jiraProjectKeys || 'none'}`));
     console.log(chalk.dim(`Confluence: ${confluenceSpaceKeys || 'none'}\n`));
     
-    // Sync boards (only if not synced recently)
+    // Show current board count and sync in background
     if (jiraWorkspaces.length > 0) {
-      const boardsLastSync = await cacheManager.getBoardsLastSync();
+      // Always show current cached count immediately
+      const boardCount = await cacheManager.getBoardCount();
+      console.log(`Boards: ${boardCount}`);
       
-      const shouldSyncBoards = !boardsLastSync || 
-        (Date.now() - boardsLastSync) > (24 * 60 * 60 * 1000); // 24 hours
-      
-      if (shouldSyncBoards) {
-        const allBoards = [];
-        let boardSyncErrors = 0;
-        for (const workspace of jiraWorkspaces) {
-          try {
-            const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
-            allBoards.push(...projectBoards);
-          } catch (error) {
-            boardSyncErrors++;
+      // Sync in background (don't wait for it)
+      (async () => {
+        try {
+          const allBoards = [];
+          for (const workspace of jiraWorkspaces) {
+            try {
+              const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
+              allBoards.push(...projectBoards);
+            } catch (error) {
+              // Silently handle errors in background sync
+            }
           }
+          
+          if (allBoards.length > 0) {
+            await cacheManager.saveBoards(allBoards);
+          }
+        } catch (error) {
+          // Silently handle background sync errors
         }
-        
-        if (allBoards.length > 0) {
-          await cacheManager.saveBoards(allBoards);
-        }
-        console.log(`Boards: ${allBoards.length}`);
-      } else {
-        // Get count from cache
-        const boardCount = await cacheManager.getBoardCount();
-        console.log(`Boards: ${boardCount} (cached)`);
-      }
+      })();
     }
     
     // Sync recent issues for Jira projects
