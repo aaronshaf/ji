@@ -113,9 +113,7 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
       if (issue.fields.priority) {
         console.log(`${chalk.dim('Priority:')} ${issue.fields.priority.name}`);
       }
-      if (issue.fields.assignee) {
-        console.log(`${chalk.dim('Assignee:')} ${issue.fields.assignee.displayName}`);
-      }
+      console.log(`${chalk.dim('Assignee:')} ${issue.fields.assignee ? issue.fields.assignee.displayName : chalk.yellow('Unassigned')}`);
       console.log(`${chalk.dim('Reporter:')} ${issue.fields.reporter.displayName}`);
       console.log(`${chalk.dim('Created:')} ${new Date(issue.fields.created).toLocaleString()}`);
       console.log(`${chalk.dim('Updated:')} ${new Date(issue.fields.updated).toLocaleString()}`);
