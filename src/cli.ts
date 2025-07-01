@@ -695,32 +695,24 @@ async function syncWorkspaces() {
     console.log(chalk.dim(`Jira: ${jiraProjectKeys || 'none'}`));
     console.log(chalk.dim(`Confluence: ${confluenceSpaceKeys || 'none'}\n`));
     
-    // Show current board count and sync in background
+    // Sync boards and show how many were updated
     if (jiraWorkspaces.length > 0) {
-      // Always show current cached count immediately
-      const boardCount = await cacheManager.getBoardCount();
-      console.log(`Boards: ${boardCount}`);
-      
-      // Sync in background (don't wait for it)
-      (async () => {
+      const allBoards = [];
+      let boardSyncErrors = 0;
+      for (const workspace of jiraWorkspaces) {
         try {
-          const allBoards = [];
-          for (const workspace of jiraWorkspaces) {
-            try {
-              const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
-              allBoards.push(...projectBoards);
-            } catch (error) {
-              // Silently handle errors in background sync
-            }
-          }
-          
-          if (allBoards.length > 0) {
-            await cacheManager.saveBoards(allBoards);
-          }
+          const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
+          allBoards.push(...projectBoards);
         } catch (error) {
-          // Silently handle background sync errors
+          boardSyncErrors++;
         }
-      })();
+      }
+      
+      // Always save and show count of boards fetched (even if duplicates)
+      if (allBoards.length > 0) {
+        await cacheManager.saveBoards(allBoards);
+      }
+      console.log(`Boards: ${allBoards.length}`);
     }
     
     // Sync recent issues for Jira projects
