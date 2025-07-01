@@ -22,6 +22,8 @@ export default [
         clearTimeout: 'readonly',
         ReadableStream: 'readonly',
         Bun: 'readonly',
+        URLSearchParams: 'readonly',
+        TextDecoder: 'readonly',
       },
     },
     plugins: {
@@ -44,6 +46,7 @@ export default [
       'node_modules/**',
       'dist/**',
       'build/**',
+      'scripts/**',
       '**/*.js.map',
       '.ji/**',
     ],
