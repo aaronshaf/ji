@@ -31,6 +31,36 @@ const PageSchema = z.object({
   }),
 });
 
+// Schema for search API results - Confluence search API wraps results in 'content'
+const SearchResultSchema = z.object({
+  content: z.object({
+    id: z.string(),
+    type: z.string(),
+    title: z.string(),
+    version: z.object({
+      number: z.number(),
+      when: z.string(),
+      by: z.object({
+        displayName: z.string(),
+      }).optional(),
+    }),
+    _links: z.object({
+      webui: z.string(),
+    }),
+  }),
+});
+
+const SearchResponseSchema = z.object({
+  results: z.array(SearchResultSchema),
+  start: z.number(),
+  limit: z.number(),
+  size: z.number(),
+  totalSize: z.number().optional(),
+  _links: z.object({
+    next: z.string().optional(),
+  }).optional(),
+});
+
 const SpaceSchema = z.object({
   key: z.string(),
   name: z.string(),
@@ -144,16 +174,19 @@ export class ConfluenceClient {
         throw new Error(`Failed to search pages: ${response.status} - ${errorText}`);
       }
 
-      const data = await response.json() as any;
+      const data = await response.json();
+      const parsedData = SearchResponseSchema.parse(data);
       
-      const pages = data.results.map((result: any) => ({
-        id: result.content.id,
-        title: result.content.title,
-        version: {
-          number: result.content.version.number,
-          when: result.content.version.when
-        }
-      }));
+      const pages = parsedData.results.map((result) => {
+        return {
+          id: result.content.id,
+          title: result.content.title,
+          version: {
+            number: result.content.version.number,
+            when: result.content.version.when
+          }
+        };
+      });
       
       allPages.push(...pages);
       
@@ -162,7 +195,7 @@ export class ConfluenceClient {
       }
       
       // Check if there are more results
-      if (data.results.length < limit || !data._links?.next) {
+      if (parsedData.results.length < limit || !parsedData._links?.next) {
         break;
       }
       
@@ -190,20 +223,23 @@ export class ConfluenceClient {
       throw new Error(`Failed to search pages: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as any;
+    const data = await response.json();
+    const parsedData = SearchResponseSchema.parse(data);
     
-    return data.results.map((result: any) => ({
-      id: result.content.id,
-      title: result.content.title,
-      version: {
-        number: result.content.version.number,
-        when: result.content.version.when,
-        by: {
-          displayName: result.content.version.by.displayName
-        }
-      },
-      webUrl: result.content._links.webui
-    }));
+    return parsedData.results.map((result) => {
+      return {
+        id: result.content.id,
+        title: result.content.title,
+        version: {
+          number: result.content.version.number,
+          when: result.content.version.when,
+          by: {
+            displayName: result.content.version.by?.displayName || 'Unknown'
+          }
+        },
+        webUrl: result.content._links.webui
+      };
+    });
   }
 
   async getSpacePagesLightweight(
