@@ -360,13 +360,6 @@ async function showMyBoards(projectFilter?: string) {
       boardsByProject[projectKey].push(board);
     });
     
-    // Different header for filtered vs all boards
-    if (projectFilter) {
-      console.log(chalk.bold(`\n${boards.length} board${boards.length === 1 ? '' : 's'} for ${projectFilter}:`));
-    } else {
-      console.log(chalk.bold(`\n${boards.length} boards:`));
-    }
-    
     // Display by project
     const projectEntries = Object.entries(boardsByProject);
     projectEntries.forEach(([projectKey, projectBoards], index) => {
