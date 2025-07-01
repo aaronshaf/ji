@@ -1201,7 +1201,7 @@ async function ask(question: string, options: {
     process.exit(1);
   }
 
-  const embeddingManager = new EmbeddingManager();
+  const meilisearch = MeilisearchFast.getInstance();
   const ollama = new OllamaClient();
   const memoryManager = new MemoryManager();
   
@@ -1308,10 +1308,10 @@ Return only the queries, one per line:`;
       if (options.verbose) console.error('Round 1 query generation failed:', error);
     }
 
-    // Execute Round 1 searches
+    // Execute Round 1 searches using Meilisearch
     spinner.text = `Round 1: Searching with ${round1Queries.length} queries...`;
     for (const query of round1Queries) {
-      const results = await embeddingManager.hybridSearch(query, {
+      const results = await meilisearch.search(query, {
         source: effectiveSource,
         limit: 8,
         includeAll: true
@@ -1349,7 +1349,7 @@ Return only the queries, one per line:`;
           
           spinner.text = `Round 2: Searching with ${round2Queries.length} refined queries...`;
           for (const query of round2Queries) {
-            const results = await embeddingManager.hybridSearch(query, {
+            const results = await meilisearch.search(query, {
               source: effectiveSource,
               limit: 6,
               includeAll: true
@@ -1393,7 +1393,7 @@ Return only the queries, one per line:`;
           
           spinner.text = `Round 3: Searching with ${round3Queries.length} gap-filling queries...`;
           for (const query of round3Queries) {
-            const results = await embeddingManager.hybridSearch(query, {
+            const results = await meilisearch.search(query, {
               source: effectiveSource,
               limit: 4,
               includeAll: true
@@ -1436,7 +1436,7 @@ Return only the queries, one per line:`;
 
       spinner.text = `Round 4: Searching with ${teamSearches.slice(0, 3).length} team-specific queries...`;
       for (const query of teamSearches.slice(0, 3)) {
-        const results = await embeddingManager.hybridSearch(query, {
+        const results = await meilisearch.search(query, {
           source: effectiveSource,
           limit: 3,
           includeAll: true
@@ -1733,7 +1733,6 @@ Based on the context above, please provide a helpful answer:`;
     process.exit(1);
   } finally {
     configManager.close();
-    embeddingManager.close();
     memoryManager.close();
   }
 }
