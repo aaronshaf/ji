@@ -87,28 +87,42 @@ export class MeilisearchFast {
     // Sort first to analyze score distribution
     const sortedHits = allHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
     
-    // Smart filtering based on score distribution
+    // Smart filtering based on score gaps between results
     let filteredHits = sortedHits;
     
-    if (sortedHits.length > 0) {
+    if (sortedHits.length > 1) {
       const topScore = sortedHits[0]._rankingScore || 0;
       
-      // If we have high-quality matches (>= 90%), filter more aggressively
-      if (topScore >= 0.9) {
-        // Only show results within 40% of the top score
-        const cutoffScore = topScore * 0.6;
-        filteredHits = sortedHits.filter(hit => (hit._rankingScore || 0) >= cutoffScore);
-      } else if (topScore >= 0.8) {
-        // For good matches, show results within 50% of top score
-        const cutoffScore = topScore * 0.5;
-        filteredHits = sortedHits.filter(hit => (hit._rankingScore || 0) >= cutoffScore);
-      } else {
-        // For lower quality results, use fixed 50% threshold
-        filteredHits = sortedHits.filter(hit => (hit._rankingScore || 0) >= 0.5);
+      // Look for significant score drops (15%+ gap)
+      const results = [];
+      results.push(sortedHits[0]); // Always include the top result
+      
+      for (let i = 1; i < sortedHits.length; i++) {
+        const currentScore = sortedHits[i]._rankingScore || 0;
+        const previousScore = sortedHits[i - 1]._rankingScore || 0;
+        
+        // Calculate the gap as a percentage of the top score
+        const scoreGap = (previousScore - currentScore);
+        const gapPercentage = scoreGap / topScore;
+        
+        // If there's a 15%+ gap from the previous result, stop here
+        if (gapPercentage >= 0.15) {
+          break;
+        }
+        
+        // Also stop if the current result is below 50% of the top score
+        if (currentScore / topScore < 0.5) {
+          break;
+        }
+        
+        results.push(sortedHits[i]);
       }
       
-      // Also apply a minimum absolute threshold
-      filteredHits = filteredHits.filter(hit => (hit._rankingScore || 0) >= 0.5);
+      filteredHits = results;
+    } else if (sortedHits.length === 1) {
+      // Single result, check if it meets minimum quality
+      const score = sortedHits[0]._rankingScore || 0;
+      filteredHits = score >= 0.3 ? sortedHits : [];
     }
     
     // Limit to requested total
@@ -221,23 +235,42 @@ export class MeilisearchFast {
     const allHits = results.flatMap(r => r.hits);
     const sortedHits = allHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
     
-    // Smart filtering based on score distribution
+    // Smart filtering based on score gaps between results
     let filteredHits = sortedHits;
     
-    if (sortedHits.length > 0) {
+    if (sortedHits.length > 1) {
       const topScore = sortedHits[0]._rankingScore || 0;
       
-      if (topScore >= 0.9) {
-        const cutoffScore = topScore * 0.6;
-        filteredHits = sortedHits.filter(hit => (hit._rankingScore || 0) >= cutoffScore);
-      } else if (topScore >= 0.8) {
-        const cutoffScore = topScore * 0.5;
-        filteredHits = sortedHits.filter(hit => (hit._rankingScore || 0) >= cutoffScore);
-      } else {
-        filteredHits = sortedHits.filter(hit => (hit._rankingScore || 0) >= 0.5);
+      // Look for significant score drops (15%+ gap)
+      const results = [];
+      results.push(sortedHits[0]); // Always include the top result
+      
+      for (let i = 1; i < sortedHits.length; i++) {
+        const currentScore = sortedHits[i]._rankingScore || 0;
+        const previousScore = sortedHits[i - 1]._rankingScore || 0;
+        
+        // Calculate the gap as a percentage of the top score
+        const scoreGap = (previousScore - currentScore);
+        const gapPercentage = scoreGap / topScore;
+        
+        // If there's a 15%+ gap from the previous result, stop here
+        if (gapPercentage >= 0.15) {
+          break;
+        }
+        
+        // Also stop if the current result is below 50% of the top score
+        if (currentScore / topScore < 0.5) {
+          break;
+        }
+        
+        results.push(sortedHits[i]);
       }
       
-      filteredHits = filteredHits.filter(hit => (hit._rankingScore || 0) >= 0.5);
+      filteredHits = results;
+    } else if (sortedHits.length === 1) {
+      // Single result, check if it meets minimum quality
+      const score = sortedHits[0]._rankingScore || 0;
+      filteredHits = score >= 0.3 ? sortedHits : [];
     }
     
     const limitedHits = filteredHits.slice(0, totalLimit);
