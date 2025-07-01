@@ -152,9 +152,10 @@ export class ConfluenceClient {
     const allPages: Page[] = [];
     let start = 0;
     const limit = 100; // Max allowed by API
-    let total = 0;
+    let hasMore = true;
+    let estimatedTotal = 0;
 
-    while (true) {
+    while (hasMore) {
       const response = await this.getSpaceContent(spaceKey, {
         start,
         limit,
@@ -163,17 +164,24 @@ export class ConfluenceClient {
 
       allPages.push(...response.results);
       
-      if (response.size > 0) {
-        total = start + response.size;
+      // The API doesn't give us a total count, so we estimate based on whether there are more pages
+      // If we got a full page of results, there are likely more pages
+      if (response.results.length === limit) {
+        // Estimate there's at least one more full page
+        estimatedTotal = allPages.length + limit;
+      } else {
+        // This is the last page, we know the exact total
+        estimatedTotal = allPages.length;
+        hasMore = false;
       }
       
       if (onProgress) {
-        onProgress(allPages.length, total);
+        onProgress(allPages.length, estimatedTotal);
       }
 
       // Check if there are more pages
       if (!response._links?.next || response.results.length === 0) {
-        break;
+        hasMore = false;
       }
 
       start += limit;

@@ -1412,18 +1412,29 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       console.log('🧹 Clean sync: fetching all pages...\n');
       
       // Full sync - get all pages
-      let lastProgress = 0;
-      pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
-        if (total === 0) return;
+      let lastCurrent = 0;
+      pages = await confluenceClient.getAllSpacePages(spaceKey, (current, estimatedTotal) => {
+        if (current === 0) return;
         
-        const percent = Math.round((current / total) * 100);
-        const progressBar = createProgressBar(percent, 20);
-        const statusLine = `📥 ${progressBar} ${percent}% | ${current}/${total} pages`;
+        // Show progress differently based on whether we know the total
+        let statusLine: string;
+        if (current < estimatedTotal) {
+          // Still fetching, show estimated progress
+          const percent = Math.min(99, Math.round((current / estimatedTotal) * 100));
+          const progressBar = createProgressBar(percent, 20);
+          statusLine = `📥 ${progressBar} ~${percent}% | ${current}+ pages fetched`;
+        } else {
+          // We know the exact total now
+          const progressBar = createProgressBar(100, 20);
+          statusLine = `📥 ${progressBar} 100% | ${current}/${current} pages`;
+        }
+        
         process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
-        lastProgress = percent;
+        lastCurrent = current;
       });
       
-      if (lastProgress < 100 && pages.length > 0) {
+      // Ensure we show the final 100% status
+      if (pages.length > 0) {
         const progressBar = createProgressBar(100, 20);
         const statusLine = `📥 ${progressBar} 100% | ${pages.length}/${pages.length} pages`;
         process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
