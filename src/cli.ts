@@ -353,14 +353,24 @@ async function takeIssue(issueKey: string) {
     }
     console.log(`${chalk.dim('Now assigned to:')} ${chalk.green(currentUser.displayName)}`);
     
-    // Sync the issue to update local cache
+    // Sync the issue to update local cache, search index, and embeddings
     spinner.start('Updating local cache...');
     try {
       const cacheManager = new CacheManager();
+      
+      // Get fresh issue data
       const updatedIssue = await jiraClient.getIssue(issueKey);
+      
+      // Save to cache - this automatically:
+      // 1. Updates the issues table
+      // 2. Updates searchable_content table
+      // 3. Updates FTS index
+      // 4. Updates Meilisearch index
+      // 5. Spawns background embedding generation
       await cacheManager.saveIssue(updatedIssue);
+      
       cacheManager.close();
-      spinner.succeed('Local cache updated');
+      spinner.succeed('Local cache, search index, and embeddings updated');
     } catch (syncError) {
       spinner.warn('Failed to update local cache (will sync on next view)');
     }
