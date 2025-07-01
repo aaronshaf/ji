@@ -1449,22 +1449,36 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       console.log(`\n💾 Saving ${pages.length} pages...\n`);
       pagesToSync = pages.map(p => p.id);
     } else {
-      console.log('⚡ Incremental sync: checking for changes...\n');
+      console.log('⚡ Incremental sync: checking for changes...');
       
-      // Get lightweight page list
-      const pageSummaries = await confluenceClient.getSpacePagesLightweight(spaceKey);
+      // Get lightweight page list with progress
+      let lastUpdate = Date.now();
+      const spinner = ora('Fetching page metadata...').start();
+      
+      const pageSummaries = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
+        const now = Date.now();
+        if (now - lastUpdate > 100) { // Update every 100ms
+          spinner.text = `Fetching page metadata... ${current} pages`;
+          lastUpdate = now;
+        }
+      });
+      
+      spinner.succeed(`Fetched metadata for ${pageSummaries.length} pages`);
       
       if (pageSummaries.length === 0) {
         console.log(chalk.yellow('⚠️  No pages found in this space.'));
         return;
       }
       
-      // Get current versions from database  
+      // Get current versions from database
+      const checkSpinner = ora('Checking local versions...').start();
       const localVersions = await contentManager.getSpacePageVersions(spaceKey);
+      checkSpinner.text = 'Comparing versions...';
       
       // Identify pages that need syncing
       const newPages: string[] = [];
       const updatedPages: string[] = [];
+      let processed = 0;
       
       for (const summary of pageSummaries) {
         const local = localVersions.get(summary.id);
@@ -1476,7 +1490,14 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
           // Updated page
           updatedPages.push(summary.id);
         }
+        
+        processed++;
+        if (processed % 100 === 0) {
+          checkSpinner.text = `Comparing versions... ${processed}/${pageSummaries.length} pages`;
+        }
       }
+      
+      checkSpinner.succeed('Version check complete');
       
       pagesToSync = [...newPages, ...updatedPages];
       
