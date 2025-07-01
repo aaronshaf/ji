@@ -1532,6 +1532,19 @@ async function ask(question: string, options: {
   const ollama = new OllamaClient();
   const memoryManager = new MemoryManager();
   
+  // Check if Ollama is available
+  const ollamaAvailable = await ollama.isAvailable();
+  
+  if (!ollamaAvailable) {
+    console.log(chalk.yellow('⚠️  Ollama is not available. Using search-only mode.'));
+    console.log(chalk.dim('   For AI-powered answers, install Ollama: https://ollama.ai'));
+    console.log();
+    
+    // Perform search without AI analysis
+    await searchWithoutAI(question, options);
+    return;
+  }
+  
   // Get configured models or detect available models
   const settings = await configManager.getSettings();
   let askModel = settings.askModel || options.model;
@@ -2281,6 +2294,87 @@ Based on the context above, please provide a helpful answer:`;
   }
 }
 
+async function searchWithoutAI(question: string, options: {
+  source?: 'jira' | 'confluence';
+  limit?: number;
+  includeJira?: boolean;
+  includeOld?: boolean;
+}) {
+  const configManager = new ConfigManager();
+  const config = await configManager.getConfig();
+  
+  if (!config) {
+    console.error('No configuration found. Please run "ji auth" first.');
+    process.exit(1);
+  }
+
+  const meilisearch = MeilisearchFast.getInstance();
+  
+  try {
+    // Use keyword search (no hybrid/embeddings)
+    const results = await meilisearch.search(question, {
+      source: options.source,
+      limit: options.limit || 10,
+      includeAll: false
+    });
+
+    if (results.length === 0) {
+      console.log('No results found.');
+      console.log(chalk.dim('💡 Try different keywords or sync more data.'));
+      return;
+    }
+
+    console.log(chalk.bold(`\nSearch Results for "${question}":\n`));
+
+    results.forEach((result, index) => {
+      const { content, score, snippet } = result;
+      
+      if (content.source === 'jira') {
+        const issueKey = content.id.replace('jira:', '');
+        const meta = content.metadata as any;
+        const status = meta?.status || 'Unknown';
+        const assignee = meta?.assignee || 'Unassigned';
+        
+        console.log(`${chalk.bold.blue(`${index + 1}. ${issueKey}`)}: ${content.title}`);
+        console.log(`   ${chalk.dim(`Status: ${status} | Assignee: ${assignee}`)}`);
+      } else {
+        console.log(`${chalk.bold.green(`${index + 1}. ${content.title}`)} ${chalk.dim(`(${content.spaceKey})`)}`);
+      }
+      
+      // Show snippet if available
+      if (snippet) {
+        const cleanSnippet = snippet
+          .replace(/<mark>/g, chalk.yellow(''))
+          .replace(/<\/mark>/g, chalk.reset(''))
+          .replace(/\s+/g, ' ')
+          .trim();
+        
+        const truncatedSnippet = cleanSnippet.length > 200 
+          ? cleanSnippet.substring(0, 200) + '...' 
+          : cleanSnippet;
+          
+        console.log(`   ${chalk.dim(truncatedSnippet)}`);
+      }
+      
+      // Show URL
+      const fullUrl = content.url.startsWith('http') 
+        ? content.url 
+        : content.source === 'jira' 
+          ? `${config.jiraUrl}${content.url}`
+          : `${config.jiraUrl}/wiki${content.url}`;
+          
+      console.log(`   ${chalk.cyan(fullUrl)}`);
+      console.log();
+    });
+    
+  } catch (error) {
+    console.error(`❌ Search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  } finally {
+    configManager.close();
+  }
+}
+
 async function configureModels() {
   const configManager = new ConfigManager();
   const ollama = new OllamaClient();
@@ -2462,7 +2556,7 @@ async function main() {
     console.log('  ji confluence sync <space>    - Sync Confluence space');
     console.log('  ji confluence view <page-id>  - View Confluence page');
     console.log('  ji search <query>             - Hybrid semantic + keyword search');
-    console.log('  ji ask "<question>"           - Ask AI about Confluence docs');
+    console.log('  ji ask "<question>"           - Search and ask about your docs');
     console.log('  ji remember "<fact>"          - Add fact to memory manually');
     console.log('  ji memories list              - List stored memories');
     console.log('  ji memories search <term>     - Search stored memories');
@@ -2498,6 +2592,13 @@ async function main() {
   } else if (command === 'mine') {
     await showMyIssues();
   } else if (command === 'models') {
+    const ollama = new OllamaClient();
+    if (!await ollama.isAvailable()) {
+      console.error(chalk.yellow('⚠️  Ollama is not available.'));
+      console.log('The models command requires Ollama to be installed and running.');
+      console.log('Install Ollama from: https://ollama.ai');
+      process.exit(1);
+    }
     await configureModels();
   } else if (command === 'mine_fallback') {
     await showMyIssues();

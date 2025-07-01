@@ -208,8 +208,7 @@ export class MeilisearchFast {
         const jiraResult = await this.jiraIndex.search(query, jiraParams);
         results.push(jiraResult);
       } catch (error) {
-        console.error('Jira hybrid search failed:', error);
-        // Fall back to regular search
+        // Hybrid search failed (likely Ollama not available), fall back to regular search
         const { hybrid, ...fallbackParams } = jiraParams;
         const jiraResult = await this.jiraIndex.search(query, fallbackParams);
         results.push(jiraResult);
@@ -228,8 +227,7 @@ export class MeilisearchFast {
         const confluenceResult = await this.confluenceIndex.search(query, confluenceParams);
         results.push(confluenceResult);
       } catch (error) {
-        console.error('Confluence hybrid search failed:', error);
-        // Fall back to regular search
+        // Hybrid search failed (likely Ollama not available), fall back to regular search
         const { hybrid, ...fallbackParams } = confluenceParams;
         const confluenceResult = await this.confluenceIndex.search(query, fallbackParams);
         results.push(confluenceResult);
