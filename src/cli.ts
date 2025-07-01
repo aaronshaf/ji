@@ -1225,9 +1225,11 @@ Question: "${question}"
 
 Consider:
 1. Is this about current status, bugs, or issues? → Search Jira
-2. Is this about how something works, documentation, or teams? → Search Confluence
-3. Is this about troubleshooting or errors? → Search both
-4. Is this asking who owns/works on something? → Search Confluence
+2. Is this about recent work, tasks, or activities (lately, recently, current work)? → Search Jira
+3. Is this about how something works, documentation, or teams? → Search Confluence
+4. Is this about troubleshooting or errors? → Search both
+5. Is this asking who owns/works on something? → Search Confluence
+6. Does it mention time-related terms (lately, recently, current, this week, today)? → Search Jira
 
 Respond with ONLY one of: "jira", "confluence", or "both"`;
         
