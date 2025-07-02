@@ -4,6 +4,14 @@ import { join } from 'path';
 import type { Issue, Board } from './jira-client.js';
 import { ContentManager } from './content-manager.js';
 import { Effect, Option, pipe } from 'effect';
+import { 
+  DatabaseError, 
+  QueryError, 
+  ParseError, 
+  ValidationError,
+  NotFoundError,
+  CacheCorruptedError
+} from './effects/errors.js';
 
 export class CacheManager {
   private db: Database;
@@ -32,29 +40,72 @@ export class CacheManager {
    * Effect-based version of getIssue with better error handling
    * Returns Option.none() for not found, throws specific errors for other failures
    */
-  getIssueEffect(key: string): Effect.Effect<Option.Option<Issue>, Error> {
+  getIssueEffect(key: string): Effect.Effect<Option.Option<Issue>, ValidationError | QueryError | ParseError> {
     return pipe(
+      // Validate input
       Effect.sync(() => {
-        const stmt = this.db.prepare('SELECT raw_data FROM issues WHERE key = ?');
-        const row = stmt.get(key) as { raw_data: string } | undefined;
-        return row;
+        if (!key || !key.match(/^[A-Z]+-\d+$/)) {
+          throw new ValidationError('Invalid issue key format', 'key', key);
+        }
       }),
+      Effect.flatMap(() =>
+        Effect.try(() => {
+          const stmt = this.db.prepare('SELECT raw_data FROM issues WHERE key = ?');
+          const row = stmt.get(key) as { raw_data: string } | undefined;
+          return row;
+        }).pipe(
+          Effect.mapError(error => new QueryError(`Failed to query issue ${key}: ${error}`))
+        )
+      ),
       Effect.flatMap(row => {
         if (!row) {
           return Effect.succeed(Option.none());
         }
         return pipe(
           Effect.try(() => JSON.parse(row.raw_data) as Issue),
-          Effect.mapError(error => new Error(`Failed to parse issue ${key}: ${error}`)),
+          Effect.mapError(error => new ParseError(`Failed to parse issue ${key}`, 'raw_data', row.raw_data, error)),
           Effect.map(Option.some)
         );
+      })
+    );
+  }
+
+  /**
+   * Effect-based delete project issues with transaction support
+   */
+  deleteProjectIssuesEffect(projectKey: string): Effect.Effect<void, ValidationError | QueryError> {
+    return pipe(
+      // Validate input
+      Effect.sync(() => {
+        if (!projectKey || projectKey.length === 0) {
+          throw new ValidationError('Project key cannot be empty', 'projectKey', projectKey);
+        }
       }),
-      Effect.catchAll(error => 
-        Effect.fail(new Error(`Database error while fetching issue ${key}: ${error}`))
+      Effect.flatMap(() =>
+        Effect.try(() => {
+          // Use transaction for atomicity
+          this.db.transaction(() => {
+            const deleteIssuesStmt = this.db.prepare('DELETE FROM issues WHERE project_key = ?');
+            const deleteContentStmt = this.db.prepare('DELETE FROM searchable_content WHERE project_key = ? AND source = ?');
+            
+            deleteIssuesStmt.run(projectKey);
+            deleteContentStmt.run(projectKey, 'jira');
+          })();
+        }).pipe(
+          Effect.mapError(error => new QueryError(`Failed to delete project issues: ${error}`))
+        )
+      ),
+      // Clear backfill limit after successful deletion
+      Effect.flatMap(() =>
+        Effect.tryPromise({
+          try: () => this.clearBackfillLimit(projectKey),
+          catch: error => new QueryError(`Failed to clear backfill limit: ${error}`)
+        })
       )
     );
   }
 
+  // Backward compatible version
   async deleteProjectIssues(projectKey: string): Promise<void> {
     // Delete from both issues table and searchable_content table
     const deleteIssuesStmt = this.db.prepare('DELETE FROM issues WHERE project_key = ?');
@@ -73,6 +124,33 @@ export class CacheManager {
     deleteContentStmt.run(spaceKey, 'confluence');
   }
 
+  /**
+   * Effect-based save issue with validation
+   */
+  saveIssueEffect(issue: Issue): Effect.Effect<void, ValidationError | QueryError> {
+    return pipe(
+      // Validate issue structure
+      Effect.sync(() => {
+        if (!issue || typeof issue !== 'object') {
+          throw new ValidationError('Issue must be an object', 'issue', issue);
+        }
+        if (!issue.key || !issue.key.match(/^[A-Z]+-\d+$/)) {
+          throw new ValidationError('Invalid issue key format', 'issue.key', issue.key);
+        }
+        if (!issue.fields?.summary) {
+          throw new ValidationError('Issue must have a summary', 'issue.fields.summary', undefined);
+        }
+      }),
+      Effect.flatMap(() =>
+        Effect.tryPromise({
+          try: () => this.contentManager.saveJiraIssue(issue),
+          catch: error => new QueryError(`Failed to save issue ${issue.key}: ${error}`)
+        })
+      )
+    );
+  }
+
+  // Backward compatible version
   async saveIssue(issue: Issue): Promise<void> {
     // Save using content manager (handles both tables)
     await this.contentManager.saveJiraIssue(issue);
@@ -96,6 +174,53 @@ export class CacheManager {
       LIMIT ?
     `);
     return stmt.all(limit);
+  }
+
+  /**
+   * Effect-based batch save issues with transaction
+   */
+  saveIssuesBatchEffect(issues: Issue[]): Effect.Effect<void, ValidationError | QueryError> {
+    return pipe(
+      // Validate all issues first
+      Effect.sync(() => {
+        if (!Array.isArray(issues)) {
+          throw new ValidationError('Issues must be an array', 'issues', issues);
+        }
+        if (issues.length === 0) {
+          return; // Nothing to save
+        }
+        if (issues.length > 1000) {
+          throw new ValidationError('Too many issues in batch (max 1000)', 'issues.length', issues.length);
+        }
+        
+        // Validate each issue
+        issues.forEach((issue, index) => {
+          if (!issue || typeof issue !== 'object') {
+            throw new ValidationError(`Issue at index ${index} must be an object`, `issues[${index}]`, issue);
+          }
+          if (!issue.key || !issue.key.match(/^[A-Z]+-\d+$/)) {
+            throw new ValidationError(`Invalid issue key at index ${index}`, `issues[${index}].key`, issue.key);
+          }
+        });
+      }),
+      Effect.flatMap(() => {
+        if (issues.length === 0) {
+          return Effect.succeed(undefined);
+        }
+        
+        return Effect.try(() => {
+          // Use transaction for atomicity and performance
+          this.db.transaction(() => {
+            issues.forEach(issue => {
+              // Save each issue using content manager
+              this.contentManager.saveJiraIssue(issue);
+            });
+          })();
+        }).pipe(
+          Effect.mapError(error => new QueryError(`Failed to save batch of ${issues.length} issues: ${error}`))
+        );
+      })
+    );
   }
 
   async listMyOpenIssues(assigneeEmail: string): Promise<any[]> {

@@ -36,7 +36,7 @@ export const hashQuestion = (question: string): Effect.Effect<string, Validation
       return keyWords.join('_');
     }),
     Effect.mapError((error: unknown) => 
-      error instanceof ValidationError ? error : new ValidationError('Failed to hash question', error)
+      error instanceof ValidationError ? error : new ValidationError('Failed to hash question', undefined, undefined, error)
     )
   );
 };

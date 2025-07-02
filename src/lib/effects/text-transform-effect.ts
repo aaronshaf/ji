@@ -53,7 +53,7 @@ export const confluenceToMarkdown = (storageFormat: string): Effect.Effect<strin
       return processed.trim();
     }),
     Effect.mapError((error: unknown) => 
-      error instanceof ValidationError ? error : new ValidationError('Failed to convert to markdown', error)
+      error instanceof ValidationError ? error : new ValidationError('Failed to convert to markdown', undefined, undefined, error)
     )
   );
 };
