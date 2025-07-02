@@ -1,4 +1,4 @@
-import { Effect, Schedule, pipe, Option, Array as EffectArray } from 'effect';
+import { Effect, Schedule, pipe, Option } from 'effect';
 import {
   ValidationError,
   NetworkError,

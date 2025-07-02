@@ -5,12 +5,9 @@ import type { Issue, Board } from './jira-client.js';
 import { ContentManager } from './content-manager.js';
 import { Effect, Option, pipe } from 'effect';
 import { 
-  DatabaseError, 
   QueryError, 
   ParseError, 
-  ValidationError,
-  NotFoundError,
-  CacheCorruptedError
+  ValidationError
 } from './effects/errors.js';
 
 export class CacheManager {

@@ -3,7 +3,7 @@
  * Simple demonstration of Effect patterns for leaf node functions
  */
 
-import { Effect, Option, pipe } from 'effect';
+import { Effect, pipe } from 'effect';
 import { 
   hashQuestion, 
   containsUncertainty

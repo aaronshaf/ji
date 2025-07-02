@@ -6,9 +6,7 @@ import { MeilisearchAdapter } from './meilisearch-adapter.js';
 import { OllamaClient } from './ollama.js';
 import { Effect, pipe } from 'effect';
 import {
-  DatabaseError,
   QueryError,
-  ParseError,
   ValidationError,
   ContentError,
   ContentTooLargeError

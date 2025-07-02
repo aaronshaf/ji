@@ -569,7 +569,7 @@ export class JobWorker {
     });
   }
 
-  private indexToMeilisearch(payload: Record<string, unknown>, config: Config): Effect.Effect<unknown, Error> {
+  private indexToMeilisearch(payload: Record<string, unknown>, _config: Config): Effect.Effect<unknown, Error> {
     return Effect.tryPromise({
       try: async () => {
         const { contentIds } = payload;
@@ -581,11 +581,11 @@ export class JobWorker {
         const { MeilisearchAdapter } = await import('../meilisearch-adapter.js');
         
         const contentManager = new ContentManager();
-        const meilisearch = new MeilisearchAdapter();
+        new MeilisearchAdapter();
         
         try {
           let indexed = 0;
-          for (const contentId of contentIds) {
+          for (const _contentId of contentIds) {
             // This would need a method to get content by ID
             // For now, we'll simulate indexing
             indexed++;
