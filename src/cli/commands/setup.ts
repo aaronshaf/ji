@@ -3,6 +3,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import * as readline from 'node:readline/promises';
 import chalk from 'chalk';
 import { Console, Effect, pipe } from 'effect';
+import { CacheManager } from '../../lib/cache.js';
 import { type Config, ConfigManager } from '../../lib/config.js';
 
 // Effect wrapper for readline operations with default value
@@ -489,13 +490,57 @@ const setupEffect = (rl: readline.Interface) =>
 
     // Step 4: Initial sync
     Effect.flatMap(() => Console.log(chalk.bold('\nStep 4: Initial Sync'))),
-    Effect.flatMap(() => Console.log("Let's set up your first Jira project.")),
-    Effect.flatMap(() => askQuestionWithDefault('Project key (e.g., PROJ)', undefined, rl)),
-    Effect.flatMap((projectKey) => {
-      if (projectKey && typeof projectKey === 'string' && projectKey.trim()) {
-        return showSyncInstructions(projectKey.trim().toUpperCase());
+    Effect.flatMap(() =>
+      Effect.tryPromise({
+        try: async () => {
+          const cacheManager = new CacheManager();
+          try {
+            const projects = await cacheManager.getAllProjects();
+            return projects;
+          } finally {
+            cacheManager.close();
+          }
+        },
+        catch: () => [],
+      }),
+    ),
+    Effect.flatMap((existingProjects) => {
+      if (existingProjects.length > 0) {
+        return pipe(
+          Console.log(chalk.cyan('Found existing synced projects:')),
+          Effect.flatMap(() =>
+            Effect.all(
+              existingProjects.slice(0, 5).map((project) => {
+                const syncInfo = project.lastSync
+                  ? chalk.dim(` - ${project.issueCount} issues, last synced ${project.lastSync.toLocaleDateString()}`)
+                  : chalk.dim(' - not synced yet');
+                return Console.log(`  ${chalk.bold(project.key)} ${project.name}${syncInfo}`);
+              }),
+            ),
+          ),
+          Effect.flatMap(() => {
+            if (existingProjects.length > 5) {
+              return Console.log(chalk.dim(`  ... and ${existingProjects.length - 5} more projects`));
+            }
+            return Effect.succeed(undefined);
+          }),
+          Effect.flatMap(() => Console.log('\nYou can sync more projects later with:')),
+          Effect.flatMap(() => Console.log(chalk.cyan('  ji issue sync <project-key>'))),
+          Effect.flatMap(() => Console.log('\nOr sync all active workspaces with:')),
+          Effect.flatMap(() => Console.log(chalk.cyan('  ji sync'))),
+        );
       } else {
-        return Console.log(chalk.dim('Skipping project setup'));
+        return pipe(
+          Console.log("Let's set up your first Jira project."),
+          Effect.flatMap(() => askQuestionWithDefault('Project key (e.g., PROJ)', undefined, rl)),
+          Effect.flatMap((projectKey) => {
+            if (projectKey && typeof projectKey === 'string' && projectKey.trim()) {
+              return showSyncInstructions(projectKey.trim().toUpperCase());
+            } else {
+              return Console.log(chalk.dim('Skipping project setup'));
+            }
+          }),
+        );
       }
     }),
 
