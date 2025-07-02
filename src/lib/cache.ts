@@ -10,6 +10,13 @@ import {
   ValidationError
 } from './effects/errors.js';
 
+// Atlassian Document Format node type
+interface ADFNode {
+  type?: string;
+  text?: string;
+  content?: ADFNode[];
+}
+
 export class CacheManager {
   private db: Database;
   private contentManager: ContentManager;
@@ -385,7 +392,7 @@ export class CacheManager {
     return result.count;
   }
 
-  private extractDescription(description: any): string {
+  private extractDescription(description: string | { content?: ADFNode[] } | null | undefined): string {
     if (typeof description === 'string') {
       return description;
     }
@@ -398,27 +405,27 @@ export class CacheManager {
     return '';
   }
 
-  private parseADF(doc: any): string {
+  private parseADF(doc: { content?: ADFNode[] }): string {
     let text = '';
     
-    const parseNode = (node: any): string => {
+    const parseNode = (node: ADFNode): string => {
       if (node.type === 'text') {
         return node.text || '';
       }
       
-      if (node.content) {
-        return node.content.map((n: any) => parseNode(n)).join('');
+      if (node.type === 'paragraph' && node.content) {
+        return '\n' + node.content.map(n => parseNode(n)).join('') + '\n';
       }
       
-      if (node.type === 'paragraph') {
-        return '\n' + (node.content?.map((n: any) => parseNode(n)).join('') || '') + '\n';
+      if (node.content) {
+        return node.content.map(n => parseNode(n)).join('');
       }
       
       return '';
     };
     
     if (doc.content) {
-      text = doc.content.map((node: any) => parseNode(node)).join('');
+      text = doc.content.map(node => parseNode(node)).join('');
     }
     
     return text.trim();
@@ -616,7 +623,7 @@ export class CacheManager {
       WHERE sprint_id = ?
     `;
     
-    const params: any[] = [sprintId];
+    const params: (string | null)[] = [sprintId];
     
     if (options?.assignee === null) {
       // Only unassigned issues
