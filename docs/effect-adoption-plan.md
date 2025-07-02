@@ -6,9 +6,9 @@
 Start with functions that have no side effects and clear inputs/outputs:
 
 - [x] `OllamaClient.contentHash()` - Already implemented
-- [ ] `hashQuestion()` in memory.ts
-- [ ] `containsUncertainty()` in memory.ts
-- [ ] `confluenceToMarkdown()` in confluence-converter.ts
+- [x] `hashQuestion()` in memory.ts
+- [x] `containsUncertainty()` in memory.ts
+- [x] `confluenceToMarkdown()` in confluence-converter.ts
 
 ### 1.2 New Features
 Any new features should be built with Effect from the start:

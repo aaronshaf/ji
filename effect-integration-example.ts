@@ -99,9 +99,12 @@ const saveContentEffect = (content: typeof testContent) => pipe(
 );
 
 // Run the full pipeline
-Effect.runPromise(saveContentEffect(testContent))
-  .then(() => console.log('\nPipeline completed successfully'))
-  .catch((error) => console.log(`\nPipeline failed: ${error.message}`));
+Effect.runPromise(
+  pipe(
+    saveContentEffect(testContent),
+    Effect.tap(() => Effect.sync(() => console.log('\nPipeline completed successfully')))
+  )
+).catch((error) => console.log(`\nPipeline failed: ${error.message}`));
 
 // 4. Demonstrate error cases
 console.log('\n4. Error handling examples:\n');

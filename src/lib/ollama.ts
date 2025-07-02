@@ -217,7 +217,7 @@ export class OllamaClient {
     return Effect.runSync(
       pipe(
         this.contentHashEffect(content),
-        Effect.catchAll((error) => 
+        Effect.catchAll((_error) => 
           // Fallback to old behavior for compatibility
           Effect.sync(() => createHash('sha256').update(content || '').digest('hex').substring(0, 16))
         )

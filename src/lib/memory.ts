@@ -56,6 +56,18 @@ export class MemoryManager {
     return keyWords.slice(0, 5).join('_'); // Use top 5 words as hash
   }
 
+  hashQuestionEffect(question: string): Effect.Effect<string, ValidationError> {
+    return pipe(
+      Effect.succeed(question),
+      Effect.flatMap((q) =>
+        q && q.trim().length > 0
+          ? Effect.succeed(q)
+          : Effect.fail(new ValidationError('Question cannot be empty'))
+      ),
+      Effect.map((q) => this.hashQuestion(q))
+    );
+  }
+
   // Extract key facts from a successful ask session
   async extractMemory(question: string, answer: string, sourceDocIds: string[]): Promise<void> {
     try {
@@ -478,6 +490,16 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
     ];
     
     return uncertaintyPatterns.some(pattern => pattern.test(fact));
+  }
+
+  containsUncertaintyEffect(fact: string): Effect.Effect<string, ValidationError> {
+    return pipe(
+      Effect.succeed(fact),
+      Effect.filterOrFail(
+        (f) => !this.containsUncertainty(f),
+        () => new ValidationError('Fact contains uncertainty')
+      )
+    );
   }
 
   // Clear all manual memories (user-added ones)

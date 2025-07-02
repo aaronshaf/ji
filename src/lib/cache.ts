@@ -28,16 +28,17 @@ export class CacheManager {
   }
 
   async getIssue(key: string): Promise<Issue | null> {
-    const stmt = this.db.prepare('SELECT raw_data FROM issues WHERE key = ?');
-    const row = stmt.get(key) as { raw_data: string } | undefined;
-    
-    if (!row) return null;
-    
-    try {
-      return JSON.parse(row.raw_data);
-    } catch {
-      return null;
-    }
+    const program = pipe(
+      this.getIssueEffect(key),
+      Effect.match({
+        onFailure: (error) => {
+          console.error(`Error getting issue from cache: ${error.message}`);
+          return null;
+        },
+        onSuccess: (optionIssue) => Option.getOrNull(optionIssue),
+      })
+    );
+    return Effect.runPromise(program);
   }
 
   /**
