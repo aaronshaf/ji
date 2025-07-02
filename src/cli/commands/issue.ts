@@ -82,12 +82,13 @@ const refreshInBackgroundEffect = (_config: { jiraUrl: string }, issue: Issue) =
   });
 
 // Effect for formatting issue output in YAML format
-const formatIssueOutputEffect = (issue: Issue) =>
+const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
   Effect.sync(() => {
     // YAML output with color highlighting (matching search results)
     console.log(`${chalk.cyan('type:')} issue`);
     console.log(`${chalk.cyan('key:')} ${chalk.bold(issue.key)}`);
     console.log(`${chalk.cyan('title:')} ${issue.fields.summary}`);
+    console.log(`${chalk.cyan('link:')} ${config.jiraUrl}/browse/${issue.key}`);
     console.log(`${chalk.cyan('updated:')} ${chalk.dim(formatSmartDate(issue.fields.updated))}`);
     console.log(`${chalk.cyan('created:')} ${chalk.dim(formatSmartDate(issue.fields.created))}`);
 
@@ -201,7 +202,7 @@ const viewIssueEffect = (issueKey: string, _options: { json?: boolean; sync?: bo
           pipe(
             updateCacheEffect(cacheManager, issue),
             Effect.flatMap(() => updateSearchIndexEffect(contentManager, issue)),
-            Effect.flatMap(() => formatIssueOutputEffect(issue)),
+            Effect.flatMap(() => formatIssueOutputEffect(issue, config)),
             Effect.flatMap(() => refreshInBackgroundEffect(config, issue)),
             Effect.tap(() =>
               Effect.sync(() => {
@@ -220,7 +221,7 @@ const viewIssueEffect = (issueKey: string, _options: { json?: boolean; sync?: bo
               if (cachedIssue) {
                 return pipe(
                   Console.log(chalk.yellow('⚠️  Showing cached data (network error occurred)')),
-                  Effect.flatMap(() => formatIssueOutputEffect(cachedIssue)),
+                  Effect.flatMap(() => formatIssueOutputEffect(cachedIssue, config)),
                   Effect.tap(() =>
                     Effect.sync(() => {
                       cacheManager.close();
