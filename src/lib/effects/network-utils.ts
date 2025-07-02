@@ -69,7 +69,7 @@ export interface CachedResponse<T> {
 export interface RequestOptions {
   method?: string;
   headers?: Record<string, string>;
-  body?: string | FormData | ArrayBuffer;
+  body?: string | globalThis.FormData | ArrayBuffer;
   timeout?: number;
   retries?: number;
   skipCache?: boolean;

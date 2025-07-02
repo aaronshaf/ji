@@ -65,7 +65,7 @@ export const containsUncertainty = (fact: string): Effect.Effect<boolean, Valida
  * Delete memory with detailed result information
  */
 export const deleteMemory = (
-  db: any,
+  db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => { changes: number } } },
   memoryId: string
 ): Effect.Effect<{ deleted: boolean; memoryId: string }, DatabaseError | NotFoundError> => {
   return pipe(
@@ -109,7 +109,7 @@ export const deleteMemory = (
  * Update memory facts with validation
  */
 export const updateMemoryFacts = (
-  db: any,
+  db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => { changes: number } } },
   memoryId: string,
   newFacts: string
 ): Effect.Effect<{ updated: boolean; rowsChanged: number }, DatabaseError | ValidationError> => {
@@ -150,7 +150,7 @@ export const updateMemoryFacts = (
 /**
  * Extract description with proper error handling
  */
-export const extractDescription = (description: any): Effect.Effect<Option.Option<string>, never> => {
+export const extractDescription = (description: unknown): Effect.Effect<Option.Option<string>, never> => {
   return Effect.sync(() => {
     if (typeof description === 'string' && description.trim().length > 0) {
       return Option.some(description);
