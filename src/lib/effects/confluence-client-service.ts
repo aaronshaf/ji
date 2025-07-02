@@ -959,7 +959,7 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
           this.http.request<T>(url, {
             method: 'POST',
             headers,
-            body: formData as any
+            body: formData
           }),
           Effect.mapError(this.mapHttpError),
           Effect.retry(this.createRetrySchedule())
