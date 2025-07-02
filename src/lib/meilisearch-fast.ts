@@ -1,6 +1,33 @@
 import { MeiliSearch, Index } from 'meilisearch';
 import type { SearchResult } from './content-manager.js';
 
+// Search result hit interface
+interface SearchHit {
+  _rankingScore?: number;
+  _formatted?: { content?: string };
+  _cropLength?: { content?: string };
+  id: string;
+  originalId?: string;
+  source: string;
+  type?: string;
+  title: string;
+  content: string;
+  url?: string;
+  spaceKey?: string;
+  projectKey?: string;
+  status?: string;
+  priority?: string;
+  assignee?: string;
+  reporter?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  syncedAt?: number;
+}
+
+interface MeilisearchResponse {
+  hits: SearchHit[];
+}
+
 // Singleton instance for fast access
 let instance: MeilisearchFast | null = null;
 
@@ -54,29 +81,7 @@ export class MeilisearchFast {
     };
 
     // Handle search based on source
-    const results: Array<{
-      hits: Array<{
-        _rankingScore?: number;
-        _formatted?: { content?: string };
-        _cropLength?: { content?: string };
-        id: string;
-        originalId?: string;
-        source: string;
-        type?: string;
-        title: string;
-        content: string;
-        url?: string;
-        spaceKey?: string;
-        projectKey?: string;
-        status?: string;
-        priority?: string;
-        assignee?: string;
-        reporter?: string;
-        createdAt?: number;
-        updatedAt?: number;
-        syncedAt?: number;
-      }>;
-    }> = [];
+    const results: MeilisearchResponse[] = [];
     
     if (!options.source || options.source === 'jira') {
       // Search Jira with status filters
@@ -97,7 +102,7 @@ export class MeilisearchFast {
       }
       
       const jiraResult = await this.jiraIndex.search(query, jiraParams);
-      results.push(jiraResult as any);
+      results.push(jiraResult as unknown as MeilisearchResponse);
     }
     
     if (!options.source || options.source === 'confluence') {
@@ -109,7 +114,7 @@ export class MeilisearchFast {
       }
       
       const confluenceResult = await this.confluenceIndex.search(query, confluenceParams);
-      results.push(confluenceResult as any);
+      results.push(confluenceResult as unknown as MeilisearchResponse);
     }
 
     // Merge and sort results by ranking score
@@ -225,29 +230,7 @@ export class MeilisearchFast {
     }
 
     // Handle search based on source
-    const results: Array<{
-      hits: Array<{
-        _rankingScore?: number;
-        _formatted?: { content?: string };
-        _cropLength?: { content?: string };
-        id: string;
-        originalId?: string;
-        source: string;
-        type?: string;
-        title: string;
-        content: string;
-        url?: string;
-        spaceKey?: string;
-        projectKey?: string;
-        status?: string;
-        priority?: string;
-        assignee?: string;
-        reporter?: string;
-        createdAt?: number;
-        updatedAt?: number;
-        syncedAt?: number;
-      }>;
-    }> = [];
+    const results: MeilisearchResponse[] = [];
     
     if (!options.source || options.source === 'jira') {
       // Search Jira with status filters
@@ -269,13 +252,13 @@ export class MeilisearchFast {
       
       try {
         const jiraResult = await this.jiraIndex.search(query, jiraParams);
-        results.push(jiraResult as any);
+        results.push(jiraResult as unknown as MeilisearchResponse);
       } catch (error) {
         // Hybrid search failed (likely Ollama not available), fall back to regular search
         const { hybrid, ...fallbackParams } = jiraParams;
         void hybrid; // Silence unused variable warning
         const jiraResult = await this.jiraIndex.search(query, fallbackParams);
-        results.push(jiraResult as any);
+        results.push(jiraResult as unknown as MeilisearchResponse);
       }
     }
     
@@ -289,13 +272,13 @@ export class MeilisearchFast {
       
       try {
         const confluenceResult = await this.confluenceIndex.search(query, confluenceParams);
-        results.push(confluenceResult as any);
+        results.push(confluenceResult as unknown as MeilisearchResponse);
       } catch (error) {
         // Hybrid search failed (likely Ollama not available), fall back to regular search
         const { hybrid, ...fallbackParams } = confluenceParams;
         void hybrid; // Silence unused variable warning
         const confluenceResult = await this.confluenceIndex.search(query, fallbackParams);
-        results.push(confluenceResult as any);
+        results.push(confluenceResult as unknown as MeilisearchResponse);
       }
     }
 

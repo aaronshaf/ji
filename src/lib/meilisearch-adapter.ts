@@ -51,7 +51,7 @@ export class MeilisearchAdapter {
     this.client = new MeiliSearch({ host, apiKey });
   }
 
-  private async getEmbedderConfig(embeddingModel: string): Promise<Record<string, any> | undefined> {
+  private async getEmbedderConfig(embeddingModel: string): Promise<Record<string, unknown> | undefined> {
     // Check if Ollama is available
     try {
       const response = await fetch('http://localhost:11434/api/tags');
@@ -134,7 +134,7 @@ export class MeilisearchAdapter {
         'error': ['exception', 'failure', 'issue'],
         'setup': ['configuration', 'install']
       },
-      embedders: await this.getEmbedderConfig(embeddingModel)
+      embedders: (await this.getEmbedderConfig(embeddingModel)) as never
     });
 
     // Configure Confluence index
@@ -158,7 +158,7 @@ export class MeilisearchAdapter {
           twoTypos: 6
         }
       },
-      embedders: await this.getEmbedderConfig(embeddingModel)
+      embedders: (await this.getEmbedderConfig(embeddingModel)) as never
     });
 
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -766,7 +766,7 @@ export class MeilisearchAdapter {
   /**
    * Helper method to configure Jira index
    */
-  private async configureJiraIndex(embedderConfig: Record<string, any> | undefined) {
+  private async configureJiraIndex(embedderConfig: Record<string, unknown> | undefined) {
     await this.jiraIndex.updateSettings({
       searchableAttributes: ['key', 'title', 'content', 'summary', 'description'],
       filterableAttributes: ['status', 'priority', 'assignee', 'projectKey', 'source', 'reporter', 'originalId'],
@@ -797,14 +797,14 @@ export class MeilisearchAdapter {
         'error': ['exception', 'failure', 'issue'],
         'setup': ['configuration', 'install']
       },
-      embedders: embedderConfig
+      embedders: embedderConfig as never
     });
   }
 
   /**
    * Helper method to configure Confluence index
    */
-  private async configureConfluenceIndex(embedderConfig: Record<string, any> | undefined) {
+  private async configureConfluenceIndex(embedderConfig: Record<string, unknown> | undefined) {
     await this.confluenceIndex.updateSettings({
       searchableAttributes: ['title', 'content', 'spaceKey'],
       filterableAttributes: ['spaceKey', 'source', 'type', 'originalId'],
@@ -825,7 +825,7 @@ export class MeilisearchAdapter {
           twoTypos: 6
         }
       },
-      embedders: embedderConfig
+      embedders: embedderConfig as never
     });
   }
 

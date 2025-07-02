@@ -1,4 +1,5 @@
 import { Effect, Duration, Context, Layer, pipe, Clock, Option } from 'effect';
+import { Database } from 'bun:sqlite';
 import {
   DatabaseError,
   ValidationError,
@@ -68,7 +69,7 @@ export interface CacheService {
  * Multi-tier cache implementation with L1 (memory) and L2 (disk)
  */
 export class MultiTierCache implements CacheService {
-  private l1Cache = new Map<string, CacheEntry<any>>();
+  private l1Cache = new Map<string, CacheEntry<unknown>>();
   private accessOrder: string[] = [];
   private stats: CacheStats = {
     hits: 0,
@@ -82,7 +83,7 @@ export class MultiTierCache implements CacheService {
 
   constructor(
     private config: CacheConfig,
-    private db?: any // SQLite database for L2 cache
+    private db?: Database // SQLite database for L2 cache
   ) {
     this.stats.maxSize = config.maxSize;
   }
@@ -310,13 +311,13 @@ export class MultiTierCache implements CacheService {
         const entry = this.l1Cache.get(key);
         
         if (!entry) {
-          return Option.none();
+          return Option.none<T>();
         }
 
         if (entry.expiresAt <= now) {
           this.l1Cache.delete(key);
           this.removeFromAccessOrder(key);
-          return Option.none();
+          return Option.none<T>();
         }
 
         // Update access statistics
@@ -324,7 +325,7 @@ export class MultiTierCache implements CacheService {
         entry.lastAccessed = now;
         this.updateAccessOrder(key);
 
-        return Option.some(entry.value);
+        return Option.some(entry.value as T);
       })
     );
   }
@@ -346,19 +347,19 @@ export class MultiTierCache implements CacheService {
 
     return Effect.tryPromise({
       try: async () => {
-        const stmt = this.db.prepare('SELECT value, expires_at FROM cache_l2 WHERE key = ?');
+        const stmt = this.db!.prepare('SELECT value, expires_at FROM cache_l2 WHERE key = ?');
         const row = stmt.get(key) as { value: string; expires_at: number } | undefined;
 
         if (!row) {
-          return Option.none();
+          return Option.none<T>();
         }
 
         const now = Date.now();
         if (row.expires_at <= now) {
           // Expired, delete it
-          const deleteStmt = this.db.prepare('DELETE FROM cache_l2 WHERE key = ?');
+          const deleteStmt = this.db!.prepare('DELETE FROM cache_l2 WHERE key = ?');
           deleteStmt.run(key);
-          return Option.none();
+          return Option.none<T>();
         }
 
         try {
@@ -389,7 +390,7 @@ export class MultiTierCache implements CacheService {
           ? await this.compress(serializedValue)
           : serializedValue;
 
-        const stmt = this.db.prepare(`
+        const stmt = this.db!.prepare(`
           INSERT OR REPLACE INTO cache_l2 (key, value, expires_at, tags, size)
           VALUES (?, ?, ?, ?, ?)
         `);
@@ -413,7 +414,7 @@ export class MultiTierCache implements CacheService {
 
     return Effect.tryPromise({
       try: async () => {
-        const stmt = this.db.prepare('DELETE FROM cache_l2 WHERE key = ?');
+        const stmt = this.db!.prepare('DELETE FROM cache_l2 WHERE key = ?');
         const result = stmt.run(key);
         return result.changes > 0;
       },
@@ -428,7 +429,7 @@ export class MultiTierCache implements CacheService {
 
     return Effect.tryPromise({
       try: async () => {
-        const stmt = this.db.prepare('DELETE FROM cache_l2');
+        const stmt = this.db!.prepare('DELETE FROM cache_l2');
         stmt.run();
       },
       catch: (error) => new CacheError(`L2 cache clear failed: ${error}`, error)
@@ -442,7 +443,7 @@ export class MultiTierCache implements CacheService {
 
     return Effect.tryPromise({
       try: async () => {
-        const stmt = this.db.prepare(`
+        const stmt = this.db!.prepare(`
           DELETE FROM cache_l2 
           WHERE json_extract(tags, '$') LIKE '%' || ? || '%'
         `);
@@ -562,13 +563,13 @@ export class MultiTierCache implements CacheService {
     }
   }
 
-  private validateValue(value: any): void {
+  private validateValue(value: unknown): void {
     if (value === undefined) {
       throw new ValidationError('Cache value cannot be undefined', 'value', value);
     }
   }
 
-  private calculateSize(value: any): number {
+  private calculateSize(value: unknown): number {
     try {
       return JSON.stringify(value).length;
     } catch {
@@ -683,9 +684,9 @@ export class CacheWarmingService {
     return Effect.tryPromise({
       try: async () => {
         // This would fetch recent issues for the project
-        const recentIssues: any[] = []; // Placeholder
+        const recentIssues: Array<{ key: string; title: string; updated: string }> = []; // Placeholder
         
-        const cacheEntries = recentIssues.map((issue: any) => ({
+        const cacheEntries = recentIssues.map((issue: { key: string; title: string; updated: string }) => ({
           key: `issue:${issue.key}`,
           value: issue,
           ttl: Duration.hours(2)
@@ -733,7 +734,7 @@ export class CacheWarmingService {
     );
   }
 
-  private executeSearch(_query: string): Effect.Effect<any[], DatabaseError> {
+  private executeSearch(_query: string): Effect.Effect<unknown[], DatabaseError> {
     return Effect.tryPromise({
       try: async () => {
         // This would execute the actual search
