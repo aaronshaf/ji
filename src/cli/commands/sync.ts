@@ -81,7 +81,7 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
             // Add 1 minute overlap to catch any edge cases
             const updateDate = new Date(latestUpdate);
             updateDate.setMinutes(updateDate.getMinutes() - 1);
-            const formattedDate = updateDate.toISOString().split('.')[0].replace('T', ' ');
+            const formattedDate = updateDate.toISOString().split('.')[0].replace('T', ' ').substring(0, 16);
             jql += ` AND updated >= "${formattedDate}"`;
           }
           jql += ' ORDER BY updated DESC';
