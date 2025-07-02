@@ -121,7 +121,7 @@ export class EffectTestAssertions {
     iterations: number = 3
   ): Effect.Effect<void, Error> =>
     pipe(
-      Effect.all(Array(iterations).fill(effect)),
+      Effect.all(Array(iterations).fill(0).map(() => effect)),
       Effect.map(results => {
         const first = JSON.stringify(results[0]);
         for (let i = 1; i < results.length; i++) {
@@ -130,7 +130,7 @@ export class EffectTestAssertions {
           }
         }
       }),
-      Effect.catchAll(error => Effect.fail(new Error(`Idempotency test failed: ${error}`)))
+      Effect.catchAll(() => Effect.fail(new Error(`Idempotency test failed`)))
     );
 }
 
