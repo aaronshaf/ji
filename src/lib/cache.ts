@@ -572,6 +572,34 @@ export class CacheManager {
     stmt.run(autoSync ? 1 : 0, autoSync, Date.now(), id);
   }
 
+  async getAllProjects(): Promise<Array<{ key: string; name: string; issueCount?: number; lastSync?: Date }>> {
+    const stmt = this.db.prepare(`
+      SELECT 
+        p.key, 
+        p.name,
+        COUNT(i.key) as issue_count,
+        MAX(i.synced_at) as last_sync
+      FROM projects p
+      LEFT JOIN issues i ON p.key = i.project_key
+      GROUP BY p.key, p.name
+      ORDER BY last_sync DESC, p.key ASC
+    `);
+
+    const rows = stmt.all() as Array<{
+      key: string;
+      name: string;
+      issue_count: number;
+      last_sync: number | null;
+    }>;
+
+    return rows.map((row) => ({
+      key: row.key,
+      name: row.name,
+      issueCount: row.issue_count,
+      lastSync: row.last_sync ? new Date(row.last_sync) : undefined,
+    }));
+  }
+
   // Sprint management methods
   async trackUserSprint(
     userEmail: string,

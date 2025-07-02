@@ -1,3 +1,5 @@
+import { stdin as input, stdout as output } from 'node:process';
+import * as readline from 'node:readline/promises';
 import chalk from 'chalk';
 import { Console, Effect, pipe } from 'effect';
 import { CacheManager } from '../../lib/cache.js';
@@ -48,7 +50,7 @@ const syncIssuesBatch = (issues: Issue[], cacheManager: CacheManager, contentMan
 const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; clean?: boolean } = {}) =>
   pipe(
     getManagersEffect(),
-    Effect.flatMap(({ config, configManager, cacheManager, contentManager, jiraClient }) =>
+    Effect.flatMap(({ configManager, cacheManager, contentManager, jiraClient }) =>
       pipe(
         // If clean flag is set, delete existing issues first
         options.clean
@@ -103,7 +105,6 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
             Effect.flatMap(() => {
               let totalSynced = 0;
               const batchSize = 50;
-              const issuesBatch: Issue[] = [];
 
               return pipe(
                 jiraClient.getAllProjectIssuesEffect(projectKey, {
@@ -157,6 +158,13 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
                 ),
               ),
             ),
+            // Track this project as a workspace
+            Effect.tap(() =>
+              Effect.tryPromise({
+                try: () => cacheManager.trackWorkspace('jira_project', projectKey, projectKey),
+                catch: (error) => new Error(`Failed to track workspace: ${error}`),
+              }),
+            ),
             Effect.tap(() =>
               Effect.sync(() => {
                 cacheManager.close();
@@ -184,9 +192,134 @@ export async function syncJiraProject(projectKey: string, options: { fresh?: boo
   }
 }
 
-export async function syncWorkspaces(_options: { clean?: boolean } = {}) {
-  console.log(chalk.yellow('syncWorkspaces - Not yet implemented'));
-  console.log(chalk.dim('This will sync all your active workspaces in the future.'));
+// Pure Effect-based syncWorkspaces implementation
+const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
+  pipe(
+    Effect.tryPromise({
+      try: async () => {
+        const cacheManager = new CacheManager();
+        try {
+          const workspaces = await cacheManager.getActiveWorkspaces();
+          return { cacheManager, workspaces };
+        } catch (error) {
+          cacheManager.close();
+          throw error;
+        }
+      },
+      catch: (error) => new Error(`Failed to get active workspaces: ${error}`),
+    }),
+    Effect.flatMap(({ cacheManager, workspaces }) => {
+      const jiraProjects = workspaces.filter((w) => w.type === 'jira_project');
+      const confluenceSpaces = workspaces.filter((w) => w.type === 'confluence_space');
+
+      if (workspaces.length === 0) {
+        return pipe(
+          Console.log(chalk.yellow('No active workspaces found.')),
+          Effect.flatMap(() => Console.log(chalk.dim('Sync projects with: ji issue sync <project-key>'))),
+          Effect.tap(() => Effect.sync(() => cacheManager.close())),
+        );
+      }
+
+      return pipe(
+        Console.log(chalk.bold('Active Workspaces:')),
+        Effect.flatMap(() => {
+          const effects: Effect.Effect<void, Error>[] = [];
+
+          if (jiraProjects.length > 0) {
+            effects.push(
+              pipe(
+                Console.log(chalk.cyan('\nJira Projects:')),
+                Effect.flatMap(() =>
+                  Effect.all(
+                    jiraProjects.map((project) => {
+                      const lastUsed = new Date(project.lastUsed).toLocaleDateString();
+                      const usageInfo = chalk.dim(` (used ${project.usageCount} times, last: ${lastUsed})`);
+                      return Console.log(`  ${chalk.bold(project.keyOrId)} - ${project.name}${usageInfo}`);
+                    }),
+                  ),
+                ),
+              ),
+            );
+          }
+
+          if (confluenceSpaces.length > 0) {
+            effects.push(
+              pipe(
+                Console.log(chalk.cyan('\nConfluence Spaces:')),
+                Effect.flatMap(() =>
+                  Effect.all(
+                    confluenceSpaces.map((space) => {
+                      const lastUsed = new Date(space.lastUsed).toLocaleDateString();
+                      const usageInfo = chalk.dim(` (used ${space.usageCount} times, last: ${lastUsed})`);
+                      return Console.log(`  ${chalk.bold(space.keyOrId)} - ${space.name}${usageInfo}`);
+                    }),
+                  ),
+                ),
+              ),
+            );
+          }
+
+          return Effect.all(effects, { concurrency: 1 });
+        }),
+        Effect.flatMap(() => {
+          const rl = readline.createInterface({ input, output });
+          return pipe(
+            Effect.tryPromise({
+              try: async () => {
+                const defaultText = 'Y/n';
+                const answer = await rl.question(
+                  `\nWould you like to sync all Jira projects now? ${chalk.dim(`[${defaultText}]`)}: `,
+                );
+                const normalized = answer.trim().toLowerCase();
+                return !normalized ? true : normalized === 'y' || normalized === 'yes';
+              },
+              catch: (error) => new Error(`Failed to get user input: ${error}`),
+            }),
+            Effect.tap(() => Effect.sync(() => rl.close())),
+          );
+        }),
+        Effect.flatMap((shouldSync) => {
+          if (!shouldSync) {
+            return Console.log(chalk.dim('Skipping sync'));
+          }
+
+          return pipe(
+            Console.log(chalk.cyan('\nSyncing Jira projects...')),
+            Effect.flatMap(() =>
+              Effect.all(
+                jiraProjects.map((project, index) =>
+                  pipe(
+                    Console.log(chalk.dim(`\n[${index + 1}/${jiraProjects.length}] Syncing ${project.keyOrId}...`)),
+                    Effect.flatMap(() => {
+                      // Close current cache manager before syncing each project
+                      cacheManager.close();
+                      return syncJiraProjectEffect(project.keyOrId, options);
+                    }),
+                  ),
+                ),
+                { concurrency: 1 }, // Sync one at a time
+              ),
+            ),
+            Effect.tap(() => Console.log(chalk.green('\n✓ All projects synced successfully!'))),
+          );
+        }),
+        Effect.tap(() => Effect.sync(() => cacheManager.close())),
+      );
+    }),
+    Effect.catchAll((error) =>
+      pipe(
+        Console.error(chalk.red('Sync failed:'), error instanceof Error ? error.message : String(error)),
+        Effect.flatMap(() => Effect.fail(error)),
+      ),
+    ),
+  );
+
+export async function syncWorkspaces(options: { clean?: boolean } = {}) {
+  try {
+    await Effect.runPromise(syncWorkspacesEffect(options));
+  } catch (_error) {
+    process.exit(1);
+  }
 }
 
 export async function syncConfluence(spaceKey: string, _options: { clean?: boolean } = {}) {
