@@ -121,7 +121,7 @@ export interface ConfigurationService {
   set: <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => Effect.Effect<void, ConfigError>;
   setPath: (path: string, value: unknown) => Effect.Effect<void, ConfigError>;
   reload: () => Effect.Effect<AppConfig, ConfigError>;
-  validate: () => Effect.Effect<void, ValidationError>;
+  validate: () => Effect.Effect<void, ValidationError | ConfigError>;
   watch: (callback: (config: AppConfig) => void) => Effect.Effect<void, ConfigError>;
   getEnvironment: () => Effect.Effect<string, never>;
   isDevelopment: () => Effect.Effect<boolean, never>;
