@@ -4,7 +4,7 @@
  * Handles unified content storage for Jira issues and Confluence pages
  */
 
-import { Effect, Layer, Context, Option, pipe, Stream, Chunk, Duration } from 'effect';
+import { Effect, Layer, Context, Option, pipe, Stream } from 'effect';
 import type { Issue } from '../jira-client.js';
 import { DatabaseService, DatabaseServiceTag, LoggerService, LoggerServiceTag } from './layers.js';
 import { 

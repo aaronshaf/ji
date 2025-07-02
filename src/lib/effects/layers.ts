@@ -3,7 +3,7 @@
  * These layers provide the foundation for the Effect-based architecture
  */
 
-import { Effect, Layer, Context, Config, ConfigProvider, pipe, Ref } from 'effect';
+import { Effect, Layer, Context, pipe, Ref } from 'effect';
 import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -71,10 +71,10 @@ export const ConfigServiceLive = Layer.effect(
           Effect.flatMap(() => Ref.set(configRef, config))
         ),
       
-      getSetting: (key: string) =>
+      getSetting: (_key: string) =>
         Effect.succeed(null), // TODO: Implement settings storage
       
-      setSetting: (key: string, value: string) =>
+      setSetting: (_key: string, _value: string) =>
         Effect.succeed(undefined), // TODO: Implement settings storage
       
       reload: pipe(

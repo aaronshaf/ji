@@ -585,7 +585,7 @@ export class JobWorker {
         
         try {
           let indexed = 0;
-          for (const _contentId of contentIds) {
+          for (let i = 0; i < contentIds.length; i++) {
             // This would need a method to get content by ID
             // For now, we'll simulate indexing
             indexed++;

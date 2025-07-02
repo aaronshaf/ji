@@ -48,7 +48,7 @@ async function main() {
 
   // Effect approach
   console.log('\nEffect approach:');
-  const result = await pipe(
+  await pipe(
     cacheEffect.getIssue(issueKey),
     Effect.matchEffect({
       onFailure: (error) => Effect.sync(() => {

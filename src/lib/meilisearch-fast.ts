@@ -252,7 +252,8 @@ export class MeilisearchFast {
         results.push(jiraResult as any);
       } catch (error) {
         // Hybrid search failed (likely Ollama not available), fall back to regular search
-        const { hybrid: _hybrid, ...fallbackParams } = jiraParams;
+        const { hybrid, ...fallbackParams } = jiraParams;
+        void hybrid; // Silence unused variable warning
         const jiraResult = await this.jiraIndex.search(query, fallbackParams);
         results.push(jiraResult as any);
       }
@@ -271,7 +272,8 @@ export class MeilisearchFast {
         results.push(confluenceResult as any);
       } catch (error) {
         // Hybrid search failed (likely Ollama not available), fall back to regular search
-        const { hybrid: _hybrid, ...fallbackParams } = confluenceParams;
+        const { hybrid, ...fallbackParams } = confluenceParams;
+        void hybrid; // Silence unused variable warning
         const confluenceResult = await this.confluenceIndex.search(query, fallbackParams);
         results.push(confluenceResult as any);
       }

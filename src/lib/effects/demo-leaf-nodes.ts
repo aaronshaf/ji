@@ -9,8 +9,7 @@ import { ConfigManager } from '../config';
 import { makeConfigEffect } from './config-effect';
 import { 
   hashQuestion, 
-  containsUncertainty, 
-  extractDescription 
+  containsUncertainty
 } from './memory-effect';
 import { 
   confluenceToMarkdown, 
@@ -29,7 +28,7 @@ async function main() {
   const configEffect = makeConfigEffect(configManager);
   
   // Get optional settings
-  const settings = await pipe(
+  await pipe(
     configEffect.getSettings(['theme', 'pageSize', 'nonExistent']),
     Effect.tap(settingsMap => 
       Effect.sync(() => {

@@ -4,7 +4,7 @@
  * request pooling, and retry strategies for Jira and Confluence clients
  */
 
-import { Effect, Layer, Context, pipe, Schedule, Duration, Ref, Queue, Stream, Option, Chunk } from 'effect';
+import { Effect, Layer, Context, pipe, Schedule, Duration, Stream, Option } from 'effect';
 import { LoggerService, LoggerServiceTag } from './layers.js';
 import { 
   NetworkError, 

@@ -161,8 +161,8 @@ export class TestMocks {
       warn: createLogFunction('warn'),
       error: createLogFunction('error'),
       fatal: createLogFunction('fatal'),
-      withModule: (module: string) => TestMocks.createMockLogger(),
-      withContext: (context: Record<string, unknown>) => TestMocks.createMockLogger(),
+      withModule: (_module: string) => TestMocks.createMockLogger(),
+      withContext: (_context: Record<string, unknown>) => TestMocks.createMockLogger(),
       setLevel: () => Effect.succeed(undefined),
       flush: () => Effect.succeed(undefined),
       getLogs: () => logs
@@ -191,7 +191,7 @@ export class TestMocks {
       get: (key) => Effect.succeed(mockConfig[key]),
       getPath: (path) => Effect.succeed(path.split('.').reduce((obj, key) => obj?.[key], mockConfig as any)),
       set: (key, value) => Effect.sync(() => { mockConfig[key] = value; }),
-      setPath: (path, value) => Effect.succeed(undefined),
+      setPath: (_path, _value) => Effect.succeed(undefined),
       reload: () => Effect.succeed(mockConfig),
       validate: () => Effect.succeed(undefined),
       watch: () => Effect.succeed(undefined),
@@ -241,12 +241,12 @@ export class TestMocks {
     const tables = new Map<string, any[]>();
     
     return {
-      prepare: (sql: string) => ({
-        run: (...params: any[]) => ({ changes: 1, lastInsertRowid: 1 }),
-        get: (...params: any[]) => null,
-        all: (...params: any[]) => []
+      prepare: (_sql: string) => ({
+        run: (..._params: any[]) => ({ changes: 1, lastInsertRowid: 1 }),
+        get: (..._params: any[]) => null,
+        all: (..._params: any[]) => []
       }),
-      exec: (sql: string) => undefined,
+      exec: (_sql: string) => undefined,
       close: () => undefined,
       transaction: (fn: Function) => fn(),
       getTables: () => Array.from(tables.keys()),
@@ -581,7 +581,7 @@ export class TestEnvironment {
       this.logger.info(`Starting test: ${testName}`),
       Effect.flatMap(() => this.setupFixtures(requiredFixtures)),
       Effect.flatMap(() => test),
-      Effect.tap(result => this.logger.info(`Test completed: ${testName}`)),
+      Effect.tap(_result => this.logger.info(`Test completed: ${testName}`)),
       Effect.tapError(error => this.logger.error(`Test failed: ${testName}`, error)),
       Effect.ensuring(
         this.config.cleanup 

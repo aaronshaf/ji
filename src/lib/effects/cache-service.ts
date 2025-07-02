@@ -3,14 +3,13 @@
  * Replaces the traditional CacheManager with a fully Effect-based implementation
  */
 
-import { Effect, Layer, Context, Option, pipe, Stream, Chunk, Ref } from 'effect';
+import { Effect, Layer, Context, Option, pipe, Stream } from 'effect';
 import type { Issue, Board } from './jira-client-service.js';
 import { DatabaseService, DatabaseServiceTag } from './layers.js';
 import { 
   QueryError, 
   ParseError, 
   ValidationError,
-  DatabaseError,
   ConcurrencyError,
   DataIntegrityError
 } from './errors.js';

@@ -226,7 +226,7 @@ export class SearchCommand extends BaseCommand<SearchResult[]> {
     );
   }
 
-  execute(args: string[], config: Config): Effect.Effect<SearchResult[], CommandError> {
+  execute(args: string[], _config: Config): Effect.Effect<SearchResult[], CommandError> {
     return pipe(
       this.parseOptions(args),
       Effect.flatMap(({ args: cleanArgs, options }) => {
@@ -273,7 +273,7 @@ export class SyncCommand extends BaseCommand<{ synced: number; errors: number }>
   readonly name = 'sync';
   readonly description = 'Sync data from Jira and Confluence';
 
-  validate(args: string[]): Effect.Effect<void, ValidationError> {
+  validate(_args: string[]): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       // Sync command can work without arguments (sync all)
       // or with specific workspace arguments
@@ -284,7 +284,6 @@ export class SyncCommand extends BaseCommand<{ synced: number; errors: number }>
     return pipe(
       this.parseOptions(args),
       Effect.flatMap(({ options }) => {
-        const clean = Boolean(options.clean);
         const projectKey = typeof options.project === 'string' ? options.project : undefined;
         const spaceKey = typeof options.space === 'string' ? options.space : undefined;
         
