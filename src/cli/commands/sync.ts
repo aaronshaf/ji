@@ -77,7 +77,7 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
         // Build JQL query based on latest update
         Effect.map((latestUpdate) => {
           let jql = `project = ${projectKey}`;
-          if (latestUpdate && !options.fresh) {
+          if (latestUpdate && !options.fresh && !options.clean) {
             // Add 1 minute overlap to catch any edge cases
             const updateDate = new Date(latestUpdate);
             updateDate.setMinutes(updateDate.getMinutes() - 1);
