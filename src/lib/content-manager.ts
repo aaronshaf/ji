@@ -363,6 +363,125 @@ export class ContentManager {
     }
   }
 
+  /**
+   * Effect-based content search with validation
+   */
+  searchContentEffect(query: string, options?: {
+    source?: 'jira' | 'confluence';
+    type?: string;
+    limit?: number;
+  }): Effect.Effect<SearchableContent[], ValidationError | QueryError> {
+    return pipe(
+      // Validate inputs
+      Effect.sync(() => {
+        if (!query || query.trim().length === 0) {
+          throw new ValidationError('Query cannot be empty', 'query', query);
+        }
+        if (options?.limit !== undefined && (options.limit <= 0 || options.limit > 1000)) {
+          throw new ValidationError('Limit must be between 1 and 1000', 'limit', options.limit);
+        }
+      }),
+      Effect.flatMap(() => {
+        return Effect.try(() => {
+          // Handle special case for ID search
+          if (query.startsWith('id:')) {
+            const id = query.substring(3);
+            const stmt = this.db.prepare('SELECT * FROM searchable_content WHERE id = ?');
+            const row = stmt.get(id) as {
+              id: string;
+              source: string;
+              type: string;
+              title: string;
+              content: string;
+              url: string;
+              space_key?: string;
+              project_key?: string;
+              metadata?: string;
+              created_at?: number;
+              updated_at?: number;
+              synced_at: number;
+            } | undefined;
+            
+            if (!row) return [];
+            
+            return [{
+              id: row.id,
+              source: row.source as 'jira' | 'confluence',
+              type: row.type,
+              title: row.title,
+              content: row.content,
+              url: row.url,
+              spaceKey: row.space_key,
+              projectKey: row.project_key,
+              metadata: JSON.parse(row.metadata || '{}'),
+              createdAt: row.created_at,
+              updatedAt: row.updated_at,
+              syncedAt: row.synced_at
+            }];
+          }
+
+          let sql = `
+            SELECT sc.*,
+              snippet(content_fts, 1, '<mark>', '</mark>', '...', 32) as snippet
+            FROM searchable_content sc
+            JOIN content_fts ON content_fts.id = sc.id
+            WHERE content_fts MATCH ?
+          `;
+
+          const params: (string | number)[] = [query];
+
+          if (options?.source) {
+            sql += ' AND sc.source = ?';
+            params.push(options.source);
+          }
+
+          if (options?.type) {
+            sql += ' AND sc.type = ?';
+            params.push(options.type);
+          }
+
+          sql += ' ORDER BY rank LIMIT ?';
+          params.push(options?.limit || 20);
+
+          const stmt = this.db.prepare(sql);
+          const rows = stmt.all(...params) as Array<{
+            id: string;
+            source: string;
+            type: string;
+            title: string;
+            content: string;
+            url: string;
+            space_key?: string;
+            project_key?: string;
+            metadata?: string;
+            created_at?: number;
+            updated_at?: number;
+            synced_at: number;
+            snippet: string;
+          }>;
+
+          return rows.map(row => ({
+            id: row.id,
+            source: row.source as 'jira' | 'confluence',
+            type: row.type,
+            title: row.title,
+            content: row.content,
+            url: row.url,
+            spaceKey: row.space_key,
+            projectKey: row.project_key,
+            metadata: JSON.parse(row.metadata || '{}'),
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            syncedAt: row.synced_at,
+            snippet: row.snippet
+          }));
+        }).pipe(
+          Effect.mapError(error => new QueryError(`Failed to search content: ${error}`))
+        );
+      })
+    );
+  }
+
   async searchContent(query: string, options?: {
     source?: 'jira' | 'confluence';
     type?: string;
@@ -515,6 +634,52 @@ export class ContentManager {
 
 
 
+  /**
+   * Effect-based get space page versions with validation
+   */
+  getSpacePageVersionsEffect(spaceKey: string): Effect.Effect<Map<string, { version: number; updatedAt: number; syncedAt: number }>, ValidationError | QueryError> {
+    return pipe(
+      // Validate space key
+      Effect.sync(() => {
+        if (!spaceKey || spaceKey.trim().length === 0) {
+          throw new ValidationError('Space key cannot be empty', 'spaceKey', spaceKey);
+        }
+      }),
+      Effect.flatMap(() => {
+        return Effect.try(() => {
+          const stmt = this.db.prepare(`
+            SELECT id, updated_at, synced_at, 
+                   JSON_EXTRACT(metadata, '$.version.number') as version_number
+            FROM searchable_content 
+            WHERE space_key = ? AND source = 'confluence'
+          `);
+          
+          const rows = stmt.all(spaceKey) as Array<{
+            id: string;
+            updated_at: number;
+            synced_at: number;
+            version_number: number;
+          }>;
+          
+          const versionMap = new Map<string, { version: number; updatedAt: number; syncedAt: number }>();
+          
+          for (const row of rows) {
+            const pageId = row.id.replace('confluence:', '');
+            versionMap.set(pageId, {
+              version: row.version_number || 1,
+              updatedAt: row.updated_at,
+              syncedAt: row.synced_at
+            });
+          }
+          
+          return versionMap;
+        }).pipe(
+          Effect.mapError(error => new QueryError(`Failed to get space page versions: ${error}`))
+        );
+      })
+    );
+  }
+
   async getSpacePageVersions(spaceKey: string): Promise<Map<string, { version: number; updatedAt: number; syncedAt: number }>> {
     const stmt = this.db.prepare(`
       SELECT id, updated_at, synced_at, 
@@ -544,6 +709,35 @@ export class ContentManager {
     return versionMap;
   }
 
+  /**
+   * Effect-based content change detection
+   */
+  hasContentChangedEffect(pageId: string, newContentHash: string): Effect.Effect<boolean, ValidationError | QueryError> {
+    return pipe(
+      // Validate inputs
+      Effect.sync(() => {
+        if (!pageId || pageId.trim().length === 0) {
+          throw new ValidationError('Page ID cannot be empty', 'pageId', pageId);
+        }
+        if (!newContentHash || newContentHash.trim().length === 0) {
+          throw new ValidationError('Content hash cannot be empty', 'newContentHash', newContentHash);
+        }
+      }),
+      Effect.flatMap(() => {
+        return Effect.try(() => {
+          const stmt = this.db.prepare(
+            'SELECT content_hash FROM searchable_content WHERE id = ?'
+          );
+          const existing = stmt.get(`confluence:${pageId}`) as { content_hash?: string } | undefined;
+          
+          return !existing || existing.content_hash !== newContentHash;
+        }).pipe(
+          Effect.mapError(error => new QueryError(`Failed to check content change: ${error}`))
+        );
+      })
+    );
+  }
+
   async hasContentChanged(pageId: string, newContentHash: string): Promise<boolean> {
     const stmt = this.db.prepare(
       'SELECT content_hash FROM searchable_content WHERE id = ?'
@@ -551,6 +745,39 @@ export class ContentManager {
     const existing = stmt.get(`confluence:${pageId}`) as { content_hash?: string } | undefined;
     
     return !existing || existing.content_hash !== newContentHash;
+  }
+
+  /**
+   * Effect-based get last sync time with validation
+   */
+  getLastSyncTimeEffect(spaceKey: string): Effect.Effect<Date | null, ValidationError | QueryError> {
+    return pipe(
+      // Validate space key
+      Effect.sync(() => {
+        if (!spaceKey || spaceKey.trim().length === 0) {
+          throw new ValidationError('Space key cannot be empty', 'spaceKey', spaceKey);
+        }
+      }),
+      Effect.flatMap(() => {
+        return Effect.try(() => {
+          const stmt = this.db.prepare(`
+            SELECT MAX(synced_at) as last_sync 
+            FROM searchable_content 
+            WHERE space_key = ? AND source = 'confluence'
+          `);
+          
+          const result = stmt.get(spaceKey) as { last_sync: number | null } | undefined;
+          
+          if (result && result.last_sync) {
+            return new Date(result.last_sync);
+          }
+          
+          return null;
+        }).pipe(
+          Effect.mapError(error => new QueryError(`Failed to get last sync time: ${error}`))
+        );
+      })
+    );
   }
 
   async getLastSyncTime(spaceKey: string): Promise<Date | null> {
@@ -569,6 +796,39 @@ export class ContentManager {
     return null;
   }
   
+  /**
+   * Effect-based get newest page modified date with validation
+   */
+  getNewestPageModifiedDateEffect(spaceKey: string): Effect.Effect<Date | null, ValidationError | QueryError> {
+    return pipe(
+      // Validate space key
+      Effect.sync(() => {
+        if (!spaceKey || spaceKey.trim().length === 0) {
+          throw new ValidationError('Space key cannot be empty', 'spaceKey', spaceKey);
+        }
+      }),
+      Effect.flatMap(() => {
+        return Effect.try(() => {
+          const stmt = this.db.prepare(`
+            SELECT MAX(updated_at) as newest_modified 
+            FROM searchable_content 
+            WHERE space_key = ? AND source = 'confluence'
+          `);
+          
+          const result = stmt.get(spaceKey) as { newest_modified: number | null } | undefined;
+          
+          if (result && result.newest_modified) {
+            return new Date(result.newest_modified);
+          }
+          
+          return null;
+        }).pipe(
+          Effect.mapError(error => new QueryError(`Failed to get newest page modified date: ${error}`))
+        );
+      })
+    );
+  }
+
   async getNewestPageModifiedDate(spaceKey: string): Promise<Date | null> {
     const stmt = this.db.prepare(`
       SELECT MAX(updated_at) as newest_modified 
