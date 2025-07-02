@@ -1,4 +1,4 @@
-import { Effect, Context, Layer, pipe, Schedule, Duration, Option } from 'effect';
+import { Effect, Context, Layer, pipe, Schedule, Duration } from 'effect';
 import { ValidationError, ConfigError } from './errors.js';
 import type { LogConfig } from './logging.js';
 
@@ -659,13 +659,13 @@ export class EnvironmentConfigLoader {
 /**
  * Configuration service context
  */
-export const ConfigurationService = Context.GenericTag<ConfigurationService>('ConfigurationService');
+export const ConfigurationServiceContext = Context.GenericTag<ConfigurationService>('ConfigurationService');
 
 /**
  * Configuration layer
  */
 export const ConfigurationLayer = (configPath?: string) => Layer.effect(
-  ConfigurationService,
+  ConfigurationServiceContext,
   Effect.gen(function* () {
     const finalConfigPath = configPath || `${process.env.HOME || '~'}/.ji/config.json`;
     
@@ -727,7 +727,7 @@ export function createConfigurationService(configPath?: string): Effect.Effect<C
     ConfigurationLayer(configPath),
     Layer.build,
     Effect.scoped,
-    Effect.map(context => Context.get(context, ConfigurationService)),
+    Effect.map(context => Context.get(context, ConfigurationServiceContext)),
     Effect.mapError(error =>
       new ConfigError(`Failed to create configuration service: ${error}`, error)
     )

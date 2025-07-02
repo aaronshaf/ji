@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { parseArgs } from "util";
 import { ConfigManager } from './lib/config.js';
 import { JiraClient, type Board, type Issue, ISSUE_FIELDS } from './lib/jira-client.js';
 import { CacheManager } from './lib/cache.js';
@@ -10,7 +9,6 @@ import { confluenceToText, confluenceToMarkdown } from './lib/confluence-convert
 import { OllamaClient } from './lib/ollama.js';
 import { MemoryManager } from './lib/memory.js';
 import { SearchAnalytics } from './lib/search-analytics.js';
-import { MeilisearchAdapter } from './lib/meilisearch-adapter.js';
 import { MeilisearchFast } from './lib/meilisearch-fast.js';
 import { syncToMeilisearch } from './lib/sync-meilisearch.js';
 import chalk from 'chalk';
@@ -35,7 +33,7 @@ async function auth() {
 
     // Test the authentication
     console.log('\nVerifying credentials...');
-    const client = new JiraClient(config);
+    new JiraClient(config);
     
     try {
       // Test API call - get current user

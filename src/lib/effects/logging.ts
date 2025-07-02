@@ -1,4 +1,4 @@
-import { Effect, Logger, LogLevel, Context, Layer, pipe, Duration, Schedule } from 'effect';
+import { Effect, Context, Layer, pipe, Duration, Schedule } from 'effect';
 import { ConfigError, ValidationError } from './errors.js';
 
 /**
@@ -525,13 +525,13 @@ export class AuditLogger {
 /**
  * Logging service context
  */
-export const LoggingService = Context.GenericTag<LoggingService>('LoggingService');
+export const LoggingServiceContext = Context.GenericTag<LoggingService>('LoggingService');
 
 /**
  * Create logging layer with configuration
  */
 export const LoggingLayer = (config: LogConfig) => Layer.effect(
-  LoggingService,
+  LoggingServiceContext,
   Effect.gen(function* () {
     let db: any = undefined;
 
@@ -600,7 +600,7 @@ export function createLogger(config: LogConfig = defaultLogConfig): Effect.Effec
     LoggingLayer(config),
     Layer.build,
     Effect.scoped,
-    Effect.map(context => Context.get(context, LoggingService)),
+    Effect.map(context => Context.get(context, LoggingServiceContext)),
     Effect.mapError(error => 
       new ConfigError(`Failed to create logger: ${error}`, error)
     )
