@@ -65,7 +65,7 @@ export const containsUncertainty = (fact: string): Effect.Effect<boolean, Valida
  * Delete memory with detailed result information
  */
 export const deleteMemory = (
-  db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => { changes: number } } },
+  db: any,
   memoryId: string
 ): Effect.Effect<{ deleted: boolean; memoryId: string }, DatabaseError | NotFoundError> => {
   return pipe(
@@ -109,7 +109,7 @@ export const deleteMemory = (
  * Update memory facts with validation
  */
 export const updateMemoryFacts = (
-  db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => { changes: number } } },
+  db: any,
   memoryId: string,
   newFacts: string
 ): Effect.Effect<{ updated: boolean; rowsChanged: number }, DatabaseError | ValidationError> => {
@@ -156,7 +156,7 @@ export const extractDescription = (description: unknown): Effect.Effect<Option.O
       return Option.some(description);
     }
     
-    if (description?.content && typeof description.content === 'object') {
+    if (typeof description === 'object' && description !== null && 'content' in description && typeof (description as any).content === 'object') {
       // Would need ADF parser here
       return Option.some('[Complex content - ADF format]');
     }

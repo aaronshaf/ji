@@ -122,7 +122,7 @@ export const DatabaseServiceLive = Layer.scoped(
         Effect.try({
           try: () => {
             const stmt = db.prepare(sql);
-            return (params ? stmt.run(...params) : stmt.run()) as T;
+            return (params ? stmt.run(...(params as any[])) : stmt.run()) as T;
           },
           catch: (error) => new DatabaseError(`Query execution failed: ${error}`)
         }),
@@ -131,7 +131,7 @@ export const DatabaseServiceLive = Layer.scoped(
         Effect.try({
           try: () => {
             const stmt = db.prepare(sql);
-            return (params ? stmt.all(...params) : stmt.all()) as T[];
+            return (params ? stmt.all(...(params as any[])) : stmt.all()) as T[];
           },
           catch: (error) => new DatabaseError(`Query failed: ${error}`)
         }),

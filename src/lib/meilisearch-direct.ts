@@ -3,6 +3,7 @@ import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
 import chalk from 'chalk';
+import { Schema } from 'effect';
 
 const MEILISEARCH_URL = 'http://localhost:7700';
 
@@ -29,22 +30,34 @@ async function directSync() {
     
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // Get sample data
-    const items = db.prepare(`
+    // Get sample data using Effect Schema for runtime validation
+    const SearchableItem = Schema.Struct({
+      id: Schema.String,
+      title: Schema.String,
+      content: Schema.String,
+      source: Schema.String,
+      updated_at: Schema.Number,
+    });
+    
+    const rawItems = db.prepare(`
       SELECT * FROM searchable_content 
       WHERE content LIKE '%xsslint%' OR title LIKE '%xsslint%'
       LIMIT 10
-    `).all() as any[];
+    `).all();
+    
+    const items = rawItems.map(item => Schema.decodeUnknownSync(SearchableItem)(item));
     
     console.log(`Found ${items.length} items containing 'xsslint'`);
     
     if (items.length === 0) {
       // Get any sample data
-      const sampleItems = db.prepare(`
+      const rawSampleItems = db.prepare(`
         SELECT * FROM searchable_content 
         ORDER BY updated_at DESC
         LIMIT 10
-      `).all() as any[];
+      `).all();
+      
+      const sampleItems = rawSampleItems.map(item => Schema.decodeUnknownSync(SearchableItem)(item));
       
       console.log(`No items with 'xsslint' found. Adding ${sampleItems.length} sample documents...`);
       
