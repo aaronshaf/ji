@@ -87,11 +87,11 @@ function displaySearchResults(
     }
 
     // YAML output with color
-    console.log(chalk.cyan('- type:') + ` ${type}`);
-    console.log(chalk.cyan('  key:') + ` ${chalk.bold(key)}`);
-    console.log(chalk.cyan('  title:') + ` ${title}`);
+    console.log(`${chalk.cyan('- type:')} ${type}`);
+    console.log(`${chalk.cyan('  key:')} ${chalk.bold(key)}`);
+    console.log(`${chalk.cyan('  title:')} ${title}`);
     if (updated) {
-      console.log(chalk.cyan('  updated:') + ` ${chalk.dim(updated)}`);
+      console.log(`${chalk.cyan('  updated:')} ${chalk.dim(updated)}`);
     }
     if (content.metadata?.status) {
       const statusColor =
@@ -100,16 +100,16 @@ function displaySearchResults(
           : String(content.metadata.status).toLowerCase() === 'open'
             ? chalk.green
             : chalk.yellow;
-      console.log(chalk.cyan('  status:') + ` ${statusColor(String(content.metadata.status))}`);
+      console.log(`${chalk.cyan('  status:')} ${statusColor(String(content.metadata.status))}`);
     }
     if (content.metadata?.priority) {
       const priority = String(content.metadata.priority);
       const priorityColor =
         priority === 'P1' || priority === 'P2' ? chalk.red : priority === 'P3' ? chalk.yellow : chalk.gray;
-      console.log(chalk.cyan('  priority:') + ` ${priorityColor(priority)}`);
+      console.log(`${chalk.cyan('  priority:')} ${priorityColor(priority)}`);
     }
     if (content.metadata?.assignee) {
-      console.log(chalk.cyan('  assignee:') + ` ${content.metadata.assignee}`);
+      console.log(`${chalk.cyan('  assignee:')} ${content.metadata.assignee}`);
     }
     if (snippet) {
       const cleanSnippet = snippet
@@ -123,10 +123,10 @@ function displaySearchResults(
       let truncated = cleanSnippet;
       if (cleanSnippet.length > maxLength) {
         const lastSpace = cleanSnippet.lastIndexOf(' ', maxLength);
-        truncated = cleanSnippet.substring(0, lastSpace > 0 ? lastSpace : maxLength) + '...';
+        truncated = `${cleanSnippet.substring(0, lastSpace > 0 ? lastSpace : maxLength)}...`;
       }
 
-      console.log(chalk.cyan('  description:') + ' |');
+      console.log(`${chalk.cyan('  description:')} |`);
       console.log(`    ${chalk.gray(truncated)}`);
     }
 
