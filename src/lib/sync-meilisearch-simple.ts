@@ -40,12 +40,51 @@ async function syncSimple() {
         SELECT * FROM searchable_content 
         ORDER BY updated_at DESC
         LIMIT ? OFFSET ?
-      `).all(batchSize, offset) as any[];
+      `).all(batchSize, offset) as Array<{
+        id: string;
+        source: string;
+        title: string;
+        content: string;
+        updated_at: number;
+        url?: string;
+        space_key?: string;
+        project_key?: string;
+        metadata?: string;
+        created_at?: number;
+        synced_at?: number;
+        type?: string;
+      }>;
       
       if (items.length === 0) break;
       
-      const jiraDocs: any[] = [];
-      const confluenceDocs: any[] = [];
+      const jiraDocs: Array<{
+        id: string;
+        key: string;
+        title: string;
+        content: string;
+        source: string;
+        url?: string;
+        spaceKey?: string;
+        projectKey?: string;
+        updatedAt: number;
+        createdAt: number;
+        syncedAt?: number;
+        type?: string;
+      }> = [];
+      const confluenceDocs: Array<{
+        id: string;
+        key: string;
+        title: string;
+        content: string;
+        source: string;
+        url?: string;
+        spaceKey?: string;
+        projectKey?: string;
+        updatedAt: number;
+        createdAt: number;
+        syncedAt?: number;
+        type?: string;
+      }> = [];
       
       for (const item of items) {
         const doc = {

@@ -1,4 +1,5 @@
 import { Effect, Schedule, Layer, Context, pipe, Duration, Option } from 'effect';
+import { Database } from 'bun:sqlite';
 import {
   DatabaseError,
   ValidationError,
@@ -72,7 +73,7 @@ export interface JobQueueStats {
  * Job queue implementation using SQLite
  */
 export class SqliteJobQueue implements JobQueueService {
-  constructor(private db: any) {}
+  constructor(private db: Database) {}
 
   enqueue(job: Omit<Job, 'id' | 'createdAt' | 'retryCount'>): Effect.Effect<string, DatabaseError> {
     return Effect.tryPromise({
@@ -114,7 +115,7 @@ export class SqliteJobQueue implements JobQueueService {
           WHERE status = 'pending' 
           AND scheduled_for <= ?
         `;
-        const params: any[] = [now];
+        const params: unknown[] = [now];
         
         if (type) {
           sql += ' AND type = ?';
@@ -124,7 +125,17 @@ export class SqliteJobQueue implements JobQueueService {
         sql += ' ORDER BY priority DESC, created_at ASC LIMIT 1';
         
         const stmt = this.db.prepare(sql);
-        const row = stmt.get(...params) as any;
+        const row = stmt.get(...(params as never[])) as {
+          id: string;
+          type: JobType;
+          priority: JobPriority;
+          payload: string;
+          created_at: number;
+          scheduled_for?: number;
+          retry_count: number;
+          max_retries: number;
+          last_error?: string;
+        } | undefined;
         
         if (!row) {
           return Option.none();

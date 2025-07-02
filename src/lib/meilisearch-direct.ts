@@ -30,22 +30,48 @@ async function directSync() {
     
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // Get sample data using Effect Schema for runtime validation
-    const SearchableItem = Schema.Struct({
-      id: Schema.String,
-      title: Schema.String,
-      content: Schema.String,
-      source: Schema.String,
-      updated_at: Schema.Number,
-    });
+    // Define proper interface for database items
+    interface SearchableItem {
+      id: string;
+      title: string;
+      content: string;
+      source: string;
+      updated_at: number;
+      url?: string;
+      space_key?: string;
+      project_key?: string;
+      created_at?: number;
+      synced_at?: number;
+      type?: string;
+      metadata?: string;
+    }
     
+    // Get sample data with proper typing
     const rawItems = db.prepare(`
       SELECT * FROM searchable_content 
       WHERE content LIKE '%xsslint%' OR title LIKE '%xsslint%'
       LIMIT 10
     `).all();
     
-    const items = rawItems.map(item => Schema.decodeUnknownSync(SearchableItem)(item));
+    // Use Effect-based validation instead of casting
+    const SearchableItemSchema = Schema.Struct({
+      id: Schema.String,
+      title: Schema.String,
+      content: Schema.String,
+      source: Schema.String,
+      updated_at: Schema.Number,
+      url: Schema.optional(Schema.String),
+      space_key: Schema.optional(Schema.String),
+      project_key: Schema.optional(Schema.String),
+      created_at: Schema.optional(Schema.Number),
+      synced_at: Schema.optional(Schema.Number),
+      type: Schema.optional(Schema.String),
+      metadata: Schema.optional(Schema.String),
+    });
+    
+    const items: SearchableItem[] = rawItems.map(item => 
+      Schema.decodeUnknownSync(SearchableItemSchema)(item)
+    );
     
     console.log(`Found ${items.length} items containing 'xsslint'`);
     
@@ -57,7 +83,9 @@ async function directSync() {
         LIMIT 10
       `).all();
       
-      const sampleItems = rawSampleItems.map(item => Schema.decodeUnknownSync(SearchableItem)(item));
+      const sampleItems: SearchableItem[] = rawSampleItems.map(item => 
+        Schema.decodeUnknownSync(SearchableItemSchema)(item)
+      );
       
       console.log(`No items with 'xsslint' found. Adding ${sampleItems.length} sample documents...`);
       
@@ -113,7 +141,7 @@ async function directSync() {
     if (searchResponse.ok) {
       const results = await searchResponse.json() as { hits: Array<{ title: string }> };
       console.log(`Found ${results.hits.length} results:`);
-      results.hits.forEach((hit: any) => {
+      results.hits.forEach((hit: { title: string }) => {
         console.log(`- ${hit.title}`);
       });
     } else {

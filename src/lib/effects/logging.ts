@@ -1,4 +1,5 @@
 import { Effect, Context, Layer, pipe, Duration, Schedule } from 'effect';
+import { Database } from 'bun:sqlite';
 import { ConfigError, ValidationError } from './errors.js';
 
 /**
@@ -62,7 +63,7 @@ export class StructuredLogger implements LoggingService {
     private config: LogConfig,
     private module: string = 'default',
     private context: Record<string, unknown> = {},
-    private db?: any
+    private db?: Database
   ) {
     // Start background flush
     this.startBackgroundFlush();
@@ -273,6 +274,7 @@ export class StructuredLogger implements LoggingService {
   private writeToDatabase(entries: LogEntry[]): Effect.Effect<void, never> {
     return Effect.tryPromise({
       try: async () => {
+        if (!this.db) return;
         const stmt = this.db.prepare(`
           INSERT INTO logs (
             timestamp, level, message, module, metadata, error, user_id, session_id
@@ -286,9 +288,9 @@ export class StructuredLogger implements LoggingService {
             entry.message,
             entry.module,
             JSON.stringify(entry.metadata || {}),
-            entry.error ? entry.error.stack : null,
-            entry.userId || null,
-            entry.sessionId || null
+            entry.error ? entry.error.stack || entry.error.message : '',
+            entry.userId || '',
+            entry.sessionId || ''
           );
         }
       },
@@ -533,16 +535,16 @@ export const LoggingServiceContext = Context.GenericTag<LoggingService>('Logging
 export const LoggingLayer = (config: LogConfig) => Layer.effect(
   LoggingServiceContext,
   Effect.gen(function* () {
-    let db: any = undefined;
+    let db: Database | undefined = undefined;
 
     // Initialize database for log storage if enabled
     if (config.enableFile || config.enableStructured) {
       try {
         const { Database } = yield* Effect.promise(() => import('bun:sqlite'));
-        const { homedir } = yield* Effect.promise(() => import('os'));
+        const { homedir: getHomedir } = yield* Effect.promise(() => import('os'));
         const { join } = yield* Effect.promise(() => import('path'));
         
-        const dbPath = join(homedir(), '.ji', 'logs.db');
+        const dbPath = join(getHomedir(), '.ji', 'logs.db');
         db = new Database(dbPath);
         
         // Create logs table

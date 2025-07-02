@@ -545,15 +545,15 @@ export class ConfigMigration {
     // Migrate from v1 to v2 configuration format
     const migrated = { ...defaultConfig };
     
-    if (oldConfig.jiraBaseUrl) {
+    if (typeof oldConfig.jiraBaseUrl === 'string') {
       migrated.jira.baseUrl = oldConfig.jiraBaseUrl;
     }
     
-    if (oldConfig.confluenceBaseUrl) {
+    if (typeof oldConfig.confluenceBaseUrl === 'string') {
       migrated.confluence.baseUrl = oldConfig.confluenceBaseUrl;
     }
     
-    if (oldConfig.debug !== undefined) {
+    if (typeof oldConfig.debug === 'boolean') {
       migrated.app.debug = oldConfig.debug;
       migrated.logging.level = oldConfig.debug ? 'debug' : 'info';
     }
@@ -566,8 +566,11 @@ export class ConfigMigration {
   }
 
   static needsMigration(config: Record<string, unknown>): boolean {
-    const app = config.app as Record<string, unknown> | undefined;
-    return !app || !app.version || app.version !== this.getCurrentVersion();
+    if (typeof config.app !== 'object' || config.app === null) {
+      return true;
+    }
+    const app = config.app as Record<string, unknown>;
+    return !app.version || app.version !== this.getCurrentVersion();
   }
 }
 
@@ -754,7 +757,7 @@ export const ConfigUtils = {
       }
     }
     
-    return current;
+    return current as T;
   },
 
   /**
@@ -775,7 +778,8 @@ export const ConfigUtils = {
       return target;
     }
     
-    return deepMerge(merged, override);
+    deepMerge(merged as Record<string, unknown>, override as Record<string, unknown>);
+    return merged;
   },
 
   /**

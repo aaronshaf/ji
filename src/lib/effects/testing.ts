@@ -189,7 +189,19 @@ export class TestMocks {
 
     return {
       get: (key) => Effect.succeed(mockConfig[key]),
-      getPath: (path) => Effect.succeed(path.split('.').reduce((obj, key) => obj?.[key], mockConfig as Record<string, unknown>)),
+      getPath: <T>(path: string) => {
+        const keys = path.split('.');
+        let current: unknown = mockConfig;
+        for (const key of keys) {
+          if (current && typeof current === 'object' && key in current) {
+            current = (current as Record<string, unknown>)[key];
+          } else {
+            current = undefined;
+            break;
+          }
+        }
+        return Effect.succeed(current as T);
+      },
       set: (key, value) => Effect.sync(() => { mockConfig[key] = value; }),
       setPath: (_path, _value) => Effect.succeed(undefined),
       reload: () => Effect.succeed(mockConfig),
@@ -206,7 +218,7 @@ export class TestMocks {
    * Create a mock cache service
    */
   static createMockCache(): CacheService {
-    const cache = new Map<string, unknown>();
+    const cache = new Map<string, any>();
     
     return {
       get: (key) => Effect.succeed(cache.has(key) ? Option.some(cache.get(key)) : Option.none()),
@@ -348,8 +360,8 @@ export class PropertyGenerators {
  * Test fixture manager
  */
 export class TestFixtureManager {
-  private fixtures = new Map<string, TestFixture<unknown>>();
-  private activeResources = new Map<string, unknown>();
+  private fixtures = new Map<string, TestFixture<any>>();
+  private activeResources = new Map<string, any>();
 
   /**
    * Register a test fixture
