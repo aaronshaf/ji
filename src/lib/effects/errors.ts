@@ -69,6 +69,49 @@ export class RateLimitError extends JiError {
   }
 }
 
+export class ConnectionRefusedError extends JiError {
+  readonly _tag = 'ConnectionRefusedError';
+  readonly module = 'network';
+  
+  constructor(
+    message: string,
+    public readonly host?: string,
+    public readonly port?: number,
+    cause?: unknown
+  ) {
+    super(message, cause);
+  }
+}
+
+// ============= Data Integrity Errors =============
+export class DataIntegrityError extends JiError {
+  readonly _tag = 'DataIntegrityError';
+  readonly module = 'data';
+  
+  constructor(
+    message: string,
+    public readonly expectedChecksum?: string,
+    public readonly actualChecksum?: string,
+    cause?: unknown
+  ) {
+    super(message, cause);
+  }
+}
+
+export class ConcurrencyError extends JiError {
+  readonly _tag = 'ConcurrencyError';
+  readonly module = 'data';
+  
+  constructor(
+    message: string,
+    public readonly resourceId?: string,
+    public readonly conflictingOperation?: string,
+    cause?: unknown
+  ) {
+    super(message, cause);
+  }
+}
+
 // ============= Validation Errors =============
 export class ValidationError extends JiError {
   readonly _tag = 'ValidationError';
@@ -159,4 +202,89 @@ export class ContentTooLargeError extends JiError {
   ) {
     super(message, cause);
   }
+}
+
+// ============= Error Recovery Strategies =============
+import { Effect, Schedule, pipe } from 'effect';
+
+export const errorRecoveryStrategies = {
+  // Network errors: Retry with exponential backoff
+  network: {
+    timeout: Schedule.exponential('1 second', 2).pipe(
+      Schedule.jittered
+    ),
+    rateLimit: (error: RateLimitError) =>
+      error.retryAfter
+        ? Schedule.spaced(`${error.retryAfter} millis`)
+        : Schedule.exponential('5 seconds'),
+    connectionRefused: Schedule.recurs(3).pipe(
+      Schedule.addDelay(() => '2 seconds')
+    ),
+  },
+  
+  // Database errors: Limited retries with delay
+  database: {
+    connection: Schedule.recurs(5).pipe(
+      Schedule.addDelay(() => '500 millis')
+    ),
+    transaction: Schedule.recurs(3).pipe(
+      Schedule.addDelay(() => '100 millis')
+    ),
+    query: Schedule.once,
+  },
+  
+  // Data integrity: No retry, requires manual intervention
+  dataIntegrity: {
+    integrity: Schedule.stop,
+    concurrency: Schedule.recurs(3).pipe(
+      Schedule.addDelay(() => '50 millis')
+    ),
+  },
+  
+  // Validation errors: No retry
+  validation: {
+    all: Schedule.stop,
+  },
+};
+
+// Helper function to apply appropriate retry strategy
+export function withRetryStrategy<R, E extends JiError, A>(
+  effect: Effect.Effect<R, E, A>
+): Effect.Effect<R, E, A> {
+  return pipe(
+    effect,
+    Effect.catchAll((error: E) => {
+      let retrySchedule: Schedule.Schedule<any, any, any> = Schedule.stop;
+      
+      switch (error.module) {
+        case 'network':
+          if (error._tag === 'TimeoutError') {
+            retrySchedule = errorRecoveryStrategies.network.timeout;
+          } else if (error._tag === 'RateLimitError') {
+            retrySchedule = errorRecoveryStrategies.network.rateLimit(error as RateLimitError);
+          } else if (error._tag === 'ConnectionRefusedError') {
+            retrySchedule = errorRecoveryStrategies.network.connectionRefused;
+          }
+          break;
+        case 'database':
+          if (error._tag === 'ConnectionError') {
+            retrySchedule = errorRecoveryStrategies.database.connection;
+          } else if (error._tag === 'TransactionError') {
+            retrySchedule = errorRecoveryStrategies.database.transaction;
+          }
+          break;
+        case 'data':
+          if (error._tag === 'ConcurrencyError') {
+            retrySchedule = errorRecoveryStrategies.dataIntegrity.concurrency;
+          }
+          break;
+      }
+      
+      return pipe(
+        effect,
+        Effect.retry(retrySchedule),
+        Effect.catchAll(() => Effect.fail(error))
+      );
+    })
+  );
 }
