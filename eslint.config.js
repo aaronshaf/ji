@@ -36,14 +36,16 @@ export default [
       '@typescript-eslint': tseslint,
     },
     rules: {
+      // ZERO TOLERANCE POLICY: Using --max-warnings 0 flag to enforce no warnings
+      
       // TypeScript-specific rules - graduated from warn to error as we fix them
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }], // ✅ 0 warnings - now error
-      '@typescript-eslint/no-explicit-any': 'error', // ✅ 4 warnings in test files only - now error
+      '@typescript-eslint/no-explicit-any': 'error', // ✅ 0 warnings - now error
       
       // General rules
       'no-console': 'off', // CLI tool needs console output
       'no-unused-vars': 'off', // Use TypeScript version instead
-      'prefer-const': 'warn', // Warn instead of error for now
+      'prefer-const': 'warn', // Will be treated as error with --max-warnings 0
       'no-undef': 'error', // ✅ 0 warnings - now error (using globalThis.*)
     },
   },
