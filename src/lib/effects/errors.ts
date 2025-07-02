@@ -14,23 +14,23 @@ export abstract class JiError extends Error {
 }
 
 // ============= Database Errors =============
-export class DatabaseError extends JiError {
-  readonly _tag = 'DatabaseError';
-  readonly module = 'database';
-}
-
-export class ConnectionError extends JiError {
-  readonly _tag = 'ConnectionError';
-  readonly module = 'database';
-}
-
 export class QueryError extends JiError {
   readonly _tag = 'QueryError';
   readonly module = 'database';
 }
 
-export class TransactionError extends JiError {
-  readonly _tag = 'TransactionError';
+export class DatabaseError extends QueryError {
+  readonly _tag = 'QueryError'; // Use parent tag for type compatibility
+  readonly module = 'database';
+}
+
+export class ConnectionError extends QueryError {
+  readonly _tag = 'QueryError'; // Use parent tag for type compatibility
+  readonly module = 'database';
+}
+
+export class TransactionError extends QueryError {
+  readonly _tag = 'QueryError'; // Use parent tag for type compatibility
   readonly module = 'database';
 }
 
@@ -81,6 +81,11 @@ export class ConnectionRefusedError extends JiError {
   ) {
     super(message, cause);
   }
+}
+
+export class CircuitBreakerError extends JiError {
+  readonly _tag = 'CircuitBreakerError';
+  readonly module = 'network';
 }
 
 // ============= Data Integrity Errors =============

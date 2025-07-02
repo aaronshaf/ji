@@ -59,7 +59,7 @@ async function main() {
           case 'ParseError':
             console.log('Failed to parse issue data:', error.message);
             break;
-          case 'DatabaseError':
+          case 'QueryError':
             console.log('Database error:', error.message);
             break;
         }

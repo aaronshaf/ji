@@ -4,7 +4,7 @@ import {
   NetworkError,
   AuthenticationError,
   NotFoundError,
-  DatabaseError,
+  QueryError,
   ConfigError
 } from './errors.js';
 import type { Config } from '../config.js';
@@ -29,7 +29,7 @@ export type CommandError =
   | NetworkError 
   | AuthenticationError 
   | NotFoundError 
-  | DatabaseError 
+  | QueryError 
   | ConfigError;
 
 /**
@@ -256,9 +256,9 @@ export class SearchCommand extends BaseCommand<SearchResult[]> {
           },
           catch: (error) => {
             if (error instanceof Error) {
-              return new DatabaseError(`Search failed: ${error.message}`, error);
+              return new QueryError(`Search failed: ${error.message}`, error);
             }
-            return new DatabaseError('Unknown search error', error);
+            return new QueryError('Unknown search error', error);
           }
         });
       })
