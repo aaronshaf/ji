@@ -28,7 +28,7 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}): Prom
     
     // Get items that need indexing
     let query: string;
-    let params: any[];
+    let params: unknown[];
     
     if (options.clean || lastSyncTime === 0) {
       // Full sync
@@ -40,7 +40,7 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}): Prom
       params = [lastSyncTime];
     }
     
-    const totalCount = db.prepare(query).get(...params) as {count: number};
+    const totalCount = db.prepare(query).get(...(params as never[])) as {count: number};
     
     if (totalCount.count === 0) {
       console.log('Index: up to date');
@@ -63,23 +63,36 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}): Prom
         ? [batchSize, offset]
         : [lastSyncTime, batchSize, offset];
         
-      const items = db.prepare(selectQuery).all(...queryParams) as any[];
+      const items = db.prepare(selectQuery).all(...queryParams) as Array<{
+        id: string;
+        source: string;
+        title: string;
+        content: string;
+        updated_at: number;
+        url?: string;
+        space_key?: string;
+        project_key?: string;
+        metadata?: string;
+        created_at?: number;
+        synced_at?: number;
+        type?: string;
+      }>;
       
       if (items.length === 0) break;
       
       const contents = items.map(item => ({
         id: item.id,
         source: item.source as 'jira' | 'confluence',
-        type: item.type,
+        type: item.type || 'unknown',
         title: item.title,
         content: item.content,
-        url: item.url,
+        url: item.url || '',
         spaceKey: item.space_key,
         projectKey: item.project_key,
         metadata: JSON.parse(item.metadata || '{}'),
-        createdAt: item.created_at,
+        createdAt: item.created_at || Date.now(),
         updatedAt: item.updated_at,
-        syncedAt: item.synced_at
+        syncedAt: item.synced_at || Date.now()
       }));
       
       await meilisearch.indexBatch(contents);

@@ -122,7 +122,7 @@ export class CliErrorReporter {
           return {
             severity: 'error' as const,
             title: 'Unknown Error',
-            message: (error as any).message || 'An unknown error occurred',
+            message: (error as { message?: string }).message || 'An unknown error occurred',
             suggestions: [
               'Try running the command again',
               'Report this issue with details of what you were doing'
@@ -196,7 +196,7 @@ export class CliErrorReporter {
   /**
    * Get validation-specific suggestions
    */
-  private getValidationSuggestions(error: any): string[] {
+  private getValidationSuggestions(error: { field?: string; message: string }): string[] {
     const suggestions: string[] = [];
     
     if (error.field === 'issueKey' || error.message.includes('issue key')) {

@@ -12,20 +12,29 @@ import {
   ConfluenceError
 } from './effects/errors.js';
 
+// Confluence API interfaces
+interface ConfluenceLinks {
+  self?: string;
+  base?: string;
+  next?: string;
+  prev?: string;
+  webui?: string;
+}
+
 // Simplified Confluence API schemas
 const PageSchema = Schema.Struct({
   id: Schema.String,
   type: Schema.String,
   status: Schema.String,
   title: Schema.String,
-  space: Schema.Any, // Allow any space structure
-  version: Schema.Any, // Allow any version structure
-  body: Schema.Any.pipe(Schema.optional), // Allow any body structure
-  _links: Schema.Any, // Allow any links structure
+  space: Schema.Unknown, // Space structure varies
+  version: Schema.Unknown, // Version structure varies
+  body: Schema.Unknown.pipe(Schema.optional), // Body structure varies
+  _links: Schema.Unknown, // Links structure varies
 });
 
 const SearchResultSchema = Schema.Struct({
-  content: Schema.Any, // Accept any content structure
+  content: Schema.Unknown, // Content structure varies
 });
 
 const SearchResponseSchema = Schema.Struct({
@@ -34,7 +43,7 @@ const SearchResponseSchema = Schema.Struct({
   limit: Schema.Number,
   size: Schema.Number,
   totalSize: Schema.Number.pipe(Schema.optional),
-  _links: Schema.Any.pipe(Schema.optional),
+  _links: Schema.Unknown.pipe(Schema.optional),
 });
 
 const SpaceSchema = Schema.Struct({
@@ -42,7 +51,7 @@ const SpaceSchema = Schema.Struct({
   name: Schema.String,
   type: Schema.String,
   status: Schema.String,
-  _links: Schema.Any,
+  _links: Schema.Unknown,
 });
 
 const PageListResponseSchema = Schema.Struct({
@@ -50,7 +59,7 @@ const PageListResponseSchema = Schema.Struct({
   start: Schema.Number,
   limit: Schema.Number,
   size: Schema.Number,
-  _links: Schema.Any.pipe(Schema.optional),
+  _links: Schema.Unknown.pipe(Schema.optional),
 });
 
 // Define interfaces instead of deriving from schemas
@@ -140,7 +149,7 @@ export class ConfluenceClient {
     start?: number;
     limit?: number;
     expand?: string[];
-  }): Promise<{ results: Page[]; start: number; limit: number; size: number; _links?: any }> {
+  }): Promise<{ results: Page[]; start: number; limit: number; size: number; _links?: ConfluenceLinks }> {
     const params = new URLSearchParams({
       start: (options?.start || 0).toString(),
       limit: (options?.limit || 25).toString(),
@@ -160,7 +169,7 @@ export class ConfluenceClient {
     }
 
     const data = await response.json();
-    return Schema.decodeUnknownSync(PageListResponseSchema)(data) as { results: Page[]; start: number; limit: number; size: number; _links?: any };
+    return Schema.decodeUnknownSync(PageListResponseSchema)(data) as { results: Page[]; start: number; limit: number; size: number; _links?: ConfluenceLinks };
   }
 
   async getPagesSince(
@@ -247,18 +256,38 @@ export class ConfluenceClient {
     return parsedData.results.map((result) => {
       // The search API doesn't always return version info
       // Use lastModified from the search result instead
-      const searchResult = result as any & { lastModified?: string };
+      const searchResult = result as { lastModified?: string; content: unknown };
+      
+      // Create a schema for the expected content structure
+      const ContentSchema = Schema.Struct({
+        id: Schema.String,
+        title: Schema.String,
+        version: Schema.optional(Schema.Struct({
+          number: Schema.Number,
+          when: Schema.optional(Schema.String),
+          by: Schema.optional(Schema.Struct({
+            displayName: Schema.String
+          }))
+        })),
+        _links: Schema.Struct({
+          webui: Schema.String
+        })
+      });
+      
+      // Safely decode the content
+      const content = Schema.decodeUnknownSync(ContentSchema)(result.content);
+      
       return {
-        id: result.content.id,
-        title: result.content.title,
+        id: content.id,
+        title: content.title,
         version: {
-          number: result.content.version?.number || 0,
-          when: result.content.version?.when || searchResult.lastModified || new Date().toISOString(),
+          number: content.version?.number || 0,
+          when: content.version?.when || searchResult.lastModified || new Date().toISOString(),
           by: {
-            displayName: result.content.version?.by?.displayName || 'Unknown'
+            displayName: content.version?.by?.displayName || 'Unknown'
           }
         },
-        webUrl: result.content._links.webui
+        webUrl: content._links.webui
       };
     });
   }
@@ -505,7 +534,7 @@ export class ConfluenceClient {
       limit?: number;
       expand?: string[];
     }
-  ): Effect.Effect<{ results: Page[]; start: number; limit: number; size: number; _links?: any }, ValidationError | NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> {
+  ): Effect.Effect<{ results: Page[]; start: number; limit: number; size: number; _links?: ConfluenceLinks }, ValidationError | NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> {
     return pipe(
       Effect.sync(() => {
         if (!spaceKey || spaceKey.trim().length === 0) {
@@ -526,7 +555,7 @@ export class ConfluenceClient {
         });
         
         const url = `${this.baseUrl}/space/${spaceKey}/content/page?${params}`;
-        return this.makeRequestEffect(url, { method: 'GET' }, (data) => Schema.decodeUnknownSync(PageListResponseSchema)(data) as { results: Page[]; start: number; limit: number; size: number; _links?: any });
+        return this.makeRequestEffect(url, { method: 'GET' }, (data) => Schema.decodeUnknownSync(PageListResponseSchema)(data) as { results: Page[]; start: number; limit: number; size: number; _links?: ConfluenceLinks });
       })
     );
   }
