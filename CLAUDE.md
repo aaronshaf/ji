@@ -14,7 +14,7 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 **Core Philosophy**: 
 - This app is meant to be a local-first fast CLI for Jira and Confluence
 - All searches and data access should prioritize local SQLite database over API calls for instant response times
-- We aim for YAML or YAML-ish responses to help LLMs make sense of things
+- We aim for YAML responses to help LLMs make sense of things
 
 ## Key Design Decisions
 
@@ -26,7 +26,7 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 6. **Security**: API keys stored securely, never in git or environment variables
 7. **Full-text search**: SQLite FTS5 for searching across all content
 8. **No external search dependencies**: Removed Meilisearch dependency to ensure instant local search
-9. **YAML-friendly output**: All command outputs should be in YAML or YAML-ish format for LLM compatibility
+9. **YAML output**: All command outputs should be in YAML format for LLM compatibility
 
 ## Development Guidelines
 

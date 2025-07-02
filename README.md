@@ -44,8 +44,9 @@ This interactive wizard will:
 # View your assigned issues
 ji mine
 
-# View a specific issue
-ji issue view PROJ-123
+# View a specific issue (two ways)
+ji PROJ-123                  # Shorthand
+ji issue view PROJ-123       # Full command
 
 # Take ownership of an issue
 ji take PROJ-456
@@ -140,7 +141,8 @@ ji auth                      # Configure credentials
 
 # Jira
 ji mine                      # Your issues
-ji issue view <KEY>          # View issue
+ji <ISSUE-KEY>               # View issue (shorthand)
+ji issue view <KEY>          # View issue (full command)
 ji take <KEY>                # Assign to yourself
 ji sprint [PROJECT]          # Sprint overview
 

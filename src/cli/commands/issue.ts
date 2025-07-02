@@ -4,7 +4,8 @@ import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
 import { ContentManager } from '../../lib/content-manager.js';
 import { type Issue, JiraClient } from '../../lib/jira-client.js';
-import { formatDescription, getJiraStatusIcon } from '../formatters/issue.js';
+import { formatSmartDate } from '../../lib/utils/date-formatter.js';
+import { formatDescription } from '../formatters/issue.js';
 
 // Effect wrapper for getting configuration and managers
 const getManagersEffect = () =>
@@ -80,33 +81,47 @@ const refreshInBackgroundEffect = (_config: { jiraUrl: string }, issue: Issue) =
     catch: (error) => new Error(`Failed to trigger background refresh: ${error}`),
   });
 
-// Effect for formatting issue output
+// Effect for formatting issue output in YAML format
 const formatIssueOutputEffect = (issue: Issue) =>
   Effect.sync(() => {
-    console.log(`\n${chalk.bold.blue(issue.key)} - ${chalk.bold(issue.fields.summary)}`);
-    console.log(chalk.dim('─'.repeat(50)));
+    // YAML output with color highlighting (matching search results)
+    console.log(`${chalk.cyan('type:')} issue`);
+    console.log(`${chalk.cyan('key:')} ${chalk.bold(issue.key)}`);
+    console.log(`${chalk.cyan('title:')} ${issue.fields.summary}`);
+    console.log(`${chalk.cyan('updated:')} ${chalk.dim(formatSmartDate(issue.fields.updated))}`);
+    console.log(`${chalk.cyan('created:')} ${chalk.dim(formatSmartDate(issue.fields.created))}`);
 
-    console.log(`${chalk.gray('Status:')} ${getJiraStatusIcon(issue.fields.status.name)} ${issue.fields.status.name}`);
+    // Status with colors
+    const statusColor =
+      issue.fields.status.name.toLowerCase() === 'closed' || issue.fields.status.name.toLowerCase() === 'done'
+        ? chalk.gray
+        : issue.fields.status.name.toLowerCase() === 'open' || issue.fields.status.name.toLowerCase() === 'in progress'
+          ? chalk.green
+          : chalk.yellow;
+    console.log(`${chalk.cyan('status:')} ${statusColor(issue.fields.status.name)}`);
+
+    // Priority with colors
+    if (issue.fields.priority) {
+      const priority = issue.fields.priority.name;
+      const priorityColor =
+        priority === 'P1' || priority === 'P2' || priority === 'Highest' || priority === 'High'
+          ? chalk.red
+          : priority === 'P3' || priority === 'Medium'
+            ? chalk.yellow
+            : chalk.gray;
+      console.log(`${chalk.cyan('priority:')} ${priorityColor(priority)}`);
+    }
+
+    // Reporter before Assignee
+    console.log(`${chalk.cyan('reporter:')} ${issue.fields.reporter.displayName}`);
 
     if (issue.fields.assignee) {
-      console.log(`${chalk.gray('Assignee:')} ${issue.fields.assignee.displayName}`);
+      console.log(`${chalk.cyan('assignee:')} ${issue.fields.assignee.displayName}`);
     } else {
-      console.log(`${chalk.gray('Assignee:')} ${chalk.dim('Unassigned')}`);
+      console.log(`${chalk.cyan('assignee:')} ${chalk.dim('Unassigned')}`);
     }
 
-    console.log(`${chalk.gray('Reporter:')} ${issue.fields.reporter.displayName}`);
-
-    if (issue.fields.priority) {
-      console.log(`${chalk.gray('Priority:')} ${issue.fields.priority.name}`);
-    }
-
-    console.log(`${chalk.gray('Created:')} ${new Date(issue.fields.created).toLocaleString()}`);
-    console.log(`${chalk.gray('Updated:')} ${new Date(issue.fields.updated).toLocaleString()}`);
-
-    if (issue.fields.labels && issue.fields.labels.length > 0) {
-      console.log(`${chalk.gray('Labels:')} ${issue.fields.labels.map((l: string) => chalk.cyan(`[${l}]`)).join(' ')}`);
-    }
-
+    // Sprint information
     const sprintField =
       issue.fields.customfield_10020 ||
       issue.fields.customfield_10021 ||
@@ -127,13 +142,32 @@ const formatIssueOutputEffect = (issue: Issue) =>
       } else if (sprintField && typeof sprintField === 'object' && 'name' in sprintField) {
         sprintName = (sprintField as { name: string }).name;
       }
-      console.log(`${chalk.gray('Sprint:')} ${chalk.magenta(sprintName)}`);
+      console.log(`${chalk.cyan('sprint:')} ${chalk.magenta(sprintName)}`);
     }
 
-    console.log(`\n${chalk.gray('Description:')}`);
-    const description = formatDescription(issue.fields.description);
-    console.log(description);
+    // Labels
+    if (issue.fields.labels && issue.fields.labels.length > 0) {
+      console.log(`${chalk.cyan('labels:')} ${issue.fields.labels.map((l: string) => chalk.cyan(l)).join(', ')}`);
+    }
 
+    // Description
+    const description = formatDescription(issue.fields.description);
+    if (description.trim()) {
+      // Truncate description similar to search results
+      const cleanDescription = description.replace(/\s+/g, ' ').trim();
+
+      const maxLength = 300;
+      let truncated = cleanDescription;
+      if (cleanDescription.length > maxLength) {
+        const lastSpace = cleanDescription.lastIndexOf(' ', maxLength);
+        truncated = `${cleanDescription.substring(0, lastSpace > 0 ? lastSpace : maxLength)}...`;
+      }
+
+      console.log(`${chalk.cyan('description:')} |`);
+      console.log(`  ${chalk.gray(truncated)}`);
+    }
+
+    // Comments (if any recent ones)
     if (
       issue.fields.comment &&
       typeof issue.fields.comment === 'object' &&
@@ -141,18 +175,18 @@ const formatIssueOutputEffect = (issue: Issue) =>
       Array.isArray((issue.fields.comment as { comments: unknown[] }).comments) &&
       (issue.fields.comment as { comments: unknown[] }).comments.length > 0
     ) {
-      console.log(`\n${chalk.gray('Recent Comments:')}`);
-      (
+      const comments = (
         issue.fields.comment as { comments: { author: { displayName: string }; created: string; body: unknown }[] }
-      ).comments
-        .slice(-3)
-        .forEach((comment: { author: { displayName: string }; created: string; body: unknown }) => {
-          console.log(chalk.dim('─'.repeat(30)));
-          console.log(
-            `${chalk.cyan(comment.author.displayName)} - ${chalk.dim(new Date(comment.created).toLocaleString())}`,
-          );
-          console.log(formatDescription(comment.body));
-        });
+      ).comments;
+
+      if (comments.length > 0) {
+        console.log(`${chalk.cyan('comments:')} ${comments.length}`);
+        console.log(`${chalk.cyan('latest_comment:')} |`);
+        const latest = comments[comments.length - 1];
+        console.log(
+          `  ${chalk.gray(`${latest.author.displayName} (${formatSmartDate(latest.created)}): ${formatDescription(latest.body).replace(/\s+/g, ' ').trim().slice(0, 150)}...`)}`,
+        );
+      }
     }
   });
 

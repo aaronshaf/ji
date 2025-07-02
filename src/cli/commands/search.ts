@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { ConfigManager } from '../../lib/config.js';
 import { ContentManager } from '../../lib/content-manager.js';
 import { OllamaClient } from '../../lib/ollama.js';
+import { formatSmartDate } from '../../lib/utils/date-formatter.js';
 
 export async function search(
   query: string,
@@ -66,7 +67,7 @@ function displaySearchResults(
   }>,
   _totalCount: number,
 ) {
-  // YAML-friendly output for LLM compatibility with color highlighting
+  // YAML output for LLM compatibility with color highlighting
   results.slice(0, 10).forEach((result, index) => {
     const { content, snippet } = result;
     const type = content.source === 'jira' ? 'issue' : 'page';
@@ -82,14 +83,10 @@ function displaySearchResults(
       const timestamp = typeof content.updatedAt === 'string' ? parseInt(content.updatedAt) : content.updatedAt;
       // If timestamp is in milliseconds (>= year 2001), use as is, otherwise multiply by 1000
       const dateValue = timestamp >= 978307200000 ? timestamp : timestamp * 1000;
-      updated = new Date(dateValue).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      });
+      updated = formatSmartDate(dateValue);
     }
 
-    // YAML-ish output with color
+    // YAML output with color
     console.log(chalk.cyan('- type:') + ` ${type}`);
     console.log(chalk.cyan('  key:') + ` ${chalk.bold(key)}`);
     console.log(chalk.cyan('  title:') + ` ${title}`);
