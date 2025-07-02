@@ -4,13 +4,6 @@ import chalk from 'chalk';
 import { Console, Effect, pipe } from 'effect';
 import { ConfigManager } from '../../lib/config.js';
 
-// Effect wrapper for readline operations
-const askQuestion = (question: string, rl: readline.Interface) =>
-  Effect.tryPromise({
-    try: () => rl.question(question),
-    catch: (error) => new Error(`Failed to get user input: ${error}`),
-  });
-
 // Effect wrapper for HTTP requests
 const verifyCredentials = (config: { jiraUrl: string; email: string; apiToken: string }) =>
   Effect.tryPromise({
@@ -57,19 +50,58 @@ const saveConfig = (config: { jiraUrl: string; email: string; apiToken: string }
     catch: (error) => new Error(`Failed to save configuration: ${error}`),
   });
 
+// Effect wrapper for readline operations with default value
+const askQuestionWithDefault = (question: string, defaultValue: string | undefined, rl: readline.Interface) =>
+  Effect.tryPromise({
+    try: async () => {
+      const prompt = defaultValue ? `${question} [${defaultValue}]: ` : `${question}: `;
+      const answer = await rl.question(prompt);
+      return answer.trim() || defaultValue || '';
+    },
+    catch: (error) => new Error(`Failed to get user input: ${error}`),
+  });
+
+// Effect wrapper for getting existing config
+const getExistingConfig = () =>
+  Effect.tryPromise({
+    try: async () => {
+      const configManager = new ConfigManager();
+      try {
+        const config = await configManager.getConfig();
+        return config;
+      } finally {
+        configManager.close();
+      }
+    },
+    catch: () => null, // Return null if no config exists
+  });
+
 // Pure Effect-based auth implementation
 const authEffect = (rl: readline.Interface) =>
   pipe(
-    Console.log('\nJira & Confluence CLI Authentication Setup'),
-    Effect.flatMap(() => askQuestion('Jira URL (e.g., https://company.atlassian.net): ', rl)),
-    Effect.map((jiraUrl: string) => (jiraUrl.endsWith('/') ? jiraUrl.slice(0, -1) : jiraUrl)),
-    Effect.flatMap((jiraUrl) =>
+    getExistingConfig(),
+    Effect.flatMap((existingConfig) =>
       pipe(
-        askQuestion('Email: ', rl),
-        Effect.flatMap((email: string) =>
+        Console.log('\nJira & Confluence CLI Authentication Setup'),
+        Effect.flatMap(() => {
+          if (existingConfig) {
+            return Console.log(chalk.dim('(Press Enter to keep existing values)\n'));
+          }
+          return Effect.succeed(undefined);
+        }),
+        Effect.flatMap(() =>
+          askQuestionWithDefault('Jira URL (e.g., https://company.atlassian.net)', existingConfig?.jiraUrl, rl),
+        ),
+        Effect.map((jiraUrl: string) => (jiraUrl.endsWith('/') ? jiraUrl.slice(0, -1) : jiraUrl)),
+        Effect.flatMap((jiraUrl) =>
           pipe(
-            askQuestion('API Token: ', rl),
-            Effect.map((apiToken: string) => ({ jiraUrl, email, apiToken })),
+            askQuestionWithDefault('Email', existingConfig?.email, rl),
+            Effect.flatMap((email: string) =>
+              pipe(
+                askQuestionWithDefault('API Token', existingConfig?.apiToken, rl),
+                Effect.map((apiToken: string) => ({ jiraUrl, email, apiToken })),
+              ),
+            ),
           ),
         ),
       ),
@@ -91,7 +123,7 @@ const authEffect = (rl: readline.Interface) =>
     }),
     Effect.flatMap(({ config }) => saveConfig(config)),
     Effect.tap(() => Console.log(chalk.green('\nAuthentication saved successfully!'))),
-    Effect.tap(() => Console.log('You can now use "ji issue view <issue-key>" to view issues.')),
+    Effect.tap(() => Console.log('You can now use "ji sync" to sync your Jira data.')),
     Effect.catchAll((error) =>
       pipe(
         Console.error(
