@@ -87,8 +87,8 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
     // YAML output with color highlighting (matching search results)
     console.log(`${chalk.cyan('type:')} issue`);
     console.log(`${chalk.cyan('key:')} ${chalk.bold(issue.key)}`);
-    console.log(`${chalk.cyan('title:')} ${issue.fields.summary}`);
     console.log(`${chalk.cyan('link:')} ${config.jiraUrl}/browse/${issue.key}`);
+    console.log(`${chalk.cyan('title:')} ${issue.fields.summary}`);
     console.log(`${chalk.cyan('updated:')} ${chalk.dim(formatSmartDate(issue.fields.updated))}`);
     console.log(`${chalk.cyan('created:')} ${chalk.dim(formatSmartDate(issue.fields.created))}`);
 
