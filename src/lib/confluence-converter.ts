@@ -1,4 +1,5 @@
 import TurndownService from 'turndown';
+import { Effect } from 'effect';
 
 // Initialize Turndown with optimized settings for Confluence
 const turndownService = new TurndownService({
@@ -65,6 +66,17 @@ export function confluenceToMarkdown(storageFormat: string): string {
     .replace(/\n\s*\n\s*\n/g, '\n\n')
     .replace(/\[\s*\]/g, '')
     .trim();
+}
+
+class ConversionError extends Error {
+  readonly _tag = 'ConversionError';
+}
+
+export function confluenceToMarkdownEffect(storageFormat: string): Effect.Effect<string, ConversionError> {
+  return Effect.try({
+    try: () => confluenceToMarkdown(storageFormat),
+    catch: (e: unknown) => new ConversionError(`Failed to convert Confluence storage format to Markdown: ${e}`)
+  });
 }
 
 // Convert Confluence storage format (XML/HTML) to plain text

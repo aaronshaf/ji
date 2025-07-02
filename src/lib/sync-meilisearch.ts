@@ -3,6 +3,7 @@ import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
 import { MeilisearchAdapter } from './meilisearch-adapter.js';
+import { Effect } from 'effect';
 
 export async function syncToMeilisearch(options: { clean?: boolean } = {}): Promise<{ indexedItems: number }> {
   const dbPath = join(homedir(), '.ji', 'data.db');
@@ -109,7 +110,10 @@ export async function syncToMeilisearch(options: { clean?: boolean } = {}): Prom
 // If running directly
 if (import.meta.main) {
   const clean = process.argv.includes('--clean');
-  syncToMeilisearch({ clean })
-    .then(() => process.exit(0))
-    .catch(() => process.exit(1));
+  Effect.runPromise(
+    Effect.tryPromise({
+      try: () => syncToMeilisearch({ clean }),
+      catch: () => 1,
+    })
+  ).then((exitCode: unknown) => process.exit(exitCode as number));
 }

@@ -20,22 +20,22 @@ import { Effect, Option, pipe } from 'effect';
 async function auth() {
   const rl = readline.createInterface({ input, output });
 
-  try {
-    const jiraUrl = await rl.question('Jira URL (e.g., https://company.atlassian.net): ');
-    const email = await rl.question('Email: ');
-    const apiToken = await rl.question('API Token: ');
+  const program = Effect.tryPromise({
+    try: async () => {
+      const jiraUrl = await rl.question('Jira URL (e.g., https://company.atlassian.net): ');
+      const email = await rl.question('Email: ');
+      const apiToken = await rl.question('API Token: ');
 
-    const config = {
-      jiraUrl: jiraUrl.endsWith('/') ? jiraUrl.slice(0, -1) : jiraUrl,
-      email,
-      apiToken,
-    };
+      const config = {
+        jiraUrl: jiraUrl.endsWith('/') ? jiraUrl.slice(0, -1) : jiraUrl,
+        email,
+        apiToken,
+      };
 
-    // Test the authentication
-    console.log('\nVerifying credentials...');
-    new JiraClient(config);
-    
-    try {
+      // Test the authentication
+      console.log('\nVerifying credentials...');
+      new JiraClient(config);
+
       // Test API call - get current user
       const response = await fetch(`${config.jiraUrl}/rest/api/3/myself`, {
         headers: {
@@ -63,14 +63,15 @@ async function auth() {
 
       console.log(chalk.green('\nAuthentication saved successfully!'));
       console.log('You can now use "ji issue view <issue-key>" to view issues.');
-    } catch (error) {
+    },
+    catch: (error) => {
       console.error(`\nAuthentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       console.error('Please check your credentials and try again.');
       process.exit(1);
-    }
-  } finally {
-    rl.close();
-  }
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => rl.close());
 }
 
 async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boolean }) {
@@ -108,133 +109,144 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
     process.exit(1);
   }
 
-  try {
-    let issue = null;
-    let fromCache = false;
-    
-    // Try cache first unless --sync is specified
-    if (!options.sync) {
-      // Use Effect version for better error visibility
-      const cacheEffect = pipe(
-        cacheManager.getIssueEffect(issueKey),
-        Effect.tap(() => 
-          Effect.sync(() => {
-            if (process.env.DEBUG) {
-              console.log(chalk.dim('[Effect] Checking cache...'));
-            }
+  const program = Effect.tryPromise({
+    try: async () => {
+      let issue = null;
+      let fromCache = false;
+
+      // Try cache first unless --sync is specified
+      if (!options.sync) {
+        // Use Effect version for better error visibility
+        const cacheEffect = pipe(
+          cacheManager.getIssueEffect(issueKey),
+          Effect.tap(() =>
+            Effect.sync(() => {
+              if (process.env.DEBUG) {
+                console.log(chalk.dim('[Effect] Checking cache...'));
+              }
+            })
+          ),
+          Effect.match({
+            onFailure: (error: Error) => {
+              if (process.env.DEBUG) {
+                console.error(chalk.red(`[Effect] Cache error: ${error.message}`));
+              }
+              return null;
+            },
+            onSuccess: (optionIssue) => {
+              const result = Option.getOrNull(optionIssue);
+              if (process.env.DEBUG) {
+                console.log(chalk.dim(`[Effect] Cache result: ${result ? 'found' : 'not found'}`));
+              }
+              return result;
+            },
           })
-        ),
-        Effect.match({
-          onFailure: (error: Error) => {
-            if (process.env.DEBUG) {
-              console.error(chalk.red(`[Effect] Cache error: ${error.message}`));
-            }
-            return null;
-          },
-          onSuccess: (optionIssue) => {
-            const result = Option.getOrNull(optionIssue);
-            if (process.env.DEBUG) {
-              console.log(chalk.dim(`[Effect] Cache result: ${result ? 'found' : 'not found'}`));
-            }
-            return result;
-          }
-        })
-      );
-      
-      const cachedResult = await Effect.runPromise(cacheEffect);
-      
-      if (cachedResult) {
-        issue = cachedResult;
-        fromCache = true;
-      }
-    }
-    
-    // If no cached data or --sync, fetch from API
-    if (!issue) {
-      const client = new JiraClient(config);
-      issue = await client.getIssue(issueKey);
-      await cacheManager.saveIssue(issue);
-      fromCache = false;
-    }
+        );
 
-    // Display the issue
-    if (options.json) {
-      console.log(JSON.stringify(issue, null, 2));
-    } else {
-      console.log(`\n${chalk.bold(issue.key)}: ${issue.fields.summary}`);
-      console.log(chalk.cyan(`${config.jiraUrl}/browse/${issue.key}`));
-      console.log(`\n${chalk.dim('Status:')} ${issue.fields.status.name}`);
-      if (issue.fields.priority) {
-        console.log(`${chalk.dim('Priority:')} ${issue.fields.priority.name}`);
-      }
-      console.log(`${chalk.dim('Assignee:')} ${issue.fields.assignee ? issue.fields.assignee.displayName : chalk.yellow('Unassigned')}`);
-      console.log(`${chalk.dim('Reporter:')} ${issue.fields.reporter.displayName}`);
-      console.log(`${chalk.dim('Created:')} ${new Date(issue.fields.created).toLocaleString()}`);
-      console.log(`${chalk.dim('Updated:')} ${new Date(issue.fields.updated).toLocaleString()}`);
-      
-      if (issue.fields.description) {
-        console.log(`\n${chalk.dim('Description:')}`);
-        console.log(formatDescription(issue.fields.description));
-      }
-    }
+        const cachedResult = await Effect.runPromise(cacheEffect);
 
-    // Background refresh if we showed cached data
-    if (fromCache && !options.sync) {
-      // Spawn a detached process for background refresh
-      const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-refresh', issueKey], {
-        stdio: ['ignore', 'ignore', 'ignore'],
-        env: {
-          ...process.env,
-          JI_CONFIG: JSON.stringify(config)
+        if (cachedResult) {
+          issue = cachedResult;
+          fromCache = true;
         }
-      });
-      proc.unref();
-    }
-  } catch (error) {
-    console.error(`Failed to fetch issue: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+      }
+
+      // If no cached data or --sync, fetch from API
+      if (!issue) {
+        const client = new JiraClient(config);
+        issue = await client.getIssue(issueKey);
+        await cacheManager.saveIssue(issue);
+        fromCache = false;
+      }
+
+      // Display the issue
+      if (options.json) {
+        console.log(JSON.stringify(issue, null, 2));
+      } else {
+        console.log(`\n${chalk.bold(issue.key)}: ${issue.fields.summary}`);
+        console.log(chalk.cyan(`${config.jiraUrl}/browse/${issue.key}`));
+        console.log(`\n${chalk.dim('Status:')} ${issue.fields.status.name}`);
+        if (issue.fields.priority) {
+          console.log(`${chalk.dim('Priority:')} ${issue.fields.priority.name}`);
+        }
+        console.log(`${chalk.dim('Assignee:')} ${issue.fields.assignee ? issue.fields.assignee.displayName : chalk.yellow('Unassigned')}`);
+        console.log(`${chalk.dim('Reporter:')} ${issue.fields.reporter.displayName}`);
+        console.log(`${chalk.dim('Created:')} ${new Date(issue.fields.created).toLocaleString()}`);
+        console.log(`${chalk.dim('Updated:')} ${new Date(issue.fields.updated).toLocaleString()}`);
+
+        if (issue.fields.description) {
+          console.log(`\n${chalk.dim('Description:')}`);
+          console.log(formatDescription(issue.fields.description));
+        }
+      }
+
+      // Background refresh if we showed cached data
+      if (fromCache && !options.sync) {
+        // Spawn a detached process for background refresh
+        const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-refresh', issueKey], {
+          stdio: ['ignore', 'ignore', 'ignore'],
+          env: {
+            ...process.env,
+            JI_CONFIG: JSON.stringify(config),
+          },
+        });
+        proc.unref();
+      }
+    },
+    catch: (error) => {
+      console.error(`Failed to fetch issue: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     configManager.close();
     cacheManager.close();
-  }
+  });
 }
 
 async function refreshInBackground(issueKey: string, config: Config) {
   const cacheManager = new CacheManager();
-  try {
-    const client = new JiraClient(config);
-    const freshIssue = await client.getIssue(issueKey);
-    await cacheManager.saveIssue(freshIssue);
-  } catch (error) {
-    // Silently fail - this is a background refresh
-    // Don't log to console since we're in a detached process
-  } finally {
-    cacheManager.close();
-  }
+  const program = Effect.tryPromise({
+    try: async () => {
+      const client = new JiraClient(config);
+      const freshIssue = await client.getIssue(issueKey);
+      await cacheManager.saveIssue(freshIssue);
+    },
+    catch: (_error) => {
+      // Silently fail - this is a background refresh
+      // Don't log to console since we're in a detached process
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => cacheManager.close());
 }
 
 async function refreshSprintInBackground(sprintId: string, config: Config) {
   const cacheManager = new CacheManager();
-  try {
-    const client = new JiraClient(config);
-    const sprintResult = await client.getSprintIssues(parseInt(sprintId));
-    const issues = sprintResult.issues.map(issue => ({
-      key: issue.key,
-      project_key: issue.key.split('-')[0], // Extract project key from issue key
-      summary: issue.fields.summary,
-      status: issue.fields.status.name,
-      priority: issue.fields.priority?.name || 'None',
-      assignee_name: issue.fields.assignee?.displayName || null,
-      assignee_email: issue.fields.assignee?.emailAddress || null,
-      updated: issue.fields.updated
-    }));
-    await cacheManager.setCachedSprintIssues(sprintId, issues);
-  } catch (error) {
-    // Silently fail - this is a background refresh
-    // Don't log to console since we're in a detached process
-  } finally {
-    cacheManager.close();
-  }
+  const program = Effect.tryPromise({
+    try: async () => {
+      const client = new JiraClient(config);
+      const sprintResult = await client.getSprintIssues(parseInt(sprintId));
+      const issues = sprintResult.issues.map((issue) => ({
+        key: issue.key,
+        project_key: issue.key.split('-')[0], // Extract project key from issue key
+        summary: issue.fields.summary,
+        status: issue.fields.status.name,
+        priority: issue.fields.priority?.name || 'None',
+        assignee_name: issue.fields.assignee?.displayName || null,
+        assignee_email: issue.fields.assignee?.emailAddress || null,
+        updated: issue.fields.updated,
+      }));
+      await cacheManager.setCachedSprintIssues(sprintId, issues);
+    },
+    catch: (_error) => {
+      // Silently fail - this is a background refresh
+      // Don't log to console since we're in a detached process
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => cacheManager.close());
 }
 
 function formatDescription(description: Record<string, any> | string | null | undefined): string {
@@ -318,25 +330,30 @@ async function saveIssuesBatch(
       lastUpdateTime = now;
     }
     
-    try {
-      await cacheManager.saveIssue(issue);
-      await contentManager.saveJiraIssue(issue);
-    } catch (error) {
-      if (error instanceof Error && error.message?.includes('database is locked')) {
-        // Wait and retry
-        await new Promise(resolve => setTimeout(resolve, 200));
-        try {
-          await cacheManager.saveIssue(issue);
-          await contentManager.saveJiraIssue(issue);
-        } catch (retryError) {
-          console.error(`\n❌ Failed to save ${issue.key} after retry: ${retryError instanceof Error ? retryError.message : 'Unknown error'}`);
-          throw retryError;
+    const program = Effect.tryPromise({
+      try: async () => {
+        await cacheManager.saveIssue(issue);
+        await contentManager.saveJiraIssue(issue);
+      },
+      catch: async (error) => {
+        if (error instanceof Error && error.message?.includes('database is locked')) {
+          // Wait and retry
+          await new Promise(resolve => setTimeout(resolve, 200));
+          try {
+            await cacheManager.saveIssue(issue);
+            await contentManager.saveJiraIssue(issue);
+          } catch (retryError) {
+            console.error(`\n❌ Failed to save ${issue.key} after retry: ${retryError instanceof Error ? retryError.message : 'Unknown error'}`);
+            throw retryError;
+          }
+        } else {
+          console.error(`\n❌ Failed to save ${issue.key}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          throw error;
         }
-      } else {
-        console.error(`\n❌ Failed to save ${issue.key}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        throw error;
-      }
-    }
+      },
+    });
+
+    await Effect.runPromise(program);
   }
   
   console.log(''); // New line after progress
@@ -353,71 +370,75 @@ async function showMyIssues() {
 
   const cacheManager = new CacheManager();
   
-  try {
-    // Get cached issues immediately for instant display
-    const issues = await cacheManager.listMyOpenIssues(config.email);
-    
-    if (issues.length === 0) {
-      console.log('No open issues assigned to you.');
-      console.log(chalk.dim('💡 Run "ji sync" to update your workspaces.'));
-      return;
-    }
-    
-    // Group by project
-    const byProject: Record<string, typeof issues> = {};
-    issues.forEach(issue => {
-      if (!byProject[issue.project_key]) {
-        byProject[issue.project_key] = [];
+  const program = Effect.tryPromise({
+    try: async () => {
+      // Get cached issues immediately for instant display
+      const issues = await cacheManager.listMyOpenIssues(config.email);
+
+      if (issues.length === 0) {
+        console.log('No open issues assigned to you.');
+        console.log(chalk.dim('💡 Run "ji sync" to update your workspaces.'));
+        return;
       }
-      byProject[issue.project_key].push(issue);
-    });
-    
-    // Display by project
-    const projectEntries = Object.entries(byProject);
-    projectEntries.forEach(([projectKey, projectIssues], index) => {
-      console.log(chalk.bold.blue(`${projectKey} (${projectIssues.length} issues):`));
-      
-      projectIssues.forEach(issue => {
-        const statusIcon = getJiraStatusIcon(issue.status);
-        const updated = new Date(issue.updated);
-        const daysAgo = Math.floor((Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24));
-        const timeStr = daysAgo === 0 ? 'today' : daysAgo === 1 ? 'yesterday' : `${daysAgo}d ago`;
-        
-        console.log(`  ${statusIcon} ${chalk.bold(issue.key)}: ${issue.summary}`);
-        console.log(`     ${chalk.dim(`Updated ${timeStr} • Priority: ${issue.priority || 'None'}`)}`);
+
+      // Group by project
+      const byProject: Record<string, typeof issues> = {};
+      issues.forEach((issue) => {
+        if (!byProject[issue.project_key]) {
+          byProject[issue.project_key] = [];
+        }
+        byProject[issue.project_key].push(issue);
       });
-      
-      // Only add blank line between projects, not after the last one
-      if (index < projectEntries.length - 1) {
-        console.log();
-      }
-    });
-    
-    // Check if data might be stale and trigger background refresh if needed
-    const projectKeys = Object.keys(byProject);
-    if (projectKeys.length > 0) {
-      // Check when we last synced these projects
-      const now = Date.now();
-      const staleThreshold = 60 * 60 * 1000; // 1 hour
-      
-      for (const projectKey of projectKeys) {
-        const lastSync = await cacheManager.getProjectLastSync(projectKey);
-        
-        if (!lastSync || (now - lastSync.getTime()) > staleThreshold) {
-          // Data is stale, trigger background refresh
-          triggerBackgroundSync(projectKey, config);
-          break; // Only trigger one background sync to avoid overload
+
+      // Display by project
+      const projectEntries = Object.entries(byProject);
+      projectEntries.forEach(([projectKey, projectIssues], index) => {
+        console.log(chalk.bold.blue(`${projectKey} (${projectIssues.length} issues):`));
+
+        projectIssues.forEach((issue) => {
+          const statusIcon = getJiraStatusIcon(issue.status);
+          const updated = new Date(issue.updated);
+          const daysAgo = Math.floor((Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24));
+          const timeStr = daysAgo === 0 ? 'today' : daysAgo === 1 ? 'yesterday' : `${daysAgo}d ago`;
+
+          console.log(`  ${statusIcon} ${chalk.bold(issue.key)}: ${issue.summary}`);
+          console.log(`     ${chalk.dim(`Updated ${timeStr} • Priority: ${issue.priority || 'None'}`)}`);
+        });
+
+        // Only add blank line between projects, not after the last one
+        if (index < projectEntries.length - 1) {
+          console.log();
+        }
+      });
+
+      // Check if data might be stale and trigger background refresh if needed
+      const projectKeys = Object.keys(byProject);
+      if (projectKeys.length > 0) {
+        // Check when we last synced these projects
+        const now = Date.now();
+        const staleThreshold = 60 * 60 * 1000; // 1 hour
+
+        for (const projectKey of projectKeys) {
+          const lastSync = await cacheManager.getProjectLastSync(projectKey);
+
+          if (!lastSync || now - lastSync.getTime() > staleThreshold) {
+            // Data is stale, trigger background refresh
+            triggerBackgroundSync(projectKey, config);
+            break; // Only trigger one background sync to avoid overload
+          }
         }
       }
-    }
-    
-  } catch (error) {
-    console.error(`Failed to retrieve issues: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+    },
+    catch: (error) => {
+      console.error(`Failed to retrieve issues: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     cacheManager.close();
     configManager.close();
-  }
+  });
 }
 
 // Trigger a background sync for a specific project
@@ -456,234 +477,249 @@ async function showSprint(options: {
   const cacheManager = new CacheManager();
   const jiraClient = new JiraClient(config);
   
-  try {
-    // First, detect user's active sprints
-    let activeSprints: Array<{
-      sprintId: string;
-      sprintName: string;
-      boardId: number;
-      projectKey: string;
-    }> = [];
-    
-    // Check cached sprints first
-    const cachedSprints = await cacheManager.getUserActiveSprints(config.email);
-    
-    if (cachedSprints.length === 0) {
-      // No cached sprints, try to detect from user's current issues
-      console.log(chalk.dim('Detecting your active sprints...'));
-      
-      // Get user's assigned issues
-      const myIssues = await cacheManager.listMyOpenIssues(config.email);
-      const projectKeys = [...new Set(myIssues.map(i => i.project_key))];
-      
-      // For each project, check boards and sprints
-      for (const projectKey of projectKeys) {
-        try {
-          const boards = await jiraClient.getBoardsForProject(projectKey);
-          
-          for (const board of boards) {
-            const sprints = await jiraClient.getActiveSprints(board.id);
-            
-            for (const sprint of sprints) {
-              await cacheManager.trackUserSprint(config.email, {
-                id: sprint.id.toString(),
-                name: sprint.name,
-                boardId: board.id,
-                projectKey: projectKey
-              });
-              
-              activeSprints.push({
-                sprintId: sprint.id.toString(),
-                sprintName: sprint.name,
-                boardId: board.id,
-                projectKey: projectKey
-              });
+  const program = Effect.tryPromise({
+    try: async () => {
+      // First, detect user's active sprints
+      let activeSprints: Array<{
+        sprintId: string;
+        sprintName: string;
+        boardId: number;
+        projectKey: string;
+      }> = [];
+
+      // Check cached sprints first
+      const cachedSprints = await cacheManager.getUserActiveSprints(config.email);
+
+      if (cachedSprints.length === 0) {
+        // No cached sprints, try to detect from user's current issues
+        console.log(chalk.dim('Detecting your active sprints...'));
+
+        // Get user's assigned issues
+        const myIssues = await cacheManager.listMyOpenIssues(config.email);
+        const projectKeys = [...new Set(myIssues.map((i) => i.project_key))];
+
+        // For each project, check boards and sprints
+        for (const projectKey of projectKeys) {
+          try {
+            const boards = await jiraClient.getBoardsForProject(projectKey);
+
+            for (const board of boards) {
+              const sprints = await jiraClient.getActiveSprints(board.id);
+
+              for (const sprint of sprints) {
+                await cacheManager.trackUserSprint(config.email, {
+                  id: sprint.id.toString(),
+                  name: sprint.name,
+                  boardId: board.id,
+                  projectKey: projectKey,
+                });
+
+                activeSprints.push({
+                  sprintId: sprint.id.toString(),
+                  sprintName: sprint.name,
+                  boardId: board.id,
+                  projectKey: projectKey,
+                });
+              }
             }
+          } catch (error) {
+            // Skip projects without boards
+            continue;
           }
-        } catch (error) {
-          // Skip projects without boards
-          continue;
-        }
-      }
-    } else {
-      activeSprints = cachedSprints;
-    }
-    
-    // Filter by project if specified
-    if (options.projectFilter) {
-      activeSprints = activeSprints.filter(s => 
-        s.projectKey.toLowerCase() === options.projectFilter!.toLowerCase()
-      );
-    }
-    
-    if (activeSprints.length === 0) {
-      console.log(chalk.yellow('No active sprints found.'));
-      console.log(chalk.dim('💡 Make sure you have issues assigned in active sprints.'));
-      return;
-    }
-    
-    // Display sprints with their issues
-    for (const sprint of activeSprints) {
-      // Define a simplified issue type for display purposes
-      interface SimplifiedIssue {
-        key: string;
-        fields: {
-          summary: string;
-          status: { name: string };
-          priority?: { name: string } | null;
-          assignee?: { displayName: string; emailAddress?: string } | null;
-        };
-      }
-      
-      let allIssues: SimplifiedIssue[] = [];
-      let fromCache = false;
-
-      // Try cache first (unless it's stale)
-      const cacheAge = await cacheManager.getSprintCacheAge(sprint.sprintId);
-      const isStale = !cacheAge || (Date.now() - cacheAge) > 5 * 60 * 1000; // 5 minutes
-
-      if (!isStale) {
-        const cachedIssues = await cacheManager.getCachedSprintIssues(sprint.sprintId);
-        if (cachedIssues.length > 0) {
-          allIssues = cachedIssues.map(issue => ({
-            key: issue.key,
-            fields: {
-              summary: issue.summary,
-              status: { name: issue.status },
-              priority: issue.priority ? { name: issue.priority } : null,
-              assignee: issue.assignee_name ? {
-                displayName: issue.assignee_name,
-                emailAddress: issue.assignee_email || undefined
-              } : null
-            }
-          }));
-          fromCache = true;
-        }
-      }
-
-      // If no cached data or stale, fetch from API
-      if (allIssues.length === 0) {
-        const sprintResult = await jiraClient.getSprintIssues(parseInt(sprint.sprintId));
-        allIssues = sprintResult.issues;
-        
-        // Cache the fresh data in the format expected by setCachedSprintIssues
-        const issuesToCache = sprintResult.issues.map(issue => ({
-          key: issue.key,
-          project_key: sprint.projectKey,
-          summary: issue.fields.summary,
-          status: issue.fields.status.name,
-          priority: issue.fields.priority?.name || 'None',
-          assignee_name: issue.fields.assignee?.displayName || null,
-          assignee_email: issue.fields.assignee?.emailAddress || null,
-          updated: issue.fields.updated
-        }));
-        await cacheManager.setCachedSprintIssues(sprint.sprintId, issuesToCache);
-        fromCache = false;
-      }
-
-      // Background refresh if we showed cached data
-      if (fromCache) {
-        const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-sprint-refresh', sprint.sprintId], {
-          stdio: ['ignore', 'ignore', 'ignore'],
-          env: {
-            ...process.env,
-            JI_CONFIG: JSON.stringify(config)
-          }
-        });
-        proc.unref();
-      }
-
-      const unassignedIssues = allIssues.filter(i => !i.fields.assignee);
-      
-      // Skip if showing only unassigned and there are none
-      if (options.unassigned && unassignedIssues.length === 0) {
-        continue;
-      }
-      
-      // Sprint header with subtle coloring
-      console.log(`\n${chalk.bold(sprint.sprintName)} ${chalk.dim(`(${sprint.projectKey})`)}`);
-      
-      if (options.unassigned) {
-        // Show only unassigned issues
-        if (unassignedIssues.length === 0) {
-          console.log(chalk.dim('  No unassigned issues'));
-        } else {
-          console.log(chalk.dim(`  ${unassignedIssues.length} unassigned issue${unassignedIssues.length !== 1 ? 's' : ''}:`));
-          
-          unassignedIssues.forEach(issue => {
-            const priorityName = issue.fields.priority?.name || 'None';
-            const priorityColor = priorityName === 'High' || priorityName === 'Highest' 
-              ? chalk.red 
-              : priorityName === 'Medium' 
-                ? chalk.yellow 
-                : chalk.dim;
-            
-            console.log(`  ${chalk.cyan(issue.key)}: ${issue.fields.summary}`);
-            console.log(`    ${priorityColor(`Priority: ${priorityName}`)} ${chalk.dim('|')} ${chalk.dim(`Type: ${issue.fields.status.name}`)}`);
-          });
         }
       } else {
-        // Show all issues grouped by status
-        const statusGroups = new Map<string, typeof allIssues>();
-        allIssues.forEach(issue => {
-          const status = issue.fields.status.name;
-          if (!statusGroups.has(status)) {
-            statusGroups.set(status, []);
-          }
-          statusGroups.get(status)!.push(issue);
-        });
-        
-        // Common statuses in logical order
-        const statusOrder = ['To Do', 'In Progress', 'In Review', 'Done'];
-        const sortedStatuses = Array.from(statusGroups.keys()).sort((a, b) => {
-          const aIndex = statusOrder.indexOf(a);
-          const bIndex = statusOrder.indexOf(b);
-          if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-          if (aIndex !== -1) return -1;
-          if (bIndex !== -1) return 1;
-          return a.localeCompare(b);
-        });
-        
-        sortedStatuses.forEach(status => {
-          const issues = statusGroups.get(status)!;
-          const unassignedCount = issues.filter(i => !i.fields.assignee).length;
-          
-          // Status header with count
-          const statusColor = status === 'Done' ? chalk.green : 
-                            status === 'In Progress' ? chalk.blue :
-                            status === 'In Review' ? chalk.magenta :
-                            chalk.gray;
-          
-          console.log(`  ${statusColor(status)} ${chalk.dim(`(${issues.length}${unassignedCount > 0 ? `, ${unassignedCount} unassigned` : ''})`)}`);
-          
-          // Show first few issues
-          issues.slice(0, 5).forEach(issue => {
-            const assignee = issue.fields.assignee?.displayName || chalk.yellow('unassigned');
-            console.log(`    ${chalk.cyan(issue.key)}: ${issue.fields.summary} ${chalk.dim(`@${assignee}`)}`);
-          });
-          
-          if (issues.length > 5) {
-            console.log(chalk.dim(`    ... and ${issues.length - 5} more`));
-          }
-        });
+        activeSprints = cachedSprints;
       }
-    }
-    
-    // Footer with helpful tips
-    console.log();
-    if (options.unassigned) {
-      console.log(chalk.dim(`💡 Use ${chalk.cyan('ji take <issue-key>')} to assign an issue to yourself`));
-    } else {
-      console.log(chalk.dim(`💡 Use ${chalk.cyan('ji sprint unassigned')} to see only unassigned issues`));
-    }
-    
-  } catch (error) {
-    console.error(`Failed to show sprint: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+
+      // Filter by project if specified
+      if (options.projectFilter) {
+        activeSprints = activeSprints.filter(
+          (s) => s.projectKey.toLowerCase() === options.projectFilter!.toLowerCase()
+        );
+      }
+
+      if (activeSprints.length === 0) {
+        console.log(chalk.yellow('No active sprints found.'));
+        console.log(chalk.dim('💡 Make sure you have issues assigned in active sprints.'));
+        return;
+      }
+
+      // Display sprints with their issues
+      for (const sprint of activeSprints) {
+        // Define a simplified issue type for display purposes
+        interface SimplifiedIssue {
+          key: string;
+          fields: {
+            summary: string;
+            status: { name: string };
+            priority?: { name: string } | null;
+            assignee?: { displayName: string; emailAddress?: string } | null;
+          };
+        }
+
+        let allIssues: SimplifiedIssue[] = [];
+        let fromCache = false;
+
+        // Try cache first (unless it's stale)
+        const cacheAge = await cacheManager.getSprintCacheAge(sprint.sprintId);
+        const isStale = !cacheAge || Date.now() - cacheAge > 5 * 60 * 1000; // 5 minutes
+
+        if (!isStale) {
+          const cachedIssues = await cacheManager.getCachedSprintIssues(sprint.sprintId);
+          if (cachedIssues.length > 0) {
+            allIssues = cachedIssues.map((issue) => ({
+              key: issue.key,
+              fields: {
+                summary: issue.summary,
+                status: { name: issue.status },
+                priority: issue.priority ? { name: issue.priority } : null,
+                assignee: issue.assignee_name
+                  ? {
+                      displayName: issue.assignee_name,
+                      emailAddress: issue.assignee_email || undefined,
+                    }
+                  : null,
+              },
+            }));
+            fromCache = true;
+          }
+        }
+
+        // If no cached data or stale, fetch from API
+        if (allIssues.length === 0) {
+          const sprintResult = await jiraClient.getSprintIssues(parseInt(sprint.sprintId));
+          allIssues = sprintResult.issues;
+
+          // Cache the fresh data in the format expected by setCachedSprintIssues
+          const issuesToCache = sprintResult.issues.map((issue) => ({
+            key: issue.key,
+            project_key: sprint.projectKey,
+            summary: issue.fields.summary,
+            status: issue.fields.status.name,
+            priority: issue.fields.priority?.name || 'None',
+            assignee_name: issue.fields.assignee?.displayName || null,
+            assignee_email: issue.fields.assignee?.emailAddress || null,
+            updated: issue.fields.updated,
+          }));
+          await cacheManager.setCachedSprintIssues(sprint.sprintId, issuesToCache);
+          fromCache = false;
+        }
+
+        // Background refresh if we showed cached data
+        if (fromCache) {
+          const proc = Bun.spawn(['bun', 'run', process.argv[1], 'internal-sprint-refresh', sprint.sprintId], {
+            stdio: ['ignore', 'ignore', 'ignore'],
+            env: {
+              ...process.env,
+              JI_CONFIG: JSON.stringify(config),
+            },
+          });
+          proc.unref();
+        }
+
+        const unassignedIssues = allIssues.filter((i) => !i.fields.assignee);
+
+        // Skip if showing only unassigned and there are none
+        if (options.unassigned && unassignedIssues.length === 0) {
+          continue;
+        }
+
+        // Sprint header with subtle coloring
+        console.log(`\n${chalk.bold(sprint.sprintName)} ${chalk.dim(`(${sprint.projectKey})`)}`);
+
+        if (options.unassigned) {
+          // Show only unassigned issues
+          if (unassignedIssues.length === 0) {
+            console.log(chalk.dim('  No unassigned issues'));
+          } else {
+            console.log(chalk.dim(`  ${unassignedIssues.length} unassigned issue${unassignedIssues.length !== 1 ? 's' : ''}:`));
+
+            unassignedIssues.forEach((issue) => {
+              const priorityName = issue.fields.priority?.name || 'None';
+              const priorityColor =
+                priorityName === 'High' || priorityName === 'Highest'
+                  ? chalk.red
+                  : priorityName === 'Medium'
+                  ? chalk.yellow
+                  : chalk.dim;
+
+              console.log(`  ${chalk.cyan(issue.key)}: ${issue.fields.summary}`);
+              console.log(`    ${priorityColor(`Priority: ${priorityName}`)} ${chalk.dim('|')} ${chalk.dim(`Type: ${issue.fields.status.name}`)}`);
+            });
+          }
+        } else {
+          // Show all issues grouped by status
+          const statusGroups = new Map<string, typeof allIssues>();
+          allIssues.forEach((issue) => {
+            const status = issue.fields.status.name;
+            if (!statusGroups.has(status)) {
+              statusGroups.set(status, []);
+            }
+            statusGroups.get(status)!.push(issue);
+          });
+
+          // Common statuses in logical order
+          const statusOrder = ['To Do', 'In Progress', 'In Review', 'Done'];
+          const sortedStatuses = Array.from(statusGroups.keys()).sort((a, b) => {
+            const aIndex = statusOrder.indexOf(a);
+            const bIndex = statusOrder.indexOf(b);
+            if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+            if (aIndex !== -1) return -1;
+            if (bIndex !== -1) return 1;
+            return a.localeCompare(b);
+          });
+
+          sortedStatuses.forEach((status) => {
+            const issues = statusGroups.get(status)!;
+            const unassignedCount = issues.filter((i) => !i.fields.assignee).length;
+
+            // Status header with count
+            const statusColor =
+              status === 'Done'
+                ? chalk.green
+                : status === 'In Progress'
+                ? chalk.blue
+                : status === 'In Review'
+                ? chalk.magenta
+                : chalk.gray;
+
+            console.log(
+              `  ${statusColor(status)} ${chalk.dim(
+                `(${issues.length}${unassignedCount > 0 ? `, ${unassignedCount} unassigned` : ''})`
+              )}`
+            );
+
+            // Show first few issues
+            issues.slice(0, 5).forEach((issue) => {
+              const assignee = issue.fields.assignee?.displayName || chalk.yellow('unassigned');
+              console.log(`    ${chalk.cyan(issue.key)}: ${issue.fields.summary} ${chalk.dim(`@${assignee}`)}`);
+            });
+
+            if (issues.length > 5) {
+              console.log(chalk.dim(`    ... and ${issues.length - 5} more`));
+            }
+          });
+        }
+      }
+
+      // Footer with helpful tips
+      console.log();
+      if (options.unassigned) {
+        console.log(chalk.dim(`💡 Use ${chalk.cyan('ji take <issue-key>')} to assign an issue to yourself`));
+      } else {
+        console.log(chalk.dim(`💡 Use ${chalk.cyan('ji sprint unassigned')} to see only unassigned issues`));
+      }
+    },
+    catch: (error) => {
+      console.error(`Failed to show sprint: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     configManager.close();
     cacheManager.close();
-  }
+  });
 }
 
 async function showMyBoards(projectFilter?: string) {
@@ -696,127 +732,131 @@ async function showMyBoards(projectFilter?: string) {
     process.exit(1);
   }
 
-  try {
-    // Get boards from local cache - instant!
-    let boards = await cacheManager.getMyBoards(config.email);
-    
-    // Filter by project if specified
-    if (projectFilter) {
-      boards = boards.filter(board => 
-        board.location?.projectKey?.toLowerCase() === projectFilter.toLowerCase()
-      );
-      
+  const program = Effect.tryPromise({
+    try: async () => {
+      // Get boards from local cache - instant!
+      let boards = await cacheManager.getMyBoards(config.email);
+
+      // Filter by project if specified
+      if (projectFilter) {
+        boards = boards.filter(
+          (board) => board.location?.projectKey?.toLowerCase() === projectFilter.toLowerCase()
+        );
+
+        if (boards.length === 0) {
+          console.log(`No boards found for project ${projectFilter}.`);
+          console.log(chalk.dim('💡 Run "ji sync" to sync your workspaces and boards.'));
+          return;
+        }
+      }
+
       if (boards.length === 0) {
-        console.log(`No boards found for project ${projectFilter}.`);
+        console.log('No boards found in cache.');
         console.log(chalk.dim('💡 Run "ji sync" to sync your workspaces and boards.'));
         return;
       }
-    }
-    
-    if (boards.length === 0) {
-      console.log('No boards found in cache.');
-      console.log(chalk.dim('💡 Run "ji sync" to sync your workspaces and boards.'));
-      return;
-    }
-    
-    // Group boards by project
-    const boardsByProject: Record<string, Board[]> = {};
-    boards.forEach(board => {
-      const projectKey = board.location?.projectKey || 'Other';
-      if (!boardsByProject[projectKey]) {
-        boardsByProject[projectKey] = [];
-      }
-      boardsByProject[projectKey].push(board);
-    });
-    
-    // If filtering by project and single board, show columns and issues
-    if (projectFilter && boards.length === 1) {
-      const board = boards[0];
-      
-      console.log(`${chalk.bold.blue(board.name)} ${chalk.dim(`(${board.type})`)}\n`);
-      
-      // Use cached issues instead of board API
-      const issues = await cacheManager.listIssuesByProject(projectFilter);
-      
-      if (issues.length === 0) {
-        console.log(chalk.yellow('No cached issues for this project. Run "ji sync" to update.\n'));
-      } else {
-        // Group by status
-        const statusGroups = new Map<string, typeof issues>();
-        issues.forEach(issue => {
-          const status = issue.status;
-          if (!statusGroups.has(status)) {
-            statusGroups.set(status, []);
-          }
-          statusGroups.get(status)!.push(issue);
-        });
-        
-        // Common board statuses in order
-        const commonStatuses = ['To Do', 'In Progress', 'In Review', 'Done'];
-        const allStatuses = Array.from(statusGroups.keys()).sort((a, b) => {
-          const aIndex = commonStatuses.indexOf(a);
-          const bIndex = commonStatuses.indexOf(b);
-          if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-          if (aIndex !== -1) return -1;
-          if (bIndex !== -1) return 1;
-          return a.localeCompare(b);
-        });
-        
-        // Display by status
-        allStatuses.forEach(status => {
-          const statusIssues = statusGroups.get(status)!;
-          console.log(chalk.bold(`${status} (${statusIssues.length})`));
-          
-          statusIssues.slice(0, 10).forEach(issue => {
-            const assignee = issue.assignee_name || 'unassigned';
-            console.log(`  ${chalk.cyan(issue.key)} ${issue.summary} ${chalk.dim(`@${assignee}`)}`);
-          });
-          
-          if (statusIssues.length > 10) {
-            console.log(chalk.dim(`  ... and ${statusIssues.length - 10} more`));
-          }
-          console.log();
-        });
-      }
-      
-      console.log(chalk.dim(`Board URL: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`));
-      
-    } else {
-      // Display normal board list
-      const projectEntries = Object.entries(boardsByProject);
-      projectEntries.forEach(([projectKey, projectBoards], _index) => {
-        if (projectBoards.length === 1) {
-          // Single board - put it on the same line as project
-          const board = projectBoards[0];
-          const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
-          console.log(`${chalk.bold.blue(projectKey)}: ${typeIcon} ${chalk.bold(board.name)} ${chalk.cyan(`→ ${board.id}`)}`);
+
+      // Group boards by project
+      const boardsByProject: Record<string, Board[]> = {};
+      boards.forEach((board) => {
+        const projectKey = board.location?.projectKey || 'Other';
+        if (!boardsByProject[projectKey]) {
+          boardsByProject[projectKey] = [];
+        }
+        boardsByProject[projectKey].push(board);
+      });
+
+      // If filtering by project and single board, show columns and issues
+      if (projectFilter && boards.length === 1) {
+        const board = boards[0];
+
+        console.log(`${chalk.bold.blue(board.name)} ${chalk.dim(`(${board.type})`)}
+`);
+
+        // Use cached issues instead of board API
+        const issues = await cacheManager.listIssuesByProject(projectFilter);
+
+        if (issues.length === 0) {
+          console.log(chalk.yellow('No cached issues for this project. Run "ji sync" to update.'));
         } else {
-          // Multiple boards - use the original format
-          console.log(`${chalk.bold.blue(projectKey)} (${projectBoards.length}):`);
-          
-          projectBoards.forEach(board => {
-            const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
-            
-            // Compact single-line format
-            console.log(`  ${typeIcon} ${chalk.bold(board.name)} ${chalk.dim(`(${board.type})`)} ${chalk.cyan(`→ ${board.id}`)}`);
+          // Group by status
+          const statusGroups = new Map<string, typeof issues>();
+          issues.forEach((issue) => {
+            const status = issue.status;
+            if (!statusGroups.has(status)) {
+              statusGroups.set(status, []);
+            }
+            statusGroups.get(status)!.push(issue);
+          });
+
+          // Common board statuses in order
+          const commonStatuses = ['To Do', 'In Progress', 'In Review', 'Done'];
+          const allStatuses = Array.from(statusGroups.keys()).sort((a, b) => {
+            const aIndex = commonStatuses.indexOf(a);
+            const bIndex = commonStatuses.indexOf(b);
+            if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+            if (aIndex !== -1) return -1;
+            if (bIndex !== -1) return 1;
+            return a.localeCompare(b);
+          });
+
+          // Display by status
+          allStatuses.forEach((status) => {
+            const statusIssues = statusGroups.get(status)!;
+            console.log(chalk.bold(`${status} (${statusIssues.length})`));
+
+            statusIssues.slice(0, 10).forEach((issue) => {
+              const assignee = issue.assignee_name || 'unassigned';
+              console.log(`  ${chalk.cyan(issue.key)} ${issue.summary} ${chalk.dim(`@${assignee}`)}`);
+            });
+
+            if (statusIssues.length > 10) {
+              console.log(chalk.dim(`  ... and ${statusIssues.length - 10} more`));
+            }
+            console.log();
           });
         }
-      });
-      
-      // Show actual clickable links for each board
-      console.log(); // blank line before links
-      boards.forEach(board => {
-        console.log(chalk.dim(`${board.name}: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`));
-      });
-    }
-    
-  } catch (error) {
-    console.error(`Failed to retrieve boards: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+
+        console.log(chalk.dim(`Board URL: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`));
+      } else {
+        // Display normal board list
+        const projectEntries = Object.entries(boardsByProject);
+        projectEntries.forEach(([projectKey, projectBoards], _index) => {
+          if (projectBoards.length === 1) {
+            // Single board - put it on the same line as project
+            const board = projectBoards[0];
+            const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
+            console.log(`${chalk.bold.blue(projectKey)}: ${typeIcon} ${chalk.bold(board.name)} ${chalk.cyan(`→ ${board.id}`)}`);
+          } else {
+            // Multiple boards - use the original format
+            console.log(`${chalk.bold.blue(projectKey)} (${projectBoards.length}):`);
+
+            projectBoards.forEach((board) => {
+              const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
+
+              // Compact single-line format
+              console.log(`  ${typeIcon} ${chalk.bold(board.name)} ${chalk.dim(`(${board.type})`)} ${chalk.cyan(`→ ${board.id}`)}`);
+            });
+          }
+        });
+
+        // Show actual clickable links for each board
+        console.log(); // blank line before links
+        boards.forEach((board) => {
+          console.log(chalk.dim(`${board.name}: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`));
+        });
+      }
+    },
+    catch: (error) => {
+      console.error(`Failed to retrieve boards: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     configManager.close();
     cacheManager.close();
-  }
+  });
 }
 
 async function syncWorkspaces(options: { clean?: boolean } = {}) {
@@ -829,293 +869,296 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
     process.exit(1);
   }
 
-  try {
-    const workspaces = await cacheManager.getActiveWorkspaces();
-    
-    if (workspaces.length === 0) {
-      console.log('No workspaces found. Run "ji issue sync <project>" or "ji confluence sync <space>" first.');
-      return;
-    }
-    
-    const jiraClient = new JiraClient(config);
-    const jiraWorkspaces = workspaces.filter(w => w.type === 'jira_project' && w.keyOrId !== 'boards');
-    const confluenceWorkspaces = workspaces.filter(w => w.type === 'confluence_space');
-    
-    const jiraProjectKeys = jiraWorkspaces.map(w => w.keyOrId).join(', ');
-    const confluenceSpaceKeys = confluenceWorkspaces.map(w => w.keyOrId).join(', ');
-    
-    console.log(chalk.dim(`Jira: ${jiraProjectKeys || 'none'}`));
-    console.log(chalk.dim(`Confluence: ${confluenceSpaceKeys || 'none'}\n`));
-    
-    // Handle clean flag - clear all project data if requested
-    if (options.clean) {
-      for (const workspace of jiraWorkspaces) {
-        await cacheManager.deleteProjectIssues(workspace.keyOrId);
-        await cacheManager.clearBackfillLimit(workspace.keyOrId);
+  const program = Effect.tryPromise({
+    try: async () => {
+      const workspaces = await cacheManager.getActiveWorkspaces();
+
+      if (workspaces.length === 0) {
+        console.log('No workspaces found. Run "ji issue sync <project>" or "ji confluence sync <space>" first.');
+        return;
       }
-      // Clear Confluence spaces too
-      for (const workspace of confluenceWorkspaces) {
-        await cacheManager.deleteSpacePages(workspace.keyOrId);
-      }
-    }
-    
-    // Sync boards and show how many were updated
-    if (jiraWorkspaces.length > 0) {
-      const allBoards = [];
-      let _boardSyncErrors = 0;
-      for (const workspace of jiraWorkspaces) {
-        try {
-          const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
-          allBoards.push(...projectBoards);
-        } catch (error) {
-          _boardSyncErrors++;
+
+      const jiraClient = new JiraClient(config);
+      const jiraWorkspaces = workspaces.filter((w) => w.type === 'jira_project' && w.keyOrId !== 'boards');
+      const confluenceWorkspaces = workspaces.filter((w) => w.type === 'confluence_space');
+
+      const jiraProjectKeys = jiraWorkspaces.map((w) => w.keyOrId).join(', ');
+      const confluenceSpaceKeys = confluenceWorkspaces.map((w) => w.keyOrId).join(', ');
+
+      console.log(chalk.dim(`Jira: ${jiraProjectKeys || 'none'}`));
+      console.log(chalk.dim(`Confluence: ${confluenceSpaceKeys || 'none'}\n`));
+
+      // Handle clean flag - clear all project data if requested
+      if (options.clean) {
+        for (const workspace of jiraWorkspaces) {
+          await cacheManager.deleteProjectIssues(workspace.keyOrId);
+          await cacheManager.clearBackfillLimit(workspace.keyOrId);
+        }
+        // Clear Confluence spaces too
+        for (const workspace of confluenceWorkspaces) {
+          await cacheManager.deleteSpacePages(workspace.keyOrId);
         }
       }
-      
-      // Always save and show count of boards fetched (even if duplicates)
-      if (allBoards.length > 0) {
-        await cacheManager.saveBoards(allBoards);
+
+      // Sync boards and show how many were updated
+      if (jiraWorkspaces.length > 0) {
+        const allBoards = [];
+        let _boardSyncErrors = 0;
+        for (const workspace of jiraWorkspaces) {
+          try {
+            const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
+            allBoards.push(...projectBoards);
+          } catch (error) {
+            _boardSyncErrors++;
+          }
+        }
+
+        // Always save and show count of boards fetched (even if duplicates)
+        if (allBoards.length > 0) {
+          await cacheManager.saveBoards(allBoards);
+        }
+        console.log(`Boards: ${allBoards.length}`);
       }
-      console.log(`Boards: ${allBoards.length}`);
-    }
-    
-    // Sync recent issues for Jira projects
-    if (jiraWorkspaces.length > 0) {
-      process.stdout.write('Issues');
-      let totalIssues = 0;
-      let _issueSyncErrors = 0;
-      const allIssues: Issue[] = [];
-      
-      // First, collect all issues that need syncing
-      for (const workspace of jiraWorkspaces) {
-        try {
-          // Clean sync strategy: get ALL historical issues with pagination
-          if (options.clean) {
-            if (process.env.DEBUG) {
-              console.log(`\n  [DEBUG] ${workspace.keyOrId} clean sync - fetching all historical issues`);
-            }
-            
-            // Paginate through ALL issues for this project
-            let startAt = 0;
-            const pageSize = 100;
-            let hasMoreIssues = true;
-            
-            while (hasMoreIssues) {
-              const cleanJql = `project = "${workspace.keyOrId}" ORDER BY updated DESC`;
-              const cleanResult = await jiraClient.searchIssues(cleanJql, { 
-                maxResults: pageSize, 
-                startAt: startAt,
-                fields: ISSUE_FIELDS
-              });
-              
-              if (cleanResult.issues.length > 0) {
-                allIssues.push(...cleanResult.issues);
-                if (process.env.DEBUG) {
-                  console.log(`  [DEBUG] Clean sync batch: ${cleanResult.issues.length} issues (total so far: ${allIssues.length})`);
-                }
-                
-                // Check if we have more pages
-                hasMoreIssues = cleanResult.issues.length === pageSize && 
-                               (cleanResult.total === undefined || startAt + pageSize < cleanResult.total);
-                startAt += pageSize;
-              } else {
-                hasMoreIssues = false;
-              }
-            }
-            
-            if (process.env.DEBUG) {
-              console.log(`  [DEBUG] Clean sync complete: ${allIssues.length} total issues for ${workspace.keyOrId}`);
-            }
-          } else {
-            // Two-direction sync strategy:
-            // 1. Look for local issues in SQLite, sorted by Jira's updated field
-            // 2. Find newest and oldest by Jira's updated date
-            // 3. Ask Jira for issues updated AFTER our newest (forward fill)
-            // 4. Ask Jira for issues updated BEFORE our oldest (backward fill)
-            const updateRange = await cacheManager.getIssueUpdateRange(workspace.keyOrId);
-            
-            if (updateRange.newest && updateRange.oldest) {
-            // We have local issues - do bidirectional sync
-            // Debug: log the date range we're working with
-            if (process.env.DEBUG) {
-              console.log(`\n  [DEBUG] ${workspace.keyOrId} local range: ${updateRange.oldest} to ${updateRange.newest}`);
-            }
-            
-            // Forward fill: get issues newer than our newest local issue
-            const forwardJql = `project = "${workspace.keyOrId}" AND updated > "${updateRange.newest}" ORDER BY updated DESC`;
-            const forwardResult = await jiraClient.searchIssues(forwardJql, { maxResults: 200, fields: ISSUE_FIELDS });
-            if (forwardResult.issues.length > 0) {
-              allIssues.push(...forwardResult.issues);
+
+      // Sync recent issues for Jira projects
+      if (jiraWorkspaces.length > 0) {
+        process.stdout.write('Issues');
+        let totalIssues = 0;
+        let _issueSyncErrors = 0;
+        const allIssues: Issue[] = [];
+
+        // First, collect all issues that need syncing
+        for (const workspace of jiraWorkspaces) {
+          try {
+            // Clean sync strategy: get ALL historical issues with pagination
+            if (options.clean) {
               if (process.env.DEBUG) {
-                console.log(`  [DEBUG] Forward fill found ${forwardResult.issues.length} issues`);
+                console.log(`\n  [DEBUG] ${workspace.keyOrId} clean sync - fetching all historical issues`);
               }
-            }
-            
-            // Backward fill: get issues older than our oldest local issue
-            // But only if we haven't already backfilled to that point
-            const backfillLimit = await cacheManager.getBackfillLimit(workspace.keyOrId);
-            
-            if (!backfillLimit || updateRange.oldest < backfillLimit) {
-              const backwardJql = `project = "${workspace.keyOrId}" AND updated < "${updateRange.oldest}" ORDER BY updated DESC`;
-              const backwardResult = await jiraClient.searchIssues(backwardJql, { maxResults: 100, fields: ISSUE_FIELDS });
-              if (backwardResult.issues.length > 0) {
-                allIssues.push(...backwardResult.issues);
-                // Track how far back we've gone
-                const oldestFetched = backwardResult.issues[backwardResult.issues.length - 1].fields.updated;
-                await cacheManager.setBackfillLimit(workspace.keyOrId, oldestFetched);
+
+              // Paginate through ALL issues for this project
+              let startAt = 0;
+              const pageSize = 100;
+              let hasMoreIssues = true;
+
+              while (hasMoreIssues) {
+                const cleanJql = `project = "${workspace.keyOrId}" ORDER BY updated DESC`;
+                const cleanResult = await jiraClient.searchIssues(cleanJql, {
+                  maxResults: pageSize,
+                  startAt: startAt,
+                  fields: ISSUE_FIELDS,
+                });
+
+                if (cleanResult.issues.length > 0) {
+                  allIssues.push(...cleanResult.issues);
+                  if (process.env.DEBUG) {
+                    console.log(`  [DEBUG] Clean sync batch: ${cleanResult.issues.length} issues (total so far: ${allIssues.length})`);
+                  }
+
+                  // Check if we have more pages
+                  hasMoreIssues =
+                    cleanResult.issues.length === pageSize &&
+                    (cleanResult.total === undefined || startAt + pageSize < cleanResult.total);
+                  startAt += pageSize;
+                } else {
+                  hasMoreIssues = false;
+                }
+              }
+
+              if (process.env.DEBUG) {
+                console.log(`  [DEBUG] Clean sync complete: ${allIssues.length} total issues for ${workspace.keyOrId}`);
+              }
+            } else {
+              // Two-direction sync strategy:
+              // 1. Look for local issues in SQLite, sorted by Jira's updated field
+              // 2. Find newest and oldest by Jira's updated date
+              // 3. Ask Jira for issues updated AFTER our newest (forward fill)
+              // 4. Ask Jira for issues updated BEFORE our oldest (backward fill)
+              const updateRange = await cacheManager.getIssueUpdateRange(workspace.keyOrId);
+
+              if (updateRange.newest && updateRange.oldest) {
+                // We have local issues - do bidirectional sync
+                // Debug: log the date range we're working with
                 if (process.env.DEBUG) {
-                  console.log(`  [DEBUG] Backward fill found ${backwardResult.issues.length} issues, limit set to ${oldestFetched}`);
+                  console.log(`\n  [DEBUG] ${workspace.keyOrId} local range: ${updateRange.oldest} to ${updateRange.newest}`);
+                }
+
+                // Forward fill: get issues newer than our newest local issue
+                const forwardJql = `project = "${workspace.keyOrId}" AND updated > "${updateRange.newest}" ORDER BY updated DESC`;
+                const forwardResult = await jiraClient.searchIssues(forwardJql, { maxResults: 200, fields: ISSUE_FIELDS });
+                if (forwardResult.issues.length > 0) {
+                  allIssues.push(...forwardResult.issues);
+                  if (process.env.DEBUG) {
+                    console.log(`  [DEBUG] Forward fill found ${forwardResult.issues.length} issues`);
+                  }
+                }
+
+                // Backward fill: get issues older than our oldest local issue
+                // But only if we haven't already backfilled to that point
+                const backfillLimit = await cacheManager.getBackfillLimit(workspace.keyOrId);
+
+                if (!backfillLimit || updateRange.oldest < backfillLimit) {
+                  const backwardJql = `project = "${workspace.keyOrId}" AND updated < "${updateRange.oldest}" ORDER BY updated DESC`;
+                  const backwardResult = await jiraClient.searchIssues(backwardJql, { maxResults: 100, fields: ISSUE_FIELDS });
+                  if (backwardResult.issues.length > 0) {
+                    allIssues.push(...backwardResult.issues);
+                    // Track how far back we've gone
+                    const oldestFetched = backwardResult.issues[backwardResult.issues.length - 1].fields.updated;
+                    await cacheManager.setBackfillLimit(workspace.keyOrId, oldestFetched);
+                    if (process.env.DEBUG) {
+                      console.log(`  [DEBUG] Backward fill found ${backwardResult.issues.length} issues, limit set to ${oldestFetched}`);
+                    }
+                  }
+                } else {
+                  if (process.env.DEBUG) {
+                    console.log(`  [DEBUG] Backward fill skipped - already backfilled to ${backfillLimit}`);
+                  }
+                }
+              } else {
+                // First sync - get recent issues to establish baseline
+                if (process.env.DEBUG) {
+                  console.log(`\n  [DEBUG] ${workspace.keyOrId} no local issues found, doing initial sync`);
+                }
+                const initialJql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
+                const initialResult = await jiraClient.searchIssues(initialJql, { maxResults: 200, fields: ISSUE_FIELDS });
+                if (initialResult.issues.length > 0) {
+                  allIssues.push(...initialResult.issues);
+                  if (process.env.DEBUG) {
+                    console.log(`  [DEBUG] Initial sync found ${initialResult.issues.length} issues`);
+                  }
+                }
+              }
+            } // End of non-clean sync logic
+          } catch (error) {
+            _issueSyncErrors++;
+            process.stdout.write(' x');
+          }
+        }
+
+        // Now save all issues with progress dots
+        if (allIssues.length > 0) {
+          process.stdout.write(' ');
+          const BATCH_SIZE = 20;
+          for (let i = 0; i < allIssues.length; i += BATCH_SIZE) {
+            const batch = allIssues.slice(i, i + BATCH_SIZE);
+            const savePromises = batch.map((issue) => cacheManager.saveIssue(issue).catch((_err) => null));
+            await Promise.all(savePromises);
+            process.stdout.write('.');
+          }
+          totalIssues = allIssues.length;
+          console.log(` ${totalIssues}`);
+        } else {
+          console.log(`: ${totalIssues}`);
+        }
+      }
+
+      // Sync Confluence spaces (incremental)
+      if (confluenceWorkspaces.length > 0) {
+        process.stdout.write('Pages');
+        let totalPages = 0;
+        let _pageSyncErrors = 0;
+        let hasAnyPages = false;
+
+        for (const workspace of confluenceWorkspaces) {
+          try {
+            Date.now();
+
+            // Get content manager for page counting
+            const contentManager = new ContentManager();
+            const newestModified = await contentManager.getNewestPageModifiedDate(workspace.keyOrId);
+
+            if (newestModified) {
+              // Incremental sync - get only modified pages
+              const confluenceClient = new ConfluenceClient(config);
+              const modifiedPages = await confluenceClient.getPagesSince(workspace.keyOrId, newestModified);
+              totalPages += modifiedPages.length;
+
+              // Process pages if there are any
+              if (modifiedPages.length > 0) {
+                hasAnyPages = true;
+                process.stdout.write(' ');
+                // Sync pages in batches
+                const BATCH_SIZE = 10;
+                for (let i = 0; i < modifiedPages.length; i += BATCH_SIZE) {
+                  const batch = modifiedPages.slice(i, i + BATCH_SIZE);
+                  const batchPromises = batch.map(async (pageId) => {
+                    const page = await confluenceClient.getPage(pageId);
+                    const plainText = confluenceToMarkdown(page.body?.storage?.value || '');
+
+                    await contentManager.saveContent({
+                      id: `confluence:${page.id}`,
+                      source: 'confluence',
+                      type: 'page',
+                      title: page.title,
+                      content: plainText,
+                      url: page._links.webui,
+                      spaceKey: page.space.key,
+                      metadata: {
+                        spaceKey: page.space.key,
+                        spaceName: page.space.name,
+                        version: String(page.version.number),
+                        lastModified: page.version.when,
+                        webUrl: page._links.webui,
+                      },
+                      updatedAt: new Date(page.version.when).getTime(),
+                      syncedAt: Date.now(),
+                    });
+                  });
+
+                  await Promise.all(batchPromises);
+                  process.stdout.write('.');
                 }
               }
             } else {
-              if (process.env.DEBUG) {
-                console.log(`  [DEBUG] Backward fill skipped - already backfilled to ${backfillLimit}`);
-              }
-            }
-          } else {
-            // First sync - get recent issues to establish baseline
-            if (process.env.DEBUG) {
-              console.log(`\n  [DEBUG] ${workspace.keyOrId} no local issues found, doing initial sync`);
-            }
-            const initialJql = `project = "${workspace.keyOrId}" AND updated >= -30d ORDER BY updated DESC`;
-            const initialResult = await jiraClient.searchIssues(initialJql, { maxResults: 200, fields: ISSUE_FIELDS });
-            if (initialResult.issues.length > 0) {
-              allIssues.push(...initialResult.issues);
-              if (process.env.DEBUG) {
-                console.log(`  [DEBUG] Initial sync found ${initialResult.issues.length} issues`);
-              }
-            }
-          }
-          } // End of non-clean sync logic
-        } catch (error) {
-          _issueSyncErrors++;
-          process.stdout.write(' x');
-        }
-      }
-      
-      // Now save all issues with progress dots
-      if (allIssues.length > 0) {
-        process.stdout.write(' ');
-        const BATCH_SIZE = 20;
-        for (let i = 0; i < allIssues.length; i += BATCH_SIZE) {
-          const batch = allIssues.slice(i, i + BATCH_SIZE);
-          const savePromises = batch.map(issue => 
-            cacheManager.saveIssue(issue).catch(_err => null)
-          );
-          await Promise.all(savePromises);
-          process.stdout.write('.');
-        }
-        totalIssues = allIssues.length;
-        console.log(` ${totalIssues}`);
-      } else {
-        console.log(`: ${totalIssues}`);
-      }
-    }
-    
-    // Sync Confluence spaces (incremental)
-    if (confluenceWorkspaces.length > 0) {
-      process.stdout.write('Pages');
-      let totalPages = 0;
-      let _pageSyncErrors = 0;
-      let hasAnyPages = false;
-      
-      for (const workspace of confluenceWorkspaces) {
-        try {
-          Date.now();
-          
-          // Get content manager for page counting
-          const contentManager = new ContentManager();
-          const newestModified = await contentManager.getNewestPageModifiedDate(workspace.keyOrId);
-          
-          if (newestModified) {
-            // Incremental sync - get only modified pages
-            const confluenceClient = new ConfluenceClient(config);
-            const modifiedPages = await confluenceClient.getPagesSince(workspace.keyOrId, newestModified);
-            totalPages += modifiedPages.length;
-            
-            // Process pages if there are any
-            if (modifiedPages.length > 0) {
+              // First sync - show progress dots for initial sync too
+              const confluenceClient = new ConfluenceClient(config);
+              process.stdout.write(' [initial sync]');
+              const allPages = await confluenceClient.getSpacePagesLightweight(workspace.keyOrId);
+              totalPages += allPages.length;
               hasAnyPages = true;
-              process.stdout.write(' ');
-              // Sync pages in batches
-              const BATCH_SIZE = 10;
-              for (let i = 0; i < modifiedPages.length; i += BATCH_SIZE) {
-                const batch = modifiedPages.slice(i, i + BATCH_SIZE);
-                const batchPromises = batch.map(async (pageId) => {
-                  const page = await confluenceClient.getPage(pageId);
-                  const plainText = confluenceToMarkdown(page.body?.storage?.value || '');
-                  
-                  await contentManager.saveContent({
-                    id: `confluence:${page.id}`,
-                    source: 'confluence',
-                    type: 'page',
-                    title: page.title,
-                    content: plainText,
-                    url: page._links.webui,
-                    spaceKey: page.space.key,
-                    metadata: {
-                      spaceKey: page.space.key,
-                      spaceName: page.space.name,
-                      version: String(page.version.number),
-                      lastModified: page.version.when,
-                      webUrl: page._links.webui
-                    },
-                    updatedAt: new Date(page.version.when).getTime(),
-                    syncedAt: Date.now()
-                  });
-                });
-                
-                await Promise.all(batchPromises);
-                process.stdout.write('.');
-              }
             }
-          } else {
-            // First sync - show progress dots for initial sync too
-            const confluenceClient = new ConfluenceClient(config);
-            process.stdout.write(' [initial sync]');
-            const allPages = await confluenceClient.getSpacePagesLightweight(workspace.keyOrId);
-            totalPages += allPages.length;
-            hasAnyPages = true;
+
+            contentManager.close();
+          } catch (error) {
+            _pageSyncErrors++;
+            process.stdout.write(' x');
           }
-          
-          contentManager.close();
-        } catch (error) {
-          _pageSyncErrors++;
-          process.stdout.write(' x');
+        }
+
+        if (hasAnyPages) {
+          console.log(` ${totalPages}`);
+        } else {
+          console.log(`: ${totalPages}`);
         }
       }
-      
-      if (hasAnyPages) {
-        console.log(` ${totalPages}`);
-      } else {
-        console.log(`: ${totalPages}`);
+
+      // Auto-index everything for search with progress indicator
+      try {
+        const indexStart = Date.now();
+        const { syncToMeilisearch } = await import('./lib/sync-meilisearch.js');
+        const result = await syncToMeilisearch({ clean: false });
+        const indexTime = Date.now() - indexStart;
+
+        // Only show timing if actual indexing work was done and it took more than 1 second
+        if (result.indexedItems > 0 && indexTime > 1000) {
+          console.log(chalk.dim(`Search index updated in ${Math.round(indexTime / 1000)}s`));
+        }
+      } catch (error) {
+        console.log('Index: ⚠️ failed to update search index');
       }
-    }
-    
-    // Auto-index everything for search with progress indicator
-    try {
-      const indexStart = Date.now();
-      const { syncToMeilisearch } = await import('./lib/sync-meilisearch.js');
-      const result = await syncToMeilisearch({ clean: false });
-      const indexTime = Date.now() - indexStart;
-      
-      // Only show timing if actual indexing work was done and it took more than 1 second
-      if (result.indexedItems > 0 && indexTime > 1000) {
-        console.log(chalk.dim(`Search index updated in ${Math.round(indexTime / 1000)}s`));
-      }
-    } catch (error) {
-      console.log('Index: ⚠️ failed to update search index');
-    }
-    
-    console.log(chalk.green('\n✓ Sync complete'));
-    
-  } catch (error) {
-    console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+
+      console.log(chalk.green('\n✓ Sync complete'));
+    },
+    catch: (error) => {
+      console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     configManager.close();
     cacheManager.close();
-  }
+  });
 }
 
 async function takeIssue(issueKey: string) {
@@ -1130,59 +1173,64 @@ async function takeIssue(issueKey: string) {
   const jiraClient = new JiraClient(config);
   const spinner = ora(`Taking ownership of ${issueKey}...`).start();
 
-  try {
-    // Get current user info
-    const currentUser = await jiraClient.getCurrentUser();
-    
-    // Get the issue to verify it exists and show current assignee
-    const issue = await jiraClient.getIssue(issueKey);
-    
-    if (issue.fields.assignee?.displayName === currentUser.displayName) {
-      spinner.warn(`You already own ${issueKey}`);
-      return;
-    }
-    
-    // Assign the issue
-    await jiraClient.assignIssue(issueKey, currentUser.accountId);
-    
-    spinner.succeed(`Successfully assigned ${issueKey} to ${currentUser.displayName}`);
-    
-    // Show issue details
-    console.log(`\n${chalk.bold(issue.key)}: ${issue.fields.summary}`);
-    console.log(`${chalk.dim('Status:')} ${issue.fields.status.name}`);
-    if (issue.fields.assignee) {
-      console.log(`${chalk.dim('Previous assignee:')} ${issue.fields.assignee.displayName}`);
-    }
-    console.log(`${chalk.dim('Now assigned to:')} ${chalk.green(currentUser.displayName)}`);
-    
-    // Sync the issue to update local cache, search index, and embeddings
-    spinner.start('Updating local cache...');
-    try {
-      const cacheManager = new CacheManager();
+  const program = Effect.tryPromise({
+    try: async () => {
+      // Get current user info
+      const currentUser = await jiraClient.getCurrentUser();
       
-      // Get fresh issue data
-      const updatedIssue = await jiraClient.getIssue(issueKey);
+      // Get the issue to verify it exists and show current assignee
+      const issue = await jiraClient.getIssue(issueKey);
       
-      // Save to cache - this automatically:
-      // 1. Updates the issues table
-      // 2. Updates searchable_content table
-      // 3. Updates FTS index
-      // 4. Updates Meilisearch index
-      // 5. Spawns background embedding generation
-      await cacheManager.saveIssue(updatedIssue);
+      if (issue.fields.assignee?.displayName === currentUser.displayName) {
+        spinner.warn(`You already own ${issueKey}`);
+        return;
+      }
       
-      cacheManager.close();
-      spinner.succeed('Local cache, search index, and embeddings updated');
-    } catch (syncError) {
-      spinner.warn('Failed to update local cache (will sync on next view)');
-    }
-    
-  } catch (error) {
-    spinner.fail(`Failed to take issue: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+      // Assign the issue
+      await jiraClient.assignIssue(issueKey, currentUser.accountId);
+      
+      spinner.succeed(`Successfully assigned ${issueKey} to ${currentUser.displayName}`);
+      
+      // Show issue details
+      console.log(`\n${chalk.bold(issue.key)}: ${issue.fields.summary}`);
+      console.log(`${chalk.dim('Status:')} ${issue.fields.status.name}`);
+      if (issue.fields.assignee) {
+        console.log(`${chalk.dim('Previous assignee:')} ${issue.fields.assignee.displayName}`);
+      }
+      console.log(`${chalk.dim('Now assigned to:')} ${chalk.green(currentUser.displayName)}`);
+      
+      // Sync the issue to update local cache, search index, and embeddings
+      spinner.start('Updating local cache...');
+      try {
+        const cacheManager = new CacheManager();
+        
+        // Get fresh issue data
+        const updatedIssue = await jiraClient.getIssue(issueKey);
+        
+        // Save to cache - this automatically:
+        // 1. Updates the issues table
+        // 2. Updates searchable_content table
+        // 3. Updates FTS index
+        // 4. Updates Meilisearch index
+        // 5. Spawns background embedding generation
+        await cacheManager.saveIssue(updatedIssue);
+        
+        cacheManager.close();
+        spinner.succeed('Local cache, search index, and embeddings updated');
+      } catch (syncError) {
+        spinner.warn('Failed to update local cache (will sync on next view)');
+      }
+      
+    },
+    catch: (error) => {
+      spinner.fail(`Failed to take issue: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     configManager.close();
-  }
+  });
 }
 
 // Removed unused search enhancement constants:
@@ -1252,173 +1300,178 @@ async function search(query: string, options: {
     process.exit(1);
   }
 
-  try {
-    // Use fast singleton Meilisearch instance
-    const meilisearch = MeilisearchFast.getInstance();
-    
-    // Use hybrid search by default for better results
-    const results = await meilisearch.hybridSearch(query, {
-      source: options.source,
-      limit: options.limit || 5,
-      includeAll: options.includeAll
-    });
-
-    if (results.length === 0) {
-      console.log('No results found.');
-      return;
-    }
-
-    // Process results - Meilisearch already handles ranking
-    const limitedResults = results.map(result => ({
-      ...result,
-      team: getTeamFromMetadata(result.content)
-    }));
-
-    // Display results with enhanced formatting
-    console.log(chalk.dim(`Found ${results.length} results:\n`));
-
-    // Track search results being viewed
-    const searchAnalytics = new SearchAnalytics();
-    limitedResults.forEach(result => {
-      searchAnalytics.recordInteraction({
-        query,
-        resultId: result.content.id,
-        resultTitle: result.content.title,
-        resultScore: result.score,
-        interactionType: 'view',
-        timestamp: Date.now()
+  const program = Effect.tryPromise({
+    try: async () => {
+      // Use fast singleton Meilisearch instance
+      const meilisearch = MeilisearchFast.getInstance();
+      
+      // Use hybrid search by default for better results
+      const results = await meilisearch.hybridSearch(query, {
+        source: options.source,
+        limit: options.limit || 5,
+        includeAll: options.includeAll
       });
-    });
-    searchAnalytics.close();
 
-    limitedResults.forEach((result, index) => {
-      const { content, score, team } = result;
-      const scorePercent = Math.round(score * 100);
-      const scoreColor = getScoreColor(scorePercent);
-      
-      // Clean title formatting
-      const title = chalk.bold(content.title);
-      const scoreDisplay = scoreColor(`${scorePercent}%`);
-      const paddedTitle = title.length > 60 ? title.substring(0, 57) + '...' : title;
-      const padding = ' '.repeat(Math.max(0, 65 - title.length));
-      
-      console.log(`${paddedTitle}${padding}${scoreDisplay}`);
-      
-      // Display snippet from Meilisearch (already highlighted)
-      if (result.snippet) {
-        // Clean up the snippet: decode HTML entities and excessive whitespace
-        let cleanSnippet = result.snippet
-          .replace(/&rsquo;/g, "'") // Replace right single quote
-          .replace(/&quot;/g, '"') // Replace quotes
-          .replace(/&amp;/g, '&') // Replace ampersand
-          .replace(/&lt;/g, '<') // Replace less than
-          .replace(/&gt;/g, '>') // Replace greater than
-          .replace(/&hellip;/g, '...') // Replace ellipsis
-          .replace(/<mark>/g, chalk.yellow.bold('')) // Highlight marks
-          .replace(/<\/mark>/g, chalk.reset(''))
-          .replace(/\s+/g, ' ') // Normalize whitespace
-          .trim();
-        
-        // Truncate to reasonable length
-        const maxSnippetLength = 150;
-        if (cleanSnippet.length > maxSnippetLength) {
-          cleanSnippet = cleanSnippet.substring(0, maxSnippetLength) + '...';
-        }
-        
-        console.log(chalk.dim(`  ${cleanSnippet}`));
+      if (results.length === 0) {
+        console.log('No results found.');
+        return;
       }
-      
-      // Show metadata for Jira issues with visual indicators
-      if (content.source === 'jira' && content.metadata) {
-        const meta = content.metadata;
-        const status = (meta.status as string) || 'Unknown';
-        const priority = (meta.priority as string) || 'Unassigned';
-        const assignee = (meta.assignee as string) || 'Unassigned';
+
+      // Process results - Meilisearch already handles ranking
+      const limitedResults = results.map(result => ({
+        ...result,
+        team: getTeamFromMetadata(result.content)
+      }));
+
+      // Display results with enhanced formatting
+      console.log(chalk.dim(`Found ${results.length} results:\n`));
+
+      // Track search results being viewed
+      const searchAnalytics = new SearchAnalytics();
+      limitedResults.forEach(result => {
+        searchAnalytics.recordInteraction({
+          query,
+          resultId: result.content.id,
+          resultTitle: result.content.title,
+          resultScore: result.score,
+          interactionType: 'view',
+          timestamp: Date.now()
+        });
+      });
+      searchAnalytics.close();
+
+      limitedResults.forEach((result, index) => {
+        const { content, score, team } = result;
+        const scorePercent = Math.round(score * 100);
+        const scoreColor = getScoreColor(scorePercent);
         
-        // Status with visual indicators
-        const getStatusIndicator = (status: string): string => {
-          const statusLower = status.toLowerCase();
-          if (['done', 'closed', 'resolved'].includes(statusLower)) {
-            return chalk.green('✓'); // Green checkmark for completed
-          } else if (['in progress', 'in review', 'testing'].includes(statusLower)) {
-            return chalk.yellow('●'); // Yellow dot for in progress
-          } else if (['open', 'to do', 'new', 'reopened'].includes(statusLower)) {
-            return chalk.red('○'); // Red circle for open
-          } else if (['cancelled', 'rejected', "won't do"].includes(statusLower)) {
-            return chalk.gray('✗'); // Gray X for cancelled
-          } else {
-            return chalk.blue('?'); // Blue question mark for unknown
+        // Clean title formatting
+        const title = chalk.bold(content.title);
+        const scoreDisplay = scoreColor(`${scorePercent}%`);
+        const paddedTitle = title.length > 60 ? title.substring(0, 57) + '...' : title;
+        const padding = ' '.repeat(Math.max(0, 65 - title.length));
+        
+        console.log(`${paddedTitle}${padding}${scoreDisplay}`);
+        
+        // Display snippet from Meilisearch (already highlighted)
+        if (result.snippet) {
+          // Clean up the snippet: decode HTML entities and excessive whitespace
+          let cleanSnippet = result.snippet
+            .replace(/&rsquo;/g, "'") // Replace right single quote
+            .replace(/&quot;/g, '"') // Replace quotes
+            .replace(/&amp;/g, '&') // Replace ampersand
+            .replace(/&lt;/g, '<') // Replace less than
+            .replace(/&gt;/g, '>') // Replace greater than
+            .replace(/&hellip;/g, '...') // Replace ellipsis
+            .replace(/<mark>/g, chalk.yellow.bold('')) // Highlight marks
+            .replace(/<\/mark>/g, chalk.reset(''))
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .trim();
+          
+          // Truncate to reasonable length
+          const maxSnippetLength = 150;
+          if (cleanSnippet.length > maxSnippetLength) {
+            cleanSnippet = cleanSnippet.substring(0, maxSnippetLength) + '...';
           }
-        };
+          
+          console.log(chalk.dim(`  ${cleanSnippet}`));
+        }
         
-        // Priority with visual indicators
-        const getPriorityColor = (priority: string): typeof chalk.red => {
-          const priorityLower = priority.toLowerCase();
-          if (['highest', 'critical', 'blocker'].includes(priorityLower)) {
-            return chalk.red.bold;
-          } else if (['high', 'major'].includes(priorityLower)) {
-            return chalk.red;
-          } else if (['medium', 'normal'].includes(priorityLower)) {
-            return chalk.yellow;
-          } else if (['low', 'minor', 'trivial'].includes(priorityLower)) {
-            return chalk.green;
-          } else {
-            return chalk.dim;
+        // Show metadata for Jira issues with visual indicators
+        if (content.source === 'jira' && content.metadata) {
+          const meta = content.metadata;
+          const status = (meta.status as string) || 'Unknown';
+          const priority = (meta.priority as string) || 'Unassigned';
+          const assignee = (meta.assignee as string) || 'Unassigned';
+          
+          // Status with visual indicators
+          const getStatusIndicator = (status: string): string => {
+            const statusLower = status.toLowerCase();
+            if (['done', 'closed', 'resolved'].includes(statusLower)) {
+              return chalk.green('✓'); // Green checkmark for completed
+            } else if (['in progress', 'in review', 'testing'].includes(statusLower)) {
+              return chalk.yellow('●'); // Yellow dot for in progress
+            } else if (['open', 'to do', 'new', 'reopened'].includes(statusLower)) {
+              return chalk.red('○'); // Red circle for open
+            } else if (['cancelled', 'rejected', "won't do"].includes(statusLower)) {
+              return chalk.gray('✗'); // Gray X for cancelled
+            } else {
+              return chalk.blue('?'); // Blue question mark for unknown
+            }
+          };
+          
+          // Priority with visual indicators
+          const getPriorityColor = (priority: string): typeof chalk.red => {
+            const priorityLower = priority.toLowerCase();
+            if (['highest', 'critical', 'blocker'].includes(priorityLower)) {
+              return chalk.red.bold;
+            } else if (['high', 'major'].includes(priorityLower)) {
+              return chalk.red;
+            } else if (['medium', 'normal'].includes(priorityLower)) {
+              return chalk.yellow;
+            } else if (['low', 'minor', 'trivial'].includes(priorityLower)) {
+              return chalk.green;
+            } else {
+              return chalk.dim;
+            }
+          };
+          
+          const statusIndicator = getStatusIndicator(status);
+          const priorityDisplay = getPriorityColor(priority)(priority);
+          const statusDisplay = chalk.white(status);
+          
+          console.log(`  ${statusIndicator} ${statusDisplay} • ${priorityDisplay} • ${chalk.dim(assignee)}`);
+        }
+        
+        // Minimal metadata line with clickable URL
+        // For Jira issues, check if updatedAt is actually the sync time (within last day)
+        let displayTime = content.updatedAt;
+        if (content.source === 'jira' && content.updatedAt) {
+          const hoursSinceUpdate = (Date.now() - content.updatedAt) / (1000 * 60 * 60);
+          if (hoursSinceUpdate < 24) {
+            // This is likely sync time, not real update time
+            // Don't show misleading recent time
+            displayTime = undefined;
           }
-        };
+        }
         
-        const statusIndicator = getStatusIndicator(status);
-        const priorityDisplay = getPriorityColor(priority)(priority);
-        const statusDisplay = chalk.white(status);
+        const timeAgo = displayTime ? formatTimeAgo(displayTime) : 'Unknown';
+        const isRecent = displayTime && (Date.now() - displayTime) < (7 * 24 * 60 * 60 * 1000);
+        const timeColor = isRecent ? chalk.green : chalk.dim;
         
-        console.log(`  ${statusIndicator} ${statusDisplay} • ${priorityDisplay} • ${chalk.dim(assignee)}`);
-      }
-      
-      // Minimal metadata line with clickable URL
-      // For Jira issues, check if updatedAt is actually the sync time (within last day)
-      let displayTime = content.updatedAt;
-      if (content.source === 'jira' && content.updatedAt) {
-        const hoursSinceUpdate = (Date.now() - content.updatedAt) / (1000 * 60 * 60);
-        if (hoursSinceUpdate < 24) {
-          // This is likely sync time, not real update time
-          // Don't show misleading recent time
-          displayTime = undefined;
+        // Build full URL for clicking
+        let fullUrl = content.url;
+        if (config && !content.url.startsWith('http')) {
+          if (content.source === 'confluence') {
+            fullUrl = `${config.jiraUrl}/wiki${content.url}`;
+          } else if (content.source === 'jira') {
+            fullUrl = `${config.jiraUrl}${content.url}`;
+          }
+        } else if (config && content.url.includes('/rest/api/')) {
+          // Convert API URLs to browse URLs for Jira issues
+          if (content.source === 'jira' && content.id.startsWith('jira:')) {
+            const issueKey = content.id.replace('jira:', '');
+            fullUrl = `${config.jiraUrl}/browse/${issueKey}`;
+          }
         }
-      }
-      
-      const timeAgo = displayTime ? formatTimeAgo(displayTime) : 'Unknown';
-      const isRecent = displayTime && (Date.now() - displayTime) < (7 * 24 * 60 * 60 * 1000);
-      const timeColor = isRecent ? chalk.green : chalk.dim;
-      
-      // Build full URL for clicking
-      let fullUrl = content.url;
-      if (config && !content.url.startsWith('http')) {
-        if (content.source === 'confluence') {
-          fullUrl = `${config.jiraUrl}/wiki${content.url}`;
-        } else if (content.source === 'jira') {
-          fullUrl = `${config.jiraUrl}${content.url}`;
+        
+        console.log(chalk.dim(`  ${team} • `) + timeColor(timeAgo) + chalk.cyan(` → ${fullUrl}`));
+        
+        // Only add blank line between results, not after the last one
+        if (index < limitedResults.length - 1) {
+          console.log('');
         }
-      } else if (config && content.url.includes('/rest/api/')) {
-        // Convert API URLs to browse URLs for Jira issues
-        if (content.source === 'jira' && content.id.startsWith('jira:')) {
-          const issueKey = content.id.replace('jira:', '');
-          fullUrl = `${config.jiraUrl}/browse/${issueKey}`;
-        }
-      }
-      
-      console.log(chalk.dim(`  ${team} • `) + timeColor(timeAgo) + chalk.cyan(` → ${fullUrl}`));
-      
-      // Only add blank line between results, not after the last one
-      if (index < limitedResults.length - 1) {
-        console.log('');
-      }
-    });
-  } catch (error) {
-    console.error(`Search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+      });
+    },
+    catch: (error) => {
+      console.error(`Search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     configManager.close();
-  }
+  });
 }
 
 
@@ -1436,145 +1489,150 @@ async function syncJiraProject(projectKey: string, options: { fresh?: boolean } 
   const cacheManager = new CacheManager();
   const contentManager = new ContentManager();
 
-  try {
-    console.log(`\n🔍 Syncing Jira project ${chalk.bold.blue(projectKey)}...\n`);
-    
-    // Track this project as a workspace
-    await cacheManager.trackWorkspace('jira_project', projectKey, `Project ${projectKey}`);
-    
-    // If --clean flag is set, delete existing issues first
-    if (options.fresh) {
-      console.log(chalk.yellow('🧹 Clearing existing issues for clean sync...\n'));
-      await cacheManager.deleteProjectIssues(projectKey);
-    }
-    
-    // Get our current sync state
-    const existingIssues = await cacheManager.listIssuesByProject(projectKey);
-    const existingCount = existingIssues.length;
-    
-    if (existingCount === 0) {
-      console.log(`📋 First sync - fetching newest issues first...\n`);
-    } else {
-      console.log(`📊 Issues in database: ${chalk.dim(existingCount.toString())}`);
-      
-      // Find newest and oldest modified dates
-      let newestModified = new Date(0);
-      let oldestModified = new Date();
-      
-      existingIssues.forEach(issue => {
-        const updated = new Date(issue.updated);
-        if (updated > newestModified) newestModified = updated;
-        if (updated < oldestModified) oldestModified = updated;
-      });
-      
-      console.log(`📅 Newest: ${chalk.dim(newestModified.toLocaleString())}`);
-      console.log(`📅 Oldest: ${chalk.dim(oldestModified.toLocaleString())}\n`);
-    }
-    
-    const startTime = Date.now();
-    const batchSize = 100;
-    let totalSynced = 0;
-    
-    // Helper to format JQL date
-    const formatJqlDate = (date: Date) => {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const hours = String(date.getHours()).padStart(2, '0');
-      const minutes = String(date.getMinutes()).padStart(2, '0');
-      return `${year}/${month}/${day} ${hours}:${minutes}`;
-    };
-    
-    // If we have existing issues, check for newer ones first
-    if (existingCount > 0) {
-      const newestModified = existingIssues.reduce((max, issue) => {
-        const updated = new Date(issue.updated);
-        return updated > max ? updated : max;
-      }, new Date(0));
-      
-      const newerJql = `project = ${projectKey} AND updated > "${formatJqlDate(newestModified)}" ORDER BY updated DESC`;
-      
-      // Check how many newer issues exist
-      const newerCount = await jiraClient.searchIssues(newerJql, { maxResults: 0 });
-      
-      if (newerCount.total > 0) {
-        console.log(`🆕 Found ${newerCount.total} newer issues to sync...\n`);
-        
-        // Fetch all newer issues (they're recent, so shouldn't be too many)
-        let startAt = 0;
-        while (startAt < newerCount.total) {
-          const batch = await jiraClient.searchIssues(newerJql, { startAt, maxResults: batchSize, fields: ISSUE_FIELDS });
-          
-          if (batch.issues.length > 0) {
-            await saveIssuesBatch(batch.issues, cacheManager, contentManager);
-            totalSynced += batch.issues.length;
+  const program = Effect.tryPromise({
+    try: async () => {
+      console.log(`\n🔍 Syncing Jira project ${chalk.bold.blue(projectKey)}...\n`);
+
+      // Track this project as a workspace
+      await cacheManager.trackWorkspace('jira_project', projectKey, `Project ${projectKey}`);
+
+      // If --clean flag is set, delete existing issues first
+      if (options.fresh) {
+        console.log(chalk.yellow('🧹 Clearing existing issues for clean sync...\n'));
+        await cacheManager.deleteProjectIssues(projectKey);
+      }
+
+      // Get our current sync state
+      const existingIssues = await cacheManager.listIssuesByProject(projectKey);
+      const existingCount = existingIssues.length;
+
+      if (existingCount === 0) {
+        console.log(`📋 First sync - fetching newest issues first...\n`);
+      } else {
+        console.log(`📊 Issues in database: ${chalk.dim(existingCount.toString())}`);
+
+        // Find newest and oldest modified dates
+        let newestModified = new Date(0);
+        let oldestModified = new Date();
+
+        existingIssues.forEach((issue) => {
+          const updated = new Date(issue.updated);
+          if (updated > newestModified) newestModified = updated;
+          if (updated < oldestModified) oldestModified = updated;
+        });
+
+        console.log(`📅 Newest: ${chalk.dim(newestModified.toLocaleString())}`);
+        console.log(`📅 Oldest: ${chalk.dim(oldestModified.toLocaleString())}\n`);
+      }
+
+      const startTime = Date.now();
+      const batchSize = 100;
+      let totalSynced = 0;
+
+      // Helper to format JQL date
+      const formatJqlDate = (date: Date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${year}/${month}/${day} ${hours}:${minutes}`;
+      };
+
+      // If we have existing issues, check for newer ones first
+      if (existingCount > 0) {
+        const newestModified = existingIssues.reduce((max, issue) => {
+          const updated = new Date(issue.updated);
+          return updated > max ? updated : max;
+        }, new Date(0));
+
+        const newerJql = `project = ${projectKey} AND updated > "${formatJqlDate(newestModified)}" ORDER BY updated DESC`;
+
+        // Check how many newer issues exist
+        const newerCount = await jiraClient.searchIssues(newerJql, { maxResults: 0 });
+
+        if (newerCount.total > 0) {
+          console.log(`🆕 Found ${newerCount.total} newer issues to sync...\n`);
+
+          // Fetch all newer issues (they're recent, so shouldn't be too many)
+          let startAt = 0;
+          while (startAt < newerCount.total) {
+            const batch = await jiraClient.searchIssues(newerJql, { startAt, maxResults: batchSize, fields: ISSUE_FIELDS });
+
+            if (batch.issues.length > 0) {
+              await saveIssuesBatch(batch.issues, cacheManager, contentManager);
+              totalSynced += batch.issues.length;
+            }
+
+            startAt += batchSize;
           }
-          
-          startAt += batchSize;
         }
       }
-    }
-    
-    // Now work backwards from either the oldest we have, or from newest if first sync
-    let continueSync = true;
-    let currentOldest = existingCount > 0 
-      ? existingIssues.reduce((min, issue) => {
-          const updated = new Date(issue.updated);
-          return updated < min ? updated : min;
-        }, new Date())
-      : new Date(); // Start from now if first sync
-    
-    while (continueSync) {
-      // Get batch of issues older than our current oldest
-      const olderJql = `project = ${projectKey} AND updated < "${formatJqlDate(currentOldest)}" ORDER BY updated DESC`;
-      
-      const batch = await jiraClient.searchIssues(olderJql, { startAt: 0, maxResults: batchSize, fields: ISSUE_FIELDS });
-      
-      if (batch.issues.length === 0) {
-        // No more older issues
-        continueSync = false;
-        break;
-      }
-      
-      console.log(`📦 Fetching batch: ${batch.issues.length} issues older than ${currentOldest.toLocaleDateString()}...`);
-      
-      await saveIssuesBatch(batch.issues, cacheManager, contentManager);
-      totalSynced += batch.issues.length;
-      
-      // Update our oldest date for next iteration
-      const batchOldest = batch.issues.reduce((min, issue) => {
-        const updated = new Date(issue.fields.updated);
-        return updated < min ? updated : min;
-      }, currentOldest);
-      
-      currentOldest = batchOldest;
-      
-      // If we got less than a full batch, we're probably near the end
-      if (batch.issues.length < batchSize) {
-        console.log(`\n📍 Reached older issues (got ${batch.issues.length} in last batch)\n`);
-        continueSync = false;
-      }
-    }
-    
-    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(chalk.green(`\n✅ Sync complete! Added/updated ${totalSynced} issues in ${totalTime}s\n`));
-    
-    // Get final count
-    const finalCount = await cacheManager.listIssuesByProject(projectKey);
-    console.log(chalk.dim(`   Total issues in local database: ${finalCount.length}\n`));
-    
-    console.log(`💡 Next steps:`);
-    console.log(`   • Search all issues: ${chalk.cyan('ji search <query>')}`);
-    console.log(`   • View an issue: ${chalk.cyan('ji issue view <issue-key>')}\n`);
 
-  } catch (error) {
-    console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+      // Now work backwards from either the oldest we have, or from newest if first sync
+      let continueSync = true;
+      let currentOldest =
+        existingCount > 0
+          ? existingIssues.reduce((min, issue) => {
+              const updated = new Date(issue.updated);
+              return updated < min ? updated : min;
+            }, new Date())
+          : new Date(); // Start from now if first sync
+
+      while (continueSync) {
+        // Get batch of issues older than our current oldest
+        const olderJql = `project = ${projectKey} AND updated < "${formatJqlDate(currentOldest)}" ORDER BY updated DESC`;
+
+        const batch = await jiraClient.searchIssues(olderJql, { startAt: 0, maxResults: batchSize, fields: ISSUE_FIELDS });
+
+        if (batch.issues.length === 0) {
+          // No more older issues
+          continueSync = false;
+          break;
+        }
+
+        console.log(`📦 Fetching batch: ${batch.issues.length} issues older than ${currentOldest.toLocaleDateString()}...`);
+
+        await saveIssuesBatch(batch.issues, cacheManager, contentManager);
+        totalSynced += batch.issues.length;
+
+        // Update our oldest date for next iteration
+        const batchOldest = batch.issues.reduce((min, issue) => {
+          const updated = new Date(issue.fields.updated);
+          return updated < min ? updated : min;
+        }, currentOldest);
+
+        currentOldest = batchOldest;
+
+        // If we got less than a full batch, we're probably near the end
+        if (batch.issues.length < batchSize) {
+          console.log(`\n📍 Reached older issues (got ${batch.issues.length} in last batch)\n`);
+          continueSync = false;
+        }
+      }
+
+      const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(chalk.green(`\n✅ Sync complete! Added/updated ${totalSynced} issues in ${totalTime}s\n`));
+
+      // Get final count
+      const finalCount = await cacheManager.listIssuesByProject(projectKey);
+      console.log(chalk.dim(`   Total issues in local database: ${finalCount.length}\n`));
+
+      console.log(`💡 Next steps:`);
+      console.log(`   • Search all issues: ${chalk.cyan('ji search <query>')}`);
+      console.log(`   • View an issue: ${chalk.cyan('ji issue view <issue-key>')}\n`);
+    },
+    catch: (error) => {
+      console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     configManager.close();
     cacheManager.close();
     contentManager.close();
-  }
+  });
 }
 
 function createProgressBar(percent: number, width: number = 30): string {
@@ -1587,58 +1645,64 @@ function createProgressBar(percent: number, width: number = 30): string {
 async function showRecentConfluencePages(spaceKey: string, limit: number = 10) {
   const configManager = new ConfigManager();
   
-  try {
-    const config = await configManager.getConfig();
-    if (!config) {
-      console.error(chalk.red('❌ Not authenticated. Run "ji auth" first.'));
-      return;
-    }
-    
-    const confluenceClient = new ConfluenceClient(config);
-    
-    console.log(chalk.blue(`\n📅 Recently updated pages in ${spaceKey}...\n`));
-    
-    const spinner = ora('Fetching recent pages...').start();
-    
-    try {
-      const recentPages = await confluenceClient.getRecentlyUpdatedPages(spaceKey, limit);
-      spinner.stop();
-      
-      if (recentPages.length === 0) {
-        console.log(chalk.yellow('No pages found.'));
+  const program = Effect.tryPromise({
+    try: async () => {
+      const config = await configManager.getConfig();
+      if (!config) {
+        console.error(chalk.red('❌ Not authenticated. Run "ji auth" first.'));
         return;
       }
-      
-      console.log(chalk.bold(`Most recent ${recentPages.length} pages:\n`));
-      
-      recentPages.forEach((page, index) => {
-        const date = new Date(page.version.when);
-        const formattedDate = date.toLocaleDateString('en-US', { 
-          month: 'short', 
-          day: 'numeric',
-          year: 'numeric'
+
+      const confluenceClient = new ConfluenceClient(config);
+
+      console.log(chalk.blue(`\n📅 Recently updated pages in ${spaceKey}...\n`));
+
+      const spinner = ora('Fetching recent pages...').start();
+
+      try {
+        const recentPages = await confluenceClient.getRecentlyUpdatedPages(spaceKey, limit);
+        spinner.stop();
+
+        if (recentPages.length === 0) {
+          console.log(chalk.yellow('No pages found.'));
+          return;
+        }
+
+        console.log(chalk.bold(`Most recent ${recentPages.length} pages:\n`));
+
+        recentPages.forEach((page, index) => {
+          const date = new Date(page.version.when);
+          const formattedDate = date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          });
+          const formattedTime = date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+
+          console.log(`${chalk.dim(`${index + 1}.`)} ${chalk.bold(page.title)}`);
+          console.log(`   ${chalk.dim('Updated:')} ${formattedDate} at ${formattedTime}`);
+          console.log(`   ${chalk.dim('By:')} ${page.version.by.displayName}`);
+          console.log(`   ${chalk.dim('Version:')} ${page.version.number}`);
+          console.log(`   ${chalk.dim('URL:')} ${chalk.cyan(page.webUrl)}`);
+          console.log();
         });
-        const formattedTime = date.toLocaleTimeString('en-US', { 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        });
-        
-        console.log(`${chalk.dim(`${index + 1}.`)} ${chalk.bold(page.title)}`);
-        console.log(`   ${chalk.dim('Updated:')} ${formattedDate} at ${formattedTime}`);
-        console.log(`   ${chalk.dim('By:')} ${page.version.by.displayName}`);
-        console.log(`   ${chalk.dim('Version:')} ${page.version.number}`);
-        console.log(`   ${chalk.dim('URL:')} ${chalk.cyan(page.webUrl)}`);
-        console.log();
-      });
-      
-    } catch (error) {
-      spinner.fail('Failed to fetch recent pages');
-      console.error(chalk.red(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`));
-    }
-    
-  } finally {
+      } catch (error) {
+        spinner.fail('Failed to fetch recent pages');
+        console.error(chalk.red(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`));
+      }
+    },
+    catch: (error) => {
+      console.error(`Failed to show recent Confluence pages: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     configManager.close();
-  }
+  });
 }
 
 async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {}) {
@@ -1654,314 +1718,342 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
   const contentManager = new ContentManager();
   const cacheManager = new CacheManager();
 
-  try {
-    console.log(`\n🔍 Syncing Confluence space ${chalk.bold.blue(spaceKey)}...\n`);
-    
-    // First verify the space exists
-    const space = await confluenceClient.getSpace(spaceKey);
-    console.log(`📚 Space: ${chalk.bold(space.name)}\n`);
-    
-    // Track this space as a workspace
-    await cacheManager.trackWorkspace('confluence_space', spaceKey, space.name);
+  const program = Effect.tryPromise({
+    try: async () => {
+      console.log(`\n🔍 Syncing Confluence space ${chalk.bold.blue(spaceKey)}...\n`);
 
-    const startTime = Date.now();
-    let pagesToSync: string[] = [];
-    
-    if (options.clean) {
-      console.log('🧹 Clean sync: fetching all pages...\n');
-      
-      // Full sync - get all pages from the space
-      const spinner = ora('Fetching all pages...').start();
-      
-      const allPages = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
-        spinner.text = `Fetching pages... ${current} found`;
-      });
-      
-      spinner.succeed(`Found ${allPages.length} pages`);
+      // First verify the space exists
+      const space = await confluenceClient.getSpace(spaceKey);
+      console.log(`📚 Space: ${chalk.bold(space.name)}\n`);
 
-      if (allPages.length === 0) {
-        console.log(chalk.yellow('⚠️  No pages found in this space.'));
-        return;
-      }
-      
-      pagesToSync = allPages.map(p => p.id);
-      console.log(`\n💾 Will sync all ${pagesToSync.length} pages...\n`);
-    } else {
-      console.log('⚡ Incremental sync: checking for changes...\n');
-      
-      // Get the newest modified date from our stored pages
-      const newestModifiedDate = await contentManager.getNewestPageModifiedDate(spaceKey);
-      
-      if (newestModifiedDate) {
-        // Only fetch pages modified after our newest stored page
-        const spinner = ora('Checking for recently modified pages...').start();
-        
-        const modifiedPageIds = await confluenceClient.getPagesSince(spaceKey, newestModifiedDate, (current) => {
-          spinner.text = `Found ${current} modified pages...`;
-        });
-        
-        spinner.succeed(`Found ${modifiedPageIds.length} pages modified since ${newestModifiedDate.toLocaleDateString()}`);
-        
-        if (modifiedPageIds.length === 0) {
-          console.log(chalk.green('\n✅ All pages are up to date!'));
-          return;
-        }
-        
-        pagesToSync = modifiedPageIds;
-        console.log(`\n💾 Will sync ${pagesToSync.length} modified pages`);
-      } else {
-        // First sync - need to get all pages
-        console.log(chalk.dim('  No previous sync found. Fetching all pages...'));
-        
-        let lastUpdate = Date.now();
-        const spinner = ora('Fetching page list...').start();
-        
+      // Track this space as a workspace
+      await cacheManager.trackWorkspace('confluence_space', spaceKey, space.name);
+
+      const startTime = Date.now();
+      let pagesToSync: string[] = [];
+
+      if (options.clean) {
+        console.log('🧹 Clean sync: fetching all pages...\n');
+
+        // Full sync - get all pages from the space
+        const spinner = ora('Fetching all pages...').start();
+
         const allPages = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
-          const now = Date.now();
-          if (now - lastUpdate > 100) {
-            spinner.text = `Fetching page list... ${current} pages`;
-            lastUpdate = now;
-          }
+          spinner.text = `Fetching pages... ${current} found`;
         });
-        
+
         spinner.succeed(`Found ${allPages.length} pages`);
-        
+
         if (allPages.length === 0) {
           console.log(chalk.yellow('⚠️  No pages found in this space.'));
           return;
         }
-        
-        pagesToSync = allPages.map(p => p.id);
-        console.log(`\n💾 Will sync all ${pagesToSync.length} pages`);
-      }
-      
-      if (pagesToSync.length === 0) {
-        console.log(chalk.green('\n✅ All pages are up to date!'));
-        return;
-      }
-      
-      console.log(`\n💾 Syncing ${pagesToSync.length} pages...\n`);
-    }
-    
-    // Process pages in batches for better performance
-    const BATCH_SIZE = 50;
-    const batches = [];
-    
-    for (let i = 0; i < pagesToSync.length; i += BATCH_SIZE) {
-      batches.push(pagesToSync.slice(i, i + BATCH_SIZE));
-    }
-    
-    
-    // Process each batch
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      
-      // Update progress for batch
-      const percent = Math.round(((batchIndex + 1) / batches.length) * 100);
-      const progressBar = createProgressBar(percent, 20);
-      const statusLine = `💾 ${progressBar} ${percent}% | Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} pages)`;
-      process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
-      
-      // Process all pages in this batch in parallel
-      const batchPromises = batch.map(async (pageId) => {
-        // Fetch full page content
-        const page = await confluenceClient.getPage(pageId);
-        
-        // Convert storage format to markdown for better LLM understanding
-        const plainText = confluenceToMarkdown(page.body?.storage?.value || '');
-        
-        // Extract metadata
-        const metadata = {
-          spaceKey: page.space.key,
-          spaceName: page.space.name,
-          version: String(page.version.number),
-          lastModified: page.version.when,
-          webUrl: page._links.webui
-        };
 
-        // Save to content manager
-        await contentManager.saveContent({
-          id: `confluence:${page.id}`,
-          source: 'confluence',
-          type: 'page',
-          title: page.title,
-          content: plainText,
-          url: page._links.webui,
-          spaceKey: page.space.key,
-          metadata,
-          updatedAt: new Date(page.version.when).getTime(),
-          syncedAt: Date.now()
+        pagesToSync = allPages.map((p) => p.id);
+        console.log(`\n💾 Will sync all ${pagesToSync.length} pages...\n`);
+      } else {
+        console.log('⚡ Incremental sync: checking for changes...\n');
+
+        // Get the newest modified date from our stored pages
+        const newestModifiedDate = await contentManager.getNewestPageModifiedDate(spaceKey);
+
+        if (newestModifiedDate) {
+          // Only fetch pages modified after our newest stored page
+          const spinner = ora('Checking for recently modified pages...').start();
+
+          const modifiedPageIds = await confluenceClient.getPagesSince(spaceKey, newestModifiedDate, (current) => {
+            spinner.text = `Found ${current} modified pages...`;
+          });
+
+          spinner.succeed(`Found ${modifiedPageIds.length} pages modified since ${newestModifiedDate.toLocaleDateString()}`);
+
+          if (modifiedPageIds.length === 0) {
+            console.log(chalk.green('\n✅ All pages are up to date!'));
+            return;
+          }
+
+          pagesToSync = modifiedPageIds;
+          console.log(`\n💾 Will sync ${pagesToSync.length} modified pages`);
+        } else {
+          // First sync - need to get all pages
+          console.log(chalk.dim('  No previous sync found. Fetching all pages...'));
+
+          let lastUpdate = Date.now();
+          const spinner = ora('Fetching page list...').start();
+
+          const allPages = await confluenceClient.getSpacePagesLightweight(spaceKey, (current) => {
+            const now = Date.now();
+            if (now - lastUpdate > 100) {
+              spinner.text = `Fetching page list... ${current} pages`;
+              lastUpdate = now;
+            }
+          });
+
+          spinner.succeed(`Found ${allPages.length} pages`);
+
+          if (allPages.length === 0) {
+            console.log(chalk.yellow('⚠️  No pages found in this space.'));
+            return;
+          }
+
+          pagesToSync = allPages.map((p) => p.id);
+          console.log(`\n💾 Will sync all ${pagesToSync.length} pages`);
+        }
+
+        if (pagesToSync.length === 0) {
+          console.log(chalk.green('\n✅ All pages are up to date!'));
+          return;
+        }
+
+        console.log(`\n💾 Syncing ${pagesToSync.length} pages...\n`);
+      }
+
+      // Process pages in batches for better performance
+      const BATCH_SIZE = 50;
+      const batches = [];
+
+      for (let i = 0; i < pagesToSync.length; i += BATCH_SIZE) {
+        batches.push(pagesToSync.slice(i, i + BATCH_SIZE));
+      }
+
+      // Process each batch
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+
+        // Update progress for batch
+        const percent = Math.round(((batchIndex + 1) / batches.length) * 100);
+        const progressBar = createProgressBar(percent, 20);
+        const statusLine = `💾 ${progressBar} ${percent}% | Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} pages)`;
+        process.stdout.write('\r' + ' '.repeat(80) + '\r' + statusLine);
+
+        // Process all pages in this batch in parallel
+        const batchPromises = batch.map(async (pageId) => {
+          // Fetch full page content
+          const page = await confluenceClient.getPage(pageId);
+
+          // Convert storage format to markdown for better LLM understanding
+          const plainText = confluenceToMarkdown(page.body?.storage?.value || '');
+
+          // Extract metadata
+          const metadata = {
+            spaceKey: page.space.key,
+            spaceName: page.space.name,
+            version: String(page.version.number),
+            lastModified: page.version.when,
+            webUrl: page._links.webui,
+          };
+
+          // Save to content manager
+          await contentManager.saveContent({
+            id: `confluence:${page.id}`,
+            source: 'confluence',
+            type: 'page',
+            title: page.title,
+            content: plainText,
+            url: page._links.webui,
+            spaceKey: page.space.key,
+            metadata,
+            updatedAt: new Date(page.version.when).getTime(),
+            syncedAt: Date.now(),
+          });
         });
-      });
-      
-      // Wait for all pages in this batch to complete
-      await Promise.all(batchPromises);
-    }
 
-    console.log(''); // New line after progress
-    
-    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(chalk.green(`\n✅ Successfully synced ${pagesToSync.length} pages from ${space.name} in ${totalTime}s\n`));
-    
-    console.log(`💡 Next steps:`);
-    console.log(`   • Search all content: ${chalk.cyan('ji search <query>')}`);
-    console.log(`   • Search Confluence only: ${chalk.cyan('ji search --source confluence <query>')}`);
-    console.log(`   • View a page: ${chalk.cyan('ji confluence view <page-id>')}\n`);
+        // Wait for all pages in this batch to complete
+        await Promise.all(batchPromises);
+      }
 
-  } catch (error) {
-    console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+      console.log(''); // New line after progress
+
+      const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(chalk.green(`\n✅ Successfully synced ${pagesToSync.length} pages from ${space.name} in ${totalTime}s\n`));
+
+      console.log(`💡 Next steps:`);
+      console.log(`   • Search all content: ${chalk.cyan('ji search <query>')}`);
+      console.log(`   • Search Confluence only: ${chalk.cyan('ji search --source confluence <query>')}`);
+      console.log(`   • View a page: ${chalk.cyan('ji confluence view <page-id>')}\n`);
+    },
+    catch: (error) => {
+      console.error(`\n❌ Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     configManager.close();
     contentManager.close();
     cacheManager.close();
-  }
+  });
 }
 
 async function addMemory(fact: string) {
   const memoryManager = new MemoryManager();
   
-  try {
-    const success = memoryManager.addManualMemory(fact);
-    
-    if (success) {
-      console.log(chalk.green('✅ Memory added successfully!'));
-      console.log(chalk.dim(`   "${fact}"`));
-    } else {
-      console.log(chalk.yellow('⚠️  Similar memory already exists - updated instead'));
-    }
-  } catch (error) {
-    console.error(`Failed to add memory: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+  const program = Effect.try({
+    try: () => {
+      const success = memoryManager.addManualMemory(fact);
+      
+      if (success) {
+        console.log(chalk.green('✅ Memory added successfully!'));
+        console.log(chalk.dim(`   "${fact}"`));
+      } else {
+        console.log(chalk.yellow('⚠️  Similar memory already exists - updated instead'));
+      }
+    },
+    catch: (error) => {
+      console.error(`Failed to add memory: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     memoryManager.close();
-  }
+  });
 }
 
 async function listMemories(options: { limit?: number; search?: string } = {}) {
   const memoryManager = new MemoryManager();
   
-  try {
-    let memories;
-    
-    if (options.search) {
-      memories = memoryManager.searchMemories(options.search);
-    } else {
-      memories = memoryManager.listAllMemories(options.limit || 20);
-    }
-    
-    if (memories.length === 0) {
-      console.log(options.search 
-        ? `No memories found matching "${options.search}"`
-        : 'No memories stored yet'
-      );
-      return;
-    }
-    
-    console.log(chalk.bold(`\n📚 Stored Memories (${memories.length})\n`));
-    
-    memories.forEach((memory, i) => {
-      const date = new Date(memory.createdAt).toLocaleDateString();
-      const accessCount = memory.accessCount > 1 ? chalk.dim(` (used ${memory.accessCount}x)`) : '';
+  const program = Effect.try({
+    try: () => {
+      let memories;
       
-      console.log(`${chalk.cyan((i + 1).toString().padStart(2))}. ${memory.keyFacts}`);
-      console.log(`    ${chalk.dim(`Added ${date}${accessCount} • ID: ${memory.id}`)}\n`);
-    });
-  } catch (error) {
-    console.error(`Failed to list memories: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+      if (options.search) {
+        memories = memoryManager.searchMemories(options.search);
+      } else {
+        memories = memoryManager.listAllMemories(options.limit || 20);
+      }
+      
+      if (memories.length === 0) {
+        console.log(options.search 
+          ? `No memories found matching "${options.search}"`
+          : 'No memories stored yet'
+        );
+        return;
+      }
+      
+      console.log(chalk.bold(`\n📚 Stored Memories (${memories.length})\n`));
+      
+      memories.forEach((memory, i) => {
+        const date = new Date(memory.createdAt).toLocaleDateString();
+        const accessCount = memory.accessCount > 1 ? chalk.dim(` (used ${memory.accessCount}x)`) : '';
+        
+        console.log(`${chalk.cyan((i + 1).toString().padStart(2))}. ${memory.keyFacts}`);
+        console.log(`    ${chalk.dim(`Added ${date}${accessCount} • ID: ${memory.id}`)}\n`);
+      });
+    },
+    catch: (error) => {
+      console.error(`Failed to list memories: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     memoryManager.close();
-  }
+  });
 }
 
 async function deleteMemory(memoryId: string) {
   const memoryManager = new MemoryManager();
   
-  try {
-    const success = memoryManager.deleteMemory(memoryId);
-    
-    if (success) {
-      console.log(chalk.green('✅ Memory deleted successfully'));
-    } else {
-      console.log(chalk.yellow('⚠️  Memory not found'));
-    }
-  } catch (error) {
-    console.error(`Failed to delete memory: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+  const program = Effect.try({
+    try: () => {
+      const success = memoryManager.deleteMemory(memoryId);
+      
+      if (success) {
+        console.log(chalk.green('✅ Memory deleted successfully'));
+      } else {
+        console.log(chalk.yellow('⚠️  Memory not found'));
+      }
+    },
+    catch: (error) => {
+      console.error(`Failed to delete memory: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     memoryManager.close();
-  }
+  });
 }
 
 async function showMemoryStats() {
   const memoryManager = new MemoryManager();
   
-  try {
-    const stats = memoryManager.getMemoryStats();
-    
-    console.log(chalk.bold('\n📊 Memory Statistics\n'));
-    console.log(`Total memories: ${chalk.cyan(stats.total.toString())}`);
-    console.log(`Used this week: ${chalk.cyan(stats.recent.toString())}`);
-    
-    if (stats.total > 0) {
-      const percentage = Math.round((stats.recent / stats.total) * 100);
-      console.log(`Activity rate: ${chalk.cyan(percentage + '%')}`);
-    }
-    
-    console.log(chalk.dim('\nUse `ji memories list` to view all memories'));
-  } catch (error) {
-    console.error(`Failed to get memory stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+  const program = Effect.try({
+    try: () => {
+      const stats = memoryManager.getMemoryStats();
+      
+      console.log(chalk.bold('\n📊 Memory Statistics\n'));
+      console.log(`Total memories: ${chalk.cyan(stats.total.toString())}`);
+      console.log(`Used this week: ${chalk.cyan(stats.recent.toString())}`);
+      
+      if (stats.total > 0) {
+        const percentage = Math.round((stats.recent / stats.total) * 100);
+        console.log(`Activity rate: ${chalk.cyan(percentage + '%')}`);
+      }
+      
+      console.log(chalk.dim('\nUse `ji memories list` to view all memories'));
+    },
+    catch: (error) => {
+      console.error(`Failed to get memory stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     memoryManager.close();
-  }
+  });
 }
 
 async function clearMemories(options: { all?: boolean } = {}) {
   const memoryManager = new MemoryManager();
   
-  try {
-    if (options.all) {
-      // Dangerous operation - require confirmation
-      console.log(chalk.yellow('⚠️  This will delete ALL memories (including auto-extracted ones)'));
-      console.log(chalk.yellow('   This action cannot be undone!'));
-      
-      const rl = readline.createInterface({ input, output });
-      const answer = await rl.question('Are you sure? Type "yes" to confirm: ');
-      rl.close();
-      
-      if (answer.toLowerCase() !== 'yes') {
-        console.log('Operation cancelled');
-        return;
-      }
-      
-      const count = memoryManager.clearAllMemories();
-      
-      if (count >= 0) {
-        console.log(chalk.green(`✅ Cleared ${count} memories`));
-      } else {
-        console.log(chalk.red('❌ Failed to clear memories'));
-      }
-    } else {
-      // Clear only manual memories
-      const count = memoryManager.clearManualMemories();
-      
-      if (count >= 0) {
-        console.log(chalk.green(`✅ Cleared ${count} manually added memories`));
-        if (count === 0) {
-          console.log(chalk.dim('   (No manual memories found)'));
+  const program = Effect.tryPromise({
+    try: async () => {
+      if (options.all) {
+        // Dangerous operation - require confirmation
+        console.log(chalk.yellow('⚠️  This will delete ALL memories (including auto-extracted ones)'));
+        console.log(chalk.yellow('   This action cannot be undone!'));
+        
+        const rl = readline.createInterface({ input, output });
+        const answer = await rl.question('Are you sure? Type "yes" to confirm: ');
+        rl.close();
+        
+        if (answer.toLowerCase() !== 'yes') {
+          console.log('Operation cancelled');
+          return;
+        }
+        
+        const count = memoryManager.clearAllMemories();
+        
+        if (count >= 0) {
+          console.log(chalk.green(`✅ Cleared ${count} memories`));
+        } else {
+          console.log(chalk.red('❌ Failed to clear memories'));
         }
       } else {
-        console.log(chalk.red('❌ Failed to clear memories'));
+        // Clear only manual memories
+        const count = memoryManager.clearManualMemories();
+        
+        if (count >= 0) {
+          console.log(chalk.green(`✅ Cleared ${count} manually added memories`));
+          if (count === 0) {
+            console.log(chalk.dim('   (No manual memories found)'));
+          }
+        } else {
+          console.log(chalk.red('❌ Failed to clear memories'));
+        }
       }
-    }
-  } catch (error) {
-    console.error(`Failed to clear memories: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
-  } finally {
+    },
+    catch: (error) => {
+      console.error(`Failed to clear memories: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      process.exit(1);
+    },
+  });
+
+  await Effect.runPromise(program).finally(() => {
     memoryManager.close();
-  }
+  });
 }
 
 async function ask(question: string, options: {
