@@ -501,7 +501,10 @@ const setupEffect = (rl: readline.Interface) =>
             cacheManager.close();
           }
         },
-        catch: () => [],
+        catch: (error) => {
+          console.error('Error fetching projects:', error);
+          return [];
+        },
       }),
     ),
     Effect.flatMap((existingProjects) => {
