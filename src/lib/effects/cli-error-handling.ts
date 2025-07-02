@@ -93,7 +93,7 @@ export class CliErrorReporter {
             ]
           };
 
-        case 'DatabaseError':
+        case 'QueryError':
           return {
             severity: 'error' as const,
             title: 'Database Error',

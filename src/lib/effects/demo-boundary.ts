@@ -39,7 +39,7 @@ async function main() {
             return '  Not found (explicit)';
           case 'ParseError':
             return `  Parse error: ${error.message}`;
-          case 'DatabaseError':
+          case 'QueryError':
             return `  Database error: ${error.message}`;
           default:
             return `  Unknown error: ${error}`;
