@@ -12,6 +12,21 @@ import {
   ContentTooLargeError
 } from './effects/errors.js';
 
+// Atlassian Document Format node type
+interface ADFNode {
+  type?: string;
+  text?: string;
+  content?: ADFNode[];
+}
+
+export interface SearchableContentMetadata {
+  status?: string;
+  priority?: string;
+  assignee?: string;
+  reporter?: string;
+  [key: string]: string | number | undefined;
+}
+
 export interface SearchableContent {
   id: string;
   source: 'jira' | 'confluence';
@@ -21,7 +36,7 @@ export interface SearchableContent {
   url: string;
   spaceKey?: string;
   projectKey?: string;
-  metadata?: any;
+  metadata?: SearchableContentMetadata;
   createdAt?: number;
   updatedAt?: number;
   syncedAt: number;
@@ -357,13 +372,26 @@ export class ContentManager {
     if (query.startsWith('id:')) {
       const id = query.substring(3);
       const stmt = this.db.prepare('SELECT * FROM searchable_content WHERE id = ?');
-      const row = stmt.get(id) as any;
+      const row = stmt.get(id) as {
+        id: string;
+        source: string;
+        type: string;
+        title: string;
+        content: string;
+        url: string;
+        space_key?: string;
+        project_key?: string;
+        metadata?: string;
+        created_at?: number;
+        updated_at?: number;
+        synced_at: number;
+      } | undefined;
       
       if (!row) return [];
       
       return [{
         id: row.id,
-        source: row.source,
+        source: row.source as 'jira' | 'confluence',
         type: row.type,
         title: row.title,
         content: row.content,
@@ -385,7 +413,7 @@ export class ContentManager {
       WHERE content_fts MATCH ?
     `;
 
-    const params: any[] = [query];
+    const params: (string | number)[] = [query];
 
     if (options?.source) {
       sql += ' AND sc.source = ?';
@@ -401,11 +429,25 @@ export class ContentManager {
     params.push(options?.limit || 20);
 
     const stmt = this.db.prepare(sql);
-    const rows = stmt.all(...params) as any[];
+    const rows = stmt.all(...params) as Array<{
+      id: string;
+      source: string;
+      type: string;
+      title: string;
+      content: string;
+      url: string;
+      space_key?: string;
+      project_key?: string;
+      metadata?: string;
+      created_at?: number;
+      updated_at?: number;
+      synced_at: number;
+      snippet: string;
+    }>;
 
     return rows.map(row => ({
       id: row.id,
-      source: row.source,
+      source: row.source as 'jira' | 'confluence',
       type: row.type,
       title: row.title,
       content: row.content,
@@ -433,7 +475,7 @@ export class ContentManager {
     return parts.filter(Boolean).join('\n');
   }
 
-  private extractDescription(description: any): string {
+  private extractDescription(description: string | { content?: ADFNode[] } | null | undefined): string {
     if (typeof description === 'string') {
       return description;
     }
@@ -445,27 +487,27 @@ export class ContentManager {
     return '';
   }
 
-  private parseADF(doc: any): string {
+  private parseADF(doc: { content?: ADFNode[] }): string {
     let text = '';
     
-    const parseNode = (node: any): string => {
+    const parseNode = (node: ADFNode): string => {
       if (node.type === 'text') {
         return node.text || '';
       }
       
-      if (node.content) {
-        return node.content.map((n: any) => parseNode(n)).join('');
+      if (node.type === 'paragraph' && node.content) {
+        return '\n' + node.content.map(n => parseNode(n)).join('') + '\n';
       }
       
-      if (node.type === 'paragraph') {
-        return '\n' + (node.content?.map((n: any) => parseNode(n)).join('') || '') + '\n';
+      if (node.content) {
+        return node.content.map(n => parseNode(n)).join('');
       }
       
       return '';
     };
     
     if (doc.content) {
-      text = doc.content.map((node: any) => parseNode(node)).join('');
+      text = doc.content.map(node => parseNode(node)).join('');
     }
     
     return text.trim();
@@ -546,7 +588,7 @@ export class ContentManager {
   private extractSprintInfo(issue: Issue): { id: string; name: string } | null {
     // Sprint information is typically stored in customfield_10020 or similar
     // The format is usually an array of sprint strings
-    const fields = issue.fields as any;
+    const fields = issue.fields as Record<string, unknown>;
     
     // Note: Sprint detection now uses Jira Agile API directly instead of custom fields
     // since custom field IDs vary between Jira instances
@@ -588,11 +630,14 @@ export class ContentManager {
       }
       
       // Handle single sprint object
-      if (typeof sprintData === 'object' && sprintData.id && sprintData.name) {
-        return {
-          id: String(sprintData.id),
-          name: sprintData.name
-        };
+      if (typeof sprintData === 'object' && sprintData !== null) {
+        const sprint = sprintData as { id?: unknown; name?: unknown };
+        if (sprint.id && sprint.name) {
+          return {
+            id: String(sprint.id),
+            name: String(sprint.name)
+          };
+        }
       }
     }
     
