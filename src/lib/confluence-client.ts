@@ -194,10 +194,19 @@ export class ConfluenceClient {
         throw new Error(`Failed to search pages: ${response.status} - ${errorText}`);
       }
 
-      const data = await response.json() as any;
+      const data = await response.json() as {
+        results: Array<{
+          content: {
+            id: string;
+          };
+        }>;
+        _links?: {
+          next?: string;
+        };
+      };
       
       // Extract just the page IDs
-      const ids = data.results.map((result: any) => result.content.id);
+      const ids = data.results.map(result => result.content.id);
       pageIds.push(...ids);
       
       
@@ -240,7 +249,7 @@ export class ConfluenceClient {
     return parsedData.results.map((result) => {
       // The search API doesn't always return version info
       // Use lastModified from the search result instead
-      const searchResult = result as any; // Access the full result object
+      const searchResult = result as z.infer<typeof SearchResultSchema> & { lastModified?: string };
       return {
         id: result.content.id,
         title: result.content.title,
