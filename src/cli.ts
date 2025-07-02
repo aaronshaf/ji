@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { ConfigManager } from './lib/config.js';
+import { ConfigManager, type Config } from './lib/config.js';
 import { JiraClient, type Board, type Issue, ISSUE_FIELDS } from './lib/jira-client.js';
 import { CacheManager } from './lib/cache.js';
 import { ContentManager } from './lib/content-manager.js';
@@ -199,7 +199,7 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
   }
 }
 
-async function refreshInBackground(issueKey: string, config: any) {
+async function refreshInBackground(issueKey: string, config: Config) {
   const cacheManager = new CacheManager();
   try {
     const client = new JiraClient(config);
@@ -213,7 +213,7 @@ async function refreshInBackground(issueKey: string, config: any) {
   }
 }
 
-async function refreshSprintInBackground(sprintId: string, config: any) {
+async function refreshSprintInBackground(sprintId: string, config: Config) {
   const cacheManager = new CacheManager();
   try {
     const client = new JiraClient(config);
@@ -237,7 +237,7 @@ async function refreshSprintInBackground(sprintId: string, config: any) {
   }
 }
 
-function formatDescription(description: any): string {
+function formatDescription(description: Record<string, any> | string | null | undefined): string {
   if (typeof description === 'string') {
     return description;
   }
@@ -250,27 +250,33 @@ function formatDescription(description: any): string {
   return 'No description available';
 }
 
-function parseADF(doc: any): string {
+function parseADF(doc: { content?: any[] } | null | undefined): string {
   let text = '';
   
-  const parseNode = (node: any): string => {
+  interface ContentNode {
+    type?: string;
+    text?: string;
+    content?: ContentNode[];
+  }
+
+  const parseNode = (node: ContentNode): string => {
     if (node.type === 'text') {
       return node.text || '';
     }
     
-    if (node.content) {
-      return node.content.map((n: any) => parseNode(n)).join('');
+    if (node.type === 'paragraph' && node.content) {
+      return '\n' + node.content.map((n) => parseNode(n)).join('') + '\n';
     }
     
-    if (node.type === 'paragraph') {
-      return '\n' + (node.content?.map((n: any) => parseNode(n)).join('') || '') + '\n';
+    if (node.content) {
+      return node.content.map((n) => parseNode(n)).join('');
     }
     
     return '';
   };
   
-  if (doc.content) {
-    text = doc.content.map((node: any) => parseNode(node)).join('');
+  if (doc && doc.content) {
+    text = doc.content.map((node: ContentNode) => parseNode(node)).join('');
   }
   
   return text.trim();
@@ -287,7 +293,7 @@ function getJiraStatusIcon(status: string): string {
 }
 
 async function saveIssuesBatch(
-  issues: any[], 
+  issues: Issue[], 
   cacheManager: CacheManager, 
   contentManager: ContentManager
 ): Promise<void> {
@@ -315,19 +321,19 @@ async function saveIssuesBatch(
     try {
       await cacheManager.saveIssue(issue);
       await contentManager.saveJiraIssue(issue);
-    } catch (error: any) {
-      if (error.message?.includes('database is locked')) {
+    } catch (error) {
+      if (error instanceof Error && error.message?.includes('database is locked')) {
         // Wait and retry
         await new Promise(resolve => setTimeout(resolve, 200));
         try {
           await cacheManager.saveIssue(issue);
           await contentManager.saveJiraIssue(issue);
-        } catch (retryError: any) {
-          console.error(`\n❌ Failed to save ${issue.key} after retry: ${retryError.message}`);
+        } catch (retryError) {
+          console.error(`\n❌ Failed to save ${issue.key} after retry: ${retryError instanceof Error ? retryError.message : 'Unknown error'}`);
           throw retryError;
         }
       } else {
-        console.error(`\n❌ Failed to save ${issue.key}: ${error.message}`);
+        console.error(`\n❌ Failed to save ${issue.key}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         throw error;
       }
     }
@@ -415,7 +421,7 @@ async function showMyIssues() {
 }
 
 // Trigger a background sync for a specific project
-function triggerBackgroundSync(projectKey: string, config: any) {
+function triggerBackgroundSync(projectKey: string, _config: Config) {
   // Use Bun's subprocess to run the sync in background
   // This won't block the current process
   const subprocess = Bun.spawn([
@@ -518,7 +524,18 @@ async function showSprint(options: {
     
     // Display sprints with their issues
     for (const sprint of activeSprints) {
-      let allIssues: any[] = [];
+      // Define a simplified issue type for display purposes
+      interface SimplifiedIssue {
+        key: string;
+        fields: {
+          summary: string;
+          status: { name: string };
+          priority?: { name: string } | null;
+          assignee?: { displayName: string; emailAddress?: string } | null;
+        };
+      }
+      
+      let allIssues: SimplifiedIssue[] = [];
       let fromCache = false;
 
       // Try cache first (unless it's stale)
@@ -530,15 +547,15 @@ async function showSprint(options: {
         if (cachedIssues.length > 0) {
           allIssues = cachedIssues.map(issue => ({
             key: issue.key,
-            project_key: issue.project_key,
-            summary: issue.summary,
-            status: issue.status,
-            priority: issue.priority,
-            assignee_name: issue.assignee_name,
-            assignee_email: issue.assignee_email,
-            updated: issue.updated,
-            sprint_id: sprint.sprintId,
-            sprint_name: sprint.sprintName
+            fields: {
+              summary: issue.summary,
+              status: { name: issue.status },
+              priority: issue.priority ? { name: issue.priority } : null,
+              assignee: issue.assignee_name ? {
+                displayName: issue.assignee_name,
+                emailAddress: issue.assignee_email || undefined
+              } : null
+            }
           }));
           fromCache = true;
         }
@@ -547,7 +564,10 @@ async function showSprint(options: {
       // If no cached data or stale, fetch from API
       if (allIssues.length === 0) {
         const sprintResult = await jiraClient.getSprintIssues(parseInt(sprint.sprintId));
-        allIssues = sprintResult.issues.map(issue => ({
+        allIssues = sprintResult.issues;
+        
+        // Cache the fresh data in the format expected by setCachedSprintIssues
+        const issuesToCache = sprintResult.issues.map(issue => ({
           key: issue.key,
           project_key: sprint.projectKey,
           summary: issue.fields.summary,
@@ -555,13 +575,9 @@ async function showSprint(options: {
           priority: issue.fields.priority?.name || 'None',
           assignee_name: issue.fields.assignee?.displayName || null,
           assignee_email: issue.fields.assignee?.emailAddress || null,
-          updated: issue.fields.updated,
-          sprint_id: sprint.sprintId,
-          sprint_name: sprint.sprintName
+          updated: issue.fields.updated
         }));
-        
-        // Cache the fresh data
-        await cacheManager.setCachedSprintIssues(sprint.sprintId, allIssues);
+        await cacheManager.setCachedSprintIssues(sprint.sprintId, issuesToCache);
         fromCache = false;
       }
 
@@ -577,7 +593,7 @@ async function showSprint(options: {
         proc.unref();
       }
 
-      const unassignedIssues = allIssues.filter(i => !i.assignee_email);
+      const unassignedIssues = allIssues.filter(i => !i.fields.assignee);
       
       // Skip if showing only unassigned and there are none
       if (options.unassigned && unassignedIssues.length === 0) {
@@ -595,21 +611,22 @@ async function showSprint(options: {
           console.log(chalk.dim(`  ${unassignedIssues.length} unassigned issue${unassignedIssues.length !== 1 ? 's' : ''}:`));
           
           unassignedIssues.forEach(issue => {
-            const priorityColor = issue.priority === 'High' || issue.priority === 'Highest' 
+            const priorityName = issue.fields.priority?.name || 'None';
+            const priorityColor = priorityName === 'High' || priorityName === 'Highest' 
               ? chalk.red 
-              : issue.priority === 'Medium' 
+              : priorityName === 'Medium' 
                 ? chalk.yellow 
                 : chalk.dim;
             
-            console.log(`  ${chalk.cyan(issue.key)}: ${issue.summary}`);
-            console.log(`    ${priorityColor(`Priority: ${issue.priority || 'None'}`)} ${chalk.dim('|')} ${chalk.dim(`Type: ${issue.status}`)}`);
+            console.log(`  ${chalk.cyan(issue.key)}: ${issue.fields.summary}`);
+            console.log(`    ${priorityColor(`Priority: ${priorityName}`)} ${chalk.dim('|')} ${chalk.dim(`Type: ${issue.fields.status.name}`)}`);
           });
         }
       } else {
         // Show all issues grouped by status
         const statusGroups = new Map<string, typeof allIssues>();
         allIssues.forEach(issue => {
-          const status = issue.status;
+          const status = issue.fields.status.name;
           if (!statusGroups.has(status)) {
             statusGroups.set(status, []);
           }
@@ -629,7 +646,7 @@ async function showSprint(options: {
         
         sortedStatuses.forEach(status => {
           const issues = statusGroups.get(status)!;
-          const unassignedCount = issues.filter(i => !i.assignee_email).length;
+          const unassignedCount = issues.filter(i => !i.fields.assignee).length;
           
           // Status header with count
           const statusColor = status === 'Done' ? chalk.green : 
@@ -641,8 +658,8 @@ async function showSprint(options: {
           
           // Show first few issues
           issues.slice(0, 5).forEach(issue => {
-            const assignee = issue.assignee_name || chalk.yellow('unassigned');
-            console.log(`    ${chalk.cyan(issue.key)}: ${issue.summary} ${chalk.dim(`@${assignee}`)}`);
+            const assignee = issue.fields.assignee?.displayName || chalk.yellow('unassigned');
+            console.log(`    ${chalk.cyan(issue.key)}: ${issue.fields.summary} ${chalk.dim(`@${assignee}`)}`);
           });
           
           if (issues.length > 5) {
@@ -1231,7 +1248,7 @@ function _detectSearchIntent(query: string): 'troubleshooting' | 'howto' | 'conc
   return 'general';
 }
 
-function _assessContentQuality(content: any): number {
+function _assessContentQuality(content: { content: string; updatedAt?: number }): number {
   let qualityScore = 1.0;
   const text = content.content.toLowerCase();
   
@@ -1316,12 +1333,15 @@ function getScoreColor(score: number): (text: string) => string {
   return chalk.dim;
 }
 
-function getTeamFromMetadata(content: any): string {
+function getTeamFromMetadata(content: { 
+  metadata?: Record<string, unknown>; 
+  spaceKey?: string;
+}): string {
   // Try to extract team from metadata
-  if (content.metadata?.spaceName) {
+  if (content.metadata?.spaceName && typeof content.metadata.spaceName === 'string') {
     return content.metadata.spaceName;
   }
-  if (content.metadata?.assignee) {
+  if (content.metadata?.assignee && typeof content.metadata.assignee === 'string') {
     return content.metadata.assignee.split('@')[0]; // Simple team extraction
   }
   if (content.spaceKey) {
@@ -1421,10 +1441,10 @@ async function search(query: string, options: {
       
       // Show metadata for Jira issues with visual indicators
       if (content.source === 'jira' && content.metadata) {
-        const meta = content.metadata as any;
-        const status = meta.status || 'Unknown';
-        const priority = meta.priority || 'Unassigned';
-        const assignee = meta.assignee || 'Unassigned';
+        const meta = content.metadata;
+        const status = (meta.status as string) || 'Unknown';
+        const priority = (meta.priority as string) || 'Unassigned';
+        const assignee = (meta.assignee as string) || 'Unassigned';
         
         // Status with visual indicators
         const getStatusIndicator = (status: string): string => {
@@ -1443,7 +1463,7 @@ async function search(query: string, options: {
         };
         
         // Priority with visual indicators
-        const getPriorityColor = (priority: string): any => {
+        const getPriorityColor = (priority: string): typeof chalk.red => {
           const priorityLower = priority.toLowerCase();
           if (['highest', 'critical', 'blocker'].includes(priorityLower)) {
             return chalk.red.bold;
@@ -2559,10 +2579,10 @@ Provide a brief list of the key information needed (max 3 items), one per line:`
       
       if (content.source === 'jira') {
         contextBlock += `Issue ${content.id.replace('jira:', '')} - ${content.title}\n`;
-        const meta = content.metadata as any;
-        contextBlock += `Status: ${meta?.status || 'Unknown'} | `;
-        contextBlock += `Assignee: ${meta?.assignee || 'Unassigned'} | `;
-        contextBlock += `Priority: ${meta?.priority || 'None'}\n`;
+        const meta = content.metadata;
+        contextBlock += `Status: ${(meta?.status as string) || 'Unknown'} | `;
+        contextBlock += `Assignee: ${(meta?.assignee as string) || 'Unassigned'} | `;
+        contextBlock += `Priority: ${(meta?.priority as string) || 'None'}\n`;
       } else {
         contextBlock += `Page: ${content.title}\n`;
         contextBlock += `Space: ${content.spaceKey || 'Unknown'}\n`;
@@ -2876,9 +2896,9 @@ async function searchWithoutAI(question: string, options: {
       
       if (content.source === 'jira') {
         const issueKey = content.id.replace('jira:', '');
-        const meta = content.metadata as any;
-        const status = meta?.status || 'Unknown';
-        const assignee = meta?.assignee || 'Unassigned';
+        const meta = content.metadata;
+        const status = (meta?.status as string) || 'Unknown';
+        const assignee = (meta?.assignee as string) || 'Unassigned';
         
         console.log(`${chalk.bold.blue(`${index + 1}. ${issueKey}`)}: ${content.title}`);
         console.log(`   ${chalk.dim(`Status: ${status} | Assignee: ${assignee}`)}`);
@@ -3582,15 +3602,15 @@ async function main() {
       const clean = args.includes('--clean');
       await syncToMeilisearch({ clean });
       
-    } catch (error: any) {
-      if (error.message.includes('ECONNREFUSED') || error.message.includes('not responding')) {
+    } catch (error) {
+      if (error instanceof Error && (error.message.includes('ECONNREFUSED') || error.message.includes('not responding'))) {
         console.error(chalk.red('❌ Meilisearch is not running!'));
         console.error('\nTo start Meilisearch:');
         console.error(chalk.cyan('  brew services start meilisearch'));
         console.error('\nOr run it manually:');
         console.error(chalk.cyan('  meilisearch'));
       } else {
-        console.error(chalk.red('Error:'), error.message);
+        console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error');
       }
       
       process.exit(1);

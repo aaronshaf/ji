@@ -11,6 +11,28 @@ import {
   DatabaseError
 } from './effects/errors.js';
 
+interface MeilisearchDocument {
+  id: string;
+  originalId: string;
+  key: string;
+  title: string;
+  content: string;
+  source: string;
+  url?: string;
+  spaceKey?: string;
+  projectKey?: string;
+  updatedAt: number;
+  createdAt: number;
+  syncedAt: number;
+  status?: string;
+  priority?: string;
+  assignee?: string;
+  reporter?: string;
+  type?: string;
+  description?: string;
+  summary: string;
+}
+
 export class MeilisearchAdapter {
   private client: MeiliSearch;
   private jiraIndex!: Index;
@@ -29,7 +51,7 @@ export class MeilisearchAdapter {
     this.client = new MeiliSearch({ host, apiKey });
   }
 
-  private async getEmbedderConfig(embeddingModel: string) {
+  private async getEmbedderConfig(embeddingModel: string): Promise<Record<string, any> | undefined> {
     // Check if Ollama is available
     try {
       const response = await fetch('http://localhost:11434/api/tags');
@@ -180,8 +202,8 @@ export class MeilisearchAdapter {
   async indexBatch(contents: SearchableContent[]) {
     await this.initialize();
 
-    const jiraDocs: any[] = [];
-    const confluenceDocs: any[] = [];
+    const jiraDocs: MeilisearchDocument[] = [];
+    const confluenceDocs: MeilisearchDocument[] = [];
 
     for (const content of contents) {
       const doc = {
@@ -233,18 +255,26 @@ export class MeilisearchAdapter {
   } = {}): Promise<SearchResult[]> {
     await this.initialize();
 
-    const baseSearchParams: any = {
+    const baseSearchParams = {
       limit: options.limit || 20,
       attributesToHighlight: ['title', 'content'],
       highlightPreTag: '<mark>',
       highlightPostTag: '</mark>',
       attributesToCrop: ['content'],
       cropLength: 200,
-      showRankingScore: true
+      showRankingScore: true,
+      filter: undefined as string | undefined
     };
 
     // Handle search based on source
-    const results: any[] = [];
+    const results: Array<{
+      hits: Array<{
+        _rankingScore?: number;
+        _formatted?: { content?: string };
+        _cropLength?: { content?: string };
+        [key: string]: unknown;
+      }>;
+    }> = [];
     
     if (!options.source || options.source === 'jira') {
       // Search Jira with status filters
@@ -285,29 +315,37 @@ export class MeilisearchAdapter {
     const sortedHits = allHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
 
     // Convert to SearchResult format
-    return sortedHits.map(hit => ({
-      content: {
-        id: hit.originalId || hit.id.replace('_', ':'), // Convert back to original ID format
-        source: hit.source as 'jira' | 'confluence',
-        type: hit.type || (hit.source === 'jira' ? 'issue' : 'page'),
-        title: hit.title,
-        content: hit.content,
-        url: hit.url,
-        spaceKey: hit.spaceKey,
-        projectKey: hit.projectKey,
-        metadata: {
-          status: hit.status,
-          priority: hit.priority,
-          assignee: hit.assignee,
-          reporter: hit.reporter
+    return sortedHits.map(hit => {
+      const hitData = hit as unknown as MeilisearchDocument & {
+        _rankingScore?: number;
+        _formatted?: { content?: string };
+        _cropLength?: { content?: string };
+      };
+      
+      return {
+        content: {
+          id: hitData.originalId || (typeof hitData.id === 'string' ? hitData.id.replace('_', ':') : hitData.id),
+          source: hitData.source as 'jira' | 'confluence',
+          type: hitData.type || (hitData.source === 'jira' ? 'issue' : 'page'),
+          title: hitData.title,
+          content: hitData.content,
+          url: hitData.url || '',
+          spaceKey: hitData.spaceKey,
+          projectKey: hitData.projectKey,
+          metadata: {
+            status: hitData.status,
+            priority: hitData.priority,
+            assignee: hitData.assignee,
+            reporter: hitData.reporter
+          },
+          createdAt: hitData.createdAt,
+          updatedAt: hitData.updatedAt,
+          syncedAt: hitData.syncedAt
         },
-        createdAt: hit.createdAt,
-        updatedAt: hit.updatedAt,
-        syncedAt: hit.syncedAt
-      },
-      score: hit._rankingScore || 0,
-      snippet: hit._formatted?.content || hit._cropLength?.content || ''
-    }));
+        score: hitData._rankingScore || 0,
+        snippet: hitData._formatted?.content || hitData._cropLength?.content || ''
+      };
+    });
   }
 
   async deleteContent(contentId: string) {
@@ -499,8 +537,8 @@ export class MeilisearchAdapter {
             const batchEffects = batches.map(batch => 
               Effect.tryPromise({
                 try: async () => {
-                  const jiraDocs: any[] = [];
-                  const confluenceDocs: any[] = [];
+                  const jiraDocs: MeilisearchDocument[] = [];
+                  const confluenceDocs: MeilisearchDocument[] = [];
 
                   for (const content of batch) {
                     const doc = this.prepareDocument(content);
@@ -566,17 +604,25 @@ export class MeilisearchAdapter {
           this.initializeEffect(),
           Effect.flatMap(() => Effect.tryPromise({
             try: async () => {
-              const baseSearchParams: any = {
+              const baseSearchParams = {
                 limit: options.limit || 20,
                 attributesToHighlight: ['title', 'content'],
                 highlightPreTag: '<mark>',
                 highlightPostTag: '</mark>',
                 attributesToCrop: ['content'],
                 cropLength: 200,
-                showRankingScore: true
+                showRankingScore: true,
+                filter: undefined as string | undefined
               };
 
-              const results: any[] = [];
+              const results: Array<{
+                hits: Array<{
+                  _rankingScore?: number;
+                  _formatted?: { content?: string };
+                  _cropLength?: { content?: string };
+                  [key: string]: unknown;
+                }>;
+              }> = [];
               
               if (!options.source || options.source === 'jira') {
                 const jiraParams = { ...baseSearchParams };
@@ -613,7 +659,29 @@ export class MeilisearchAdapter {
               const allHits = results.flatMap(r => r.hits);
               const sortedHits = allHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
 
-              return this.convertToSearchResults(sortedHits);
+              // Cast hits to the expected type structure
+              const typedHits = sortedHits as Array<{
+                _rankingScore?: number;
+                _formatted?: { content?: string };
+                _cropLength?: { content?: string };
+                id: string;
+                originalId?: string;
+                source: string;
+                type?: string;
+                title: string;
+                content: string;
+                url?: string;
+                spaceKey?: string;
+                projectKey?: string;
+                status?: string;
+                priority?: string;
+                assignee?: string;
+                reporter?: string;
+                createdAt?: number;
+                updatedAt?: number;
+                syncedAt?: number;
+              }>;
+              return this.convertToSearchResults(typedHits);
             },
             catch: (error) => {
               if (error instanceof Error) {
@@ -698,7 +766,7 @@ export class MeilisearchAdapter {
   /**
    * Helper method to configure Jira index
    */
-  private async configureJiraIndex(embedderConfig: any) {
+  private async configureJiraIndex(embedderConfig: Record<string, any> | undefined) {
     await this.jiraIndex.updateSettings({
       searchableAttributes: ['key', 'title', 'content', 'summary', 'description'],
       filterableAttributes: ['status', 'priority', 'assignee', 'projectKey', 'source', 'reporter', 'originalId'],
@@ -736,7 +804,7 @@ export class MeilisearchAdapter {
   /**
    * Helper method to configure Confluence index
    */
-  private async configureConfluenceIndex(embedderConfig: any) {
+  private async configureConfluenceIndex(embedderConfig: Record<string, any> | undefined) {
     await this.confluenceIndex.updateSettings({
       searchableAttributes: ['title', 'content', 'spaceKey'],
       filterableAttributes: ['spaceKey', 'source', 'type', 'originalId'],
@@ -764,7 +832,27 @@ export class MeilisearchAdapter {
   /**
    * Helper method to convert hits to SearchResult format
    */
-  private convertToSearchResults(hits: any[]): SearchResult[] {
+  private convertToSearchResults(hits: Array<{
+    _rankingScore?: number;
+    _formatted?: { content?: string };
+    _cropLength?: { content?: string };
+    id: string;
+    originalId?: string;
+    source: string;
+    type?: string;
+    title: string;
+    content: string;
+    url?: string;
+    spaceKey?: string;
+    projectKey?: string;
+    status?: string;
+    priority?: string;
+    assignee?: string;
+    reporter?: string;
+    createdAt?: number;
+    updatedAt?: number;
+    syncedAt?: number;
+  }>): SearchResult[] {
     return hits.map(hit => ({
       content: {
         id: hit.originalId || hit.id.replace('_', ':'),
@@ -772,7 +860,7 @@ export class MeilisearchAdapter {
         type: hit.type || (hit.source === 'jira' ? 'issue' : 'page'),
         title: hit.title,
         content: hit.content,
-        url: hit.url,
+        url: hit.url || '',
         spaceKey: hit.spaceKey,
         projectKey: hit.projectKey,
         metadata: {
@@ -781,9 +869,9 @@ export class MeilisearchAdapter {
           assignee: hit.assignee,
           reporter: hit.reporter
         },
-        createdAt: hit.createdAt,
-        updatedAt: hit.updatedAt,
-        syncedAt: hit.syncedAt
+        createdAt: hit.createdAt || Date.now(),
+        updatedAt: hit.updatedAt || Date.now(),
+        syncedAt: hit.syncedAt || Date.now()
       },
       score: hit._rankingScore || 0,
       snippet: hit._formatted?.content || hit._cropLength?.content || ''
