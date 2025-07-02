@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -22,13 +22,13 @@ export class ValidationError extends Error {
   readonly _tag = 'ValidationError';
 }
 
-const ConfigSchema = z.object({
-  jiraUrl: z.string().url(),
-  email: z.string().email(),
-  apiToken: z.string().min(1),
+const ConfigSchema = Schema.Struct({
+  jiraUrl: Schema.String.pipe(Schema.pattern(/^https?:\/\/.+/)), // URL validation
+  email: Schema.String.pipe(Schema.pattern(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)), // Email validation
+  apiToken: Schema.String.pipe(Schema.minLength(1)),
 });
 
-export type Config = z.infer<typeof ConfigSchema>;
+export type Config = Schema.Schema.Type<typeof ConfigSchema>;
 
 // Settings that can be configured via CLI
 export interface Settings {
@@ -206,7 +206,7 @@ export class ConfigManager {
                 .pipe(Effect.mapError(error => new ParseError(`Invalid JSON in auth file: ${error}`)))
             ),
             Effect.flatMap(config =>
-              Effect.try(() => ConfigSchema.parse(config))
+              Schema.decodeUnknown(ConfigSchema)(config)
                 .pipe(Effect.mapError(error => new ValidationError(`Invalid config schema: ${error}`)))
             )
           ) as Effect.Effect<Config, ConfigError | FileError | ParseError | ValidationError>;
@@ -231,7 +231,7 @@ export class ConfigManager {
             return config;
           }),
           Effect.flatMap(config =>
-            Effect.try(() => ConfigSchema.parse(config))
+            Schema.decodeUnknown(ConfigSchema)(config)
               .pipe(Effect.mapError(error => new ValidationError(`Invalid database config: ${error}`)))
           ),
           // Migrate to auth file
@@ -252,7 +252,7 @@ export class ConfigManager {
       try {
         const authData = readFileSync(this.authFile, 'utf-8');
         const config = JSON.parse(authData);
-        return ConfigSchema.parse(config);
+        return Schema.decodeUnknownSync(ConfigSchema)(config);
       } catch (error) {
         console.error('Failed to read auth file:', error);
       }
@@ -270,7 +270,7 @@ export class ConfigManager {
     });
 
     try {
-      const parsed = ConfigSchema.parse(config);
+      const parsed = Schema.decodeUnknownSync(ConfigSchema)(config);
       // Migrate to auth file
       await this.setConfig(parsed);
       return parsed;
@@ -280,7 +280,7 @@ export class ConfigManager {
   }
 
   async setConfig(config: Config): Promise<void> {
-    const validated = ConfigSchema.parse(config);
+    const validated = Schema.decodeUnknownSync(ConfigSchema)(config);
     
     // Save to auth file with restrictive permissions
     writeFileSync(this.authFile, JSON.stringify(validated, null, 2), 'utf-8');
