@@ -1,5 +1,6 @@
-import chalk from 'chalk';
+import { auth } from './auth.js';
 
+// The init command is an alias for auth
 export async function initializeSetup() {
-  console.log(chalk.yellow('initializeSetup - Not yet implemented'));
+  await auth();
 }
