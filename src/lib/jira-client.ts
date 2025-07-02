@@ -6,7 +6,7 @@ import { Effect, pipe } from 'effect';
 const IssueSchema = Schema.Struct({
   key: Schema.String,
   self: Schema.String,
-  fields: Schema.Any, // Accept any fields structure
+  fields: Schema.Unknown, // Accept any fields structure
 });
 
 const SearchResultSchema = Schema.Struct({
@@ -65,9 +65,9 @@ export interface Issue {
     created: string;
     updated: string;
     labels?: string[];
-    comment?: any;
-    project?: any;
-    [key: string]: any; // Allow additional custom fields
+    comment?: unknown;
+    project?: { key: string; name: string };
+    [key: string]: unknown; // Allow additional custom fields
   };
 }
 
@@ -443,7 +443,7 @@ export class JiraClient {
       throw new Error(`Failed to fetch board configuration: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as any;
+    const data = await response.json() as { columnConfig?: { columns?: { name: string; statuses: { id: string; name: string }[] }[] } };
     return {
       columns: data.columnConfig?.columns || []
     };
@@ -463,7 +463,7 @@ export class JiraClient {
       throw new Error(`Failed to fetch board issues: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as any;
+    const data = await response.json() as { issues?: any[] };
     
     // Map the agile API response to our Issue type
     return (data.issues || []).map((issue: any) => ({
@@ -521,7 +521,7 @@ export class JiraClient {
       throw new Error(`Failed to fetch sprint issues: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as any;
+    const data = await response.json() as { issues: any[]; total: number };
     return {
       issues: data.issues.map((issue: any) => Schema.decodeUnknownSync(IssueSchema)(issue) as Issue),
       total: data.total

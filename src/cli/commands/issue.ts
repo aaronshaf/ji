@@ -73,7 +73,7 @@ const refreshInBackgroundEffect = (config: { jiraUrl: string }, issue: Issue) =>
     try: async () => {
       // Background refresh logic would go here
       // For now, just a placeholder
-      const args = ['internal-refresh', issue.key, issue.fields.project.key];
+      const args = ['internal-refresh', issue.key, issue.fields.project?.key || 'unknown'];
       // Would spawn a background process here
       return args;
     },
@@ -120,11 +120,11 @@ const formatIssueOutputEffect = (issue: Issue) =>
         if (typeof sprintInfo === 'string' && sprintInfo.includes('name=')) {
           const match = sprintInfo.match(/name=([^,\]]+)/);
           if (match) sprintName = match[1];
-        } else if (sprintInfo.name) {
-          sprintName = sprintInfo.name;
+        } else if (sprintInfo && typeof sprintInfo === 'object' && 'name' in sprintInfo) {
+          sprintName = (sprintInfo as { name: string }).name;
         }
-      } else if (sprintField.name) {
-        sprintName = sprintField.name;
+      } else if (sprintField && typeof sprintField === 'object' && 'name' in sprintField) {
+        sprintName = (sprintField as { name: string }).name;
       }
       console.log(chalk.gray('Sprint:') + ' ' + chalk.magenta(sprintName));
     }
@@ -133,9 +133,9 @@ const formatIssueOutputEffect = (issue: Issue) =>
     const description = formatDescription(issue.fields.description);
     console.log(description);
     
-    if (issue.fields.comment && issue.fields.comment.comments && issue.fields.comment.comments.length > 0) {
+    if (issue.fields.comment && typeof issue.fields.comment === 'object' && 'comments' in issue.fields.comment && Array.isArray((issue.fields.comment as { comments: unknown[] }).comments) && (issue.fields.comment as { comments: unknown[] }).comments.length > 0) {
       console.log('\n' + chalk.gray('Recent Comments:'));
-      issue.fields.comment.comments.slice(-3).forEach((comment: { author: { displayName: string }; created: string; body: unknown }) => {
+      (issue.fields.comment as { comments: { author: { displayName: string }; created: string; body: unknown }[] }).comments.slice(-3).forEach((comment: { author: { displayName: string }; created: string; body: unknown }) => {
         console.log(chalk.dim('─'.repeat(30)));
         console.log(chalk.cyan(comment.author.displayName) + ' - ' + chalk.dim(new Date(comment.created).toLocaleString()));
         console.log(formatDescription(comment.body));

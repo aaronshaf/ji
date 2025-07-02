@@ -33,7 +33,17 @@ export class MeilisearchFast {
     const totalLimit = options.limit || 5;
     const perIndexLimit = options.source ? totalLimit : Math.ceil(totalLimit * 0.6);
     
-    const baseSearchParams: any = {
+    const baseSearchParams: {
+      limit: number;
+      attributesToHighlight: string[];
+      highlightPreTag: string;
+      highlightPostTag: string;
+      attributesToCrop: string[];
+      cropLength: number;
+      showRankingScore: boolean;
+      filter?: string;
+      hybrid?: { embedder: string; semanticRatio: number };
+    } = {
       limit: perIndexLimit,
       attributesToHighlight: ['title', 'content'],
       highlightPreTag: '<mark>',
@@ -185,7 +195,17 @@ export class MeilisearchFast {
     const totalLimit = options.limit || 5;
     const perIndexLimit = options.source ? totalLimit : Math.ceil(totalLimit * 0.6);
     
-    const baseSearchParams: any = {
+    const baseSearchParams: {
+      limit: number;
+      attributesToHighlight: string[];
+      highlightPreTag: string;
+      highlightPostTag: string;
+      attributesToCrop: string[];
+      cropLength: number;
+      showRankingScore: boolean;
+      filter?: string;
+      hybrid?: { embedder: string; semanticRatio: number };
+    } = {
       limit: perIndexLimit,
       attributesToHighlight: ['title', 'content'],
       highlightPreTag: '<mark>',
