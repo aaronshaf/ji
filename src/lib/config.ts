@@ -3,6 +3,24 @@ import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'fs';
+import { Effect, pipe } from 'effect';
+
+// Error types for better error handling
+export class ConfigError extends Error {
+  readonly _tag = 'ConfigError';
+}
+
+export class FileError extends Error {
+  readonly _tag = 'FileError';
+}
+
+export class ParseError extends Error {
+  readonly _tag = 'ParseError';
+}
+
+export class ValidationError extends Error {
+  readonly _tag = 'ValidationError';
+}
 
 const ConfigSchema = z.object({
   jiraUrl: z.string().url(),
@@ -169,6 +187,63 @@ export class ConfigManager {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_content_type ON searchable_content(source, type)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_content_space ON searchable_content(space_key)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_content_project ON searchable_content(project_key)`);
+  }
+
+  /**
+   * Effect-based configuration retrieval with detailed error handling
+   */
+  getConfigEffect(): Effect.Effect<Config, ConfigError | FileError | ParseError | ValidationError> {
+    return pipe(
+      // Try auth file first
+      Effect.sync(() => existsSync(this.authFile)),
+      Effect.flatMap((fileExists): Effect.Effect<Config, ConfigError | FileError | ParseError | ValidationError> => {
+        if (fileExists) {
+          return pipe(
+            Effect.try(() => readFileSync(this.authFile, 'utf-8')),
+            Effect.mapError(error => new FileError(`Failed to read auth file: ${error}`)),
+            Effect.flatMap(authData =>
+              Effect.try(() => JSON.parse(authData))
+                .pipe(Effect.mapError(error => new ParseError(`Invalid JSON in auth file: ${error}`)))
+            ),
+            Effect.flatMap(config =>
+              Effect.try(() => ConfigSchema.parse(config))
+                .pipe(Effect.mapError(error => new ValidationError(`Invalid config schema: ${error}`)))
+            )
+          ) as Effect.Effect<Config, ConfigError | FileError | ParseError | ValidationError>;
+        }
+        
+        // Fall back to database
+        return pipe(
+          Effect.try(() => {
+            const stmt = this.db.prepare('SELECT key, value FROM config');
+            return stmt.all() as { key: string; value: string }[];
+          }),
+          Effect.mapError(error => new FileError(`Database error: ${error}`)),
+          Effect.filterOrFail(
+            rows => rows.length > 0,
+            () => new ConfigError('No configuration found. Please run "ji auth" first.')
+          ),
+          Effect.map(rows => {
+            const config: Record<string, string> = {};
+            rows.forEach(row => {
+              config[row.key] = row.value;
+            });
+            return config;
+          }),
+          Effect.flatMap(config =>
+            Effect.try(() => ConfigSchema.parse(config))
+              .pipe(Effect.mapError(error => new ValidationError(`Invalid database config: ${error}`)))
+          ),
+          // Migrate to auth file
+          Effect.tap(parsed =>
+            Effect.tryPromise({
+              try: () => this.setConfig(parsed),
+              catch: () => new FileError('Failed to migrate config to auth file')
+            }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+          )
+        );
+      })
+    );
   }
 
   async getConfig(): Promise<Config | null> {

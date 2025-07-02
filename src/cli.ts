@@ -78,10 +78,35 @@ async function auth() {
 async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boolean }) {
   const configManager = new ConfigManager();
   const cacheManager = new CacheManager();
-  const config = await configManager.getConfig();
+  
+  // Use Effect version for better error handling
+  const config = await pipe(
+    configManager.getConfigEffect(),
+    Effect.match({
+      onFailure: (error) => {
+        // Provide specific error messages based on error type
+        switch (error._tag) {
+          case 'FileError':
+            console.error(chalk.red('Error reading configuration file:'), error.message);
+            break;
+          case 'ParseError':
+            console.error(chalk.red('Configuration file is corrupted:'), error.message);
+            break;
+          case 'ValidationError':
+            console.error(chalk.red('Invalid configuration:'), error.message);
+            break;
+          case 'ConfigError':
+          default:
+            console.error(chalk.red(error.message));
+        }
+        return null;
+      },
+      onSuccess: (config) => config
+    }),
+    Effect.runPromise
+  );
   
   if (!config) {
-    console.error('No configuration found. Please run "ji auth" first.');
     process.exit(1);
   }
 
