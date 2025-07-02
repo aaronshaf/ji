@@ -1,18 +1,9 @@
-import { Effect, pipe, Console } from 'effect';
-import { 
-  CommandRegistry, 
-  createDefaultRegistry, 
-  parseCliArgs,
-  type CommandError 
-} from './cli-commands.js';
-import {
-  CliErrorReporter,
-  GracefulShutdown,
-  createDefaultErrorReporter
-} from './cli-error-handling.js';
-import { ValidationError, ConfigError } from './errors.js';
-import type { Config } from '../config.js';
 import chalk from 'chalk';
+import { Console, Effect, pipe } from 'effect';
+import type { Config } from '../config.js';
+import { type CommandError, type CommandRegistry, createDefaultRegistry, parseCliArgs } from './cli-commands.js';
+import { type CliErrorReporter, createDefaultErrorReporter, GracefulShutdown } from './cli-error-handling.js';
+import { ConfigError, ValidationError } from './errors.js';
 
 /**
  * CLI Application configuration
@@ -37,7 +28,7 @@ export class CliRunner {
   constructor(private config: CliConfig) {
     this.registry = config.registry || createDefaultRegistry();
     this.errorReporter = config.errorReporter || createDefaultErrorReporter();
-    
+
     if (config.enableGracefulShutdown !== false) {
       this.gracefulShutdown = new GracefulShutdown();
     }
@@ -49,46 +40,47 @@ export class CliRunner {
   run(argv: string[]): Effect.Effect<void, never> {
     return pipe(
       this.parseAndValidateArgs(argv),
-      Effect.flatMap(({ command, args, options }) => 
-        this.executeCommand(command, args, options)
-      ),
-      Effect.catchAll(error => 
+      Effect.flatMap(({ command, args, options }) => this.executeCommand(command, args, options)),
+      Effect.catchAll((error) =>
         pipe(
           this.errorReporter.handleError(error),
-          Effect.flatMap(() => Effect.succeed(undefined))
-        )
-      )
+          Effect.flatMap(() => Effect.succeed(undefined)),
+        ),
+      ),
     );
   }
 
   /**
    * Parse and validate CLI arguments
    */
-  private parseAndValidateArgs(argv: string[]): Effect.Effect<{
-    command: string;
-    args: string[];
-    options: Record<string, unknown>;
-  }, CommandError> {
+  private parseAndValidateArgs(argv: string[]): Effect.Effect<
+    {
+      command: string;
+      args: string[];
+      options: Record<string, unknown>;
+    },
+    CommandError
+  > {
     return pipe(
       parseCliArgs(argv),
-      Effect.flatMap(parsed => {
+      Effect.flatMap((parsed) => {
         // Handle built-in commands
         if (parsed.command === 'help' || parsed.command === '--help' || parsed.command === '-h') {
           return pipe(
             this.showHelp(parsed.args[0]),
-            Effect.flatMap(() => Effect.fail(new ValidationError('Help shown', 'command', 'help')))
+            Effect.flatMap(() => Effect.fail(new ValidationError('Help shown', 'command', 'help'))),
           );
         }
-        
+
         if (parsed.command === 'version' || parsed.command === '--version' || parsed.command === '-v') {
           return pipe(
             this.showVersion(),
-            Effect.flatMap(() => Effect.fail(new ValidationError('Version shown', 'command', 'version')))
+            Effect.flatMap(() => Effect.fail(new ValidationError('Version shown', 'command', 'version'))),
           );
         }
-        
+
         return Effect.succeed(parsed);
-      })
+      }),
     );
   }
 
@@ -96,18 +88,18 @@ export class CliRunner {
    * Execute a command with proper error handling and progress tracking
    */
   private executeCommand(
-    commandName: string, 
-    args: string[], 
-    options: Record<string, unknown>
+    commandName: string,
+    args: string[],
+    options: Record<string, unknown>,
   ): Effect.Effect<void, CommandError> {
     return pipe(
       this.loadConfig(),
-      Effect.flatMap(config => 
+      Effect.flatMap((config) =>
         pipe(
           this.registry.executeCommand(commandName, args, config),
-          Effect.tap(result => this.handleCommandResult(result, commandName, options))
-        )
-      )
+          Effect.tap((result) => this.handleCommandResult(result, commandName, options)),
+        ),
+      ),
     );
   }
 
@@ -121,11 +113,11 @@ export class CliRunner {
         const configManager = new ConfigManager();
         const config = await configManager.getConfig();
         configManager.close();
-        
+
         if (!config) {
           throw new Error('Configuration not found. Run "ji auth" to set up.');
         }
-        
+
         return config;
       },
       catch: (error) => {
@@ -133,7 +125,7 @@ export class CliRunner {
           return new ConfigError(`Failed to load configuration: ${error.message}`, error);
         }
         return new ConfigError('Unknown configuration error', error);
-      }
+      },
     });
   }
 
@@ -141,9 +133,9 @@ export class CliRunner {
    * Handle command execution result
    */
   private handleCommandResult(
-    result: unknown, 
-    commandName: string, 
-    options: Record<string, unknown>
+    result: unknown,
+    commandName: string,
+    options: Record<string, unknown>,
   ): Effect.Effect<void, never> {
     return Effect.sync(() => {
       // Handle different result types based on command
@@ -163,14 +155,23 @@ export class CliRunner {
    * Display issue information
    */
   private displayIssue(issue: unknown): void {
-    const issueWithFields = issue as { key: string; fields: { summary: string; status: { name: string }; assignee?: { displayName: string }; reporter: { displayName: string }; description?: string } };
+    const issueWithFields = issue as {
+      key: string;
+      fields: {
+        summary: string;
+        status: { name: string };
+        assignee?: { displayName: string };
+        reporter: { displayName: string };
+        description?: string;
+      };
+    };
     console.log(chalk.blue.bold(`\\n${issueWithFields.key}: ${issueWithFields.fields.summary}`));
     console.log(chalk.gray(`Status: ${issueWithFields.fields.status.name}`));
     if (issueWithFields.fields.assignee) {
       console.log(chalk.gray(`Assignee: ${issueWithFields.fields.assignee.displayName}`));
     }
     console.log(chalk.gray(`Reporter: ${issueWithFields.fields.reporter.displayName}`));
-    
+
     if (issueWithFields.fields.description) {
       console.log(chalk.gray('\\nDescription:'));
       console.log(this.formatDescription(issueWithFields.fields.description));
@@ -186,21 +187,25 @@ export class CliRunner {
       console.log(chalk.yellow('No results found.'));
       return;
     }
-    
+
     console.log(chalk.blue.bold(`\\nFound ${results.length} result(s):\\n`));
-    
+
     for (const result of results) {
-      const searchResult = result as { content: { title: string; source: string; url: string }; score: number; snippet?: string };
+      const searchResult = result as {
+        content: { title: string; source: string; url: string };
+        score: number;
+        snippet?: string;
+      };
       const { content, score, snippet } = searchResult;
       const scoreColor = score > 0.8 ? chalk.green : score > 0.5 ? chalk.yellow : chalk.red;
-      
+
       console.log(chalk.bold(content.title));
       console.log(chalk.gray(`Source: ${content.source} | Score: ${scoreColor(score.toFixed(2))}`));
-      
+
       if (snippet) {
         console.log(chalk.gray(this.truncateText(snippet, 200)));
       }
-      
+
       console.log(chalk.blue.underline(content.url));
       console.log('');
     }
@@ -212,15 +217,15 @@ export class CliRunner {
   private displaySyncResults(results: unknown): void {
     const syncResults = results as { synced: number; errors: number };
     const { synced, errors } = syncResults;
-    
+
     if (errors > 0) {
       console.log(chalk.yellow(`Sync completed with ${errors} error(s)`));
     } else {
       console.log(chalk.green('Sync completed successfully'));
     }
-    
+
     console.log(chalk.gray(`Synced: ${synced} items`));
-    
+
     if (errors > 0) {
       console.log(chalk.gray(`Errors: ${errors} items`));
     }
@@ -249,11 +254,11 @@ export class CliRunner {
         console.log('\\nUsage:');
         console.log(chalk.yellow(`  ${this.config.name} <command> [arguments] [options]`));
         console.log('\\nAvailable commands:');
-        
+
         for (const command of this.registry.getAll()) {
           console.log(chalk.yellow(`  ${command.name.padEnd(12)} ${chalk.gray(command.description)}`));
         }
-        
+
         console.log('\\nGlobal options:');
         console.log(chalk.yellow('  --help, -h      Show help'));
         console.log(chalk.yellow('  --version, -v   Show version'));
@@ -277,12 +282,12 @@ export class CliRunner {
     if (typeof description === 'string') {
       return this.truncateText(description, 500);
     }
-    
+
     // Handle ADF (Atlassian Document Format)
     if (typeof description === 'object' && description !== null && 'content' in description) {
       return this.truncateText('[Rich content - use --json for full details]', 500);
     }
-    
+
     return '[No description]';
   }
 
@@ -291,7 +296,7 @@ export class CliRunner {
    */
   private truncateText(text: string, maxLength: number): string {
     if (text.length <= maxLength) return text;
-    return text.slice(0, maxLength - 3) + '...';
+    return `${text.slice(0, maxLength - 3)}...`;
   }
 
   /**
@@ -307,34 +312,28 @@ export class CliRunner {
  */
 export function createJiCliRunner(): CliRunner {
   const registry = createDefaultRegistry();
-  
+
   // Register additional ji-specific commands
   // These will be imported dynamically to avoid circular dependencies
   const registerJiCommands = async () => {
-    const { 
-      AskCommand, 
-      MineCommand, 
-      TakeCommand, 
-      MemoryCommand, 
-      SprintCommand 
-    } = await import('./ji-commands.js');
-    
+    const { AskCommand, MineCommand, TakeCommand, MemoryCommand, SprintCommand } = await import('./ji-commands.js');
+
     registry.register(new AskCommand());
     registry.register(new MineCommand());
     registry.register(new TakeCommand());
     registry.register(new MemoryCommand());
     registry.register(new SprintCommand());
   };
-  
+
   // Register commands asynchronously
   registerJiCommands().catch(console.error);
-  
+
   return new CliRunner({
     name: 'ji',
     version: '1.0.0',
     description: 'Jira & Confluence CLI tool with AI-powered search',
     registry,
-    enableGracefulShutdown: true
+    enableGracefulShutdown: true,
   });
 }
 
@@ -343,13 +342,13 @@ export function createJiCliRunner(): CliRunner {
  */
 export function runCli(argv: string[] = process.argv): Promise<void> {
   const runner = createJiCliRunner();
-  
+
   // Register cleanup handlers
   runner.onShutdown(async () => {
     console.log('Cleaning up resources...');
     // Close database connections, etc.
   });
-  
+
   return Effect.runPromise(runner.run(argv));
 }
 

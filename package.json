@@ -10,11 +10,12 @@
     "dev": "bun run --watch src/cli.ts",
     "daemon": "bun run src/daemon/index.ts",
     "test": "bun test",
-    "lint": "eslint . --ext .ts --max-warnings 0",
-    "lint:fix": "eslint . --ext .ts --fix --max-warnings 0",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "format": "biome format --write",
     "typecheck": "tsc --noEmit",
     "ji": "bun run src/cli.ts",
-    "pre-commit": "bun run typecheck && bun run lint",
+    "pre-commit": "bun run typecheck && biome check --write",
     "prepare": "node scripts/install-hooks.cjs"
   },
   "keywords": [
@@ -29,6 +30,7 @@
   "dependencies": {
     "@effect/schema": "^0.75.5",
     "chalk": "^5.3.0",
+    "date-fns": "^4.1.0",
     "effect": "^3.16.10",
     "meilisearch": "latest",
     "ora": "^8.2.0",
@@ -36,12 +38,9 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@eslint/js": "^9.30.1",
+    "@biomejs/biome": "^2.0.6",
     "@types/turndown": "^5.0.5",
-    "@typescript-eslint/eslint-plugin": "^6.15.0",
-    "@typescript-eslint/parser": "^6.15.0",
     "bun-types": "^1.0.20",
-    "eslint": "^9.30.0",
     "typescript": "^5.3.3"
   }
 }

@@ -1,14 +1,10 @@
 import { Database } from 'bun:sqlite';
-import { homedir } from 'os';
-import { join } from 'path';
-import type { Issue, Board } from './jira-client.js';
-import { ContentManager } from './content-manager.js';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { Effect, Option, pipe } from 'effect';
-import { 
-  QueryError, 
-  ParseError, 
-  ValidationError
-} from './effects/errors.js';
+import { ContentManager } from './content-manager.js';
+import { ParseError, QueryError, ValidationError } from './effects/errors.js';
+import type { Board, Issue } from './jira-client.js';
 
 // Atlassian Document Format node type
 interface ADFNode {
@@ -36,7 +32,7 @@ export class CacheManager {
           return null;
         },
         onSuccess: (optionIssue) => Option.getOrNull(optionIssue),
-      })
+      }),
     );
     return Effect.runPromise(program);
   }
@@ -58,20 +54,18 @@ export class CacheManager {
           const stmt = this.db.prepare('SELECT raw_data FROM issues WHERE key = ?');
           const row = stmt.get(key) as { raw_data: string } | undefined;
           return row;
-        }).pipe(
-          Effect.mapError(error => new QueryError(`Failed to query issue ${key}: ${error}`))
-        )
+        }).pipe(Effect.mapError((error) => new QueryError(`Failed to query issue ${key}: ${error}`))),
       ),
-      Effect.flatMap(row => {
+      Effect.flatMap((row) => {
         if (!row) {
           return Effect.succeed(Option.none());
         }
         return pipe(
           Effect.try(() => JSON.parse(row.raw_data) as Issue),
-          Effect.mapError(error => new ParseError(`Failed to parse issue ${key}`, 'raw_data', row.raw_data, error)),
-          Effect.map(Option.some)
+          Effect.mapError((error) => new ParseError(`Failed to parse issue ${key}`, 'raw_data', row.raw_data, error)),
+          Effect.map(Option.some),
         );
-      })
+      }),
     );
   }
 
@@ -91,22 +85,22 @@ export class CacheManager {
           // Use transaction for atomicity
           this.db.transaction(() => {
             const deleteIssuesStmt = this.db.prepare('DELETE FROM issues WHERE project_key = ?');
-            const deleteContentStmt = this.db.prepare('DELETE FROM searchable_content WHERE project_key = ? AND source = ?');
-            
+            const deleteContentStmt = this.db.prepare(
+              'DELETE FROM searchable_content WHERE project_key = ? AND source = ?',
+            );
+
             deleteIssuesStmt.run(projectKey);
             deleteContentStmt.run(projectKey, 'jira');
           })();
-        }).pipe(
-          Effect.mapError(error => new QueryError(`Failed to delete project issues: ${error}`))
-        )
+        }).pipe(Effect.mapError((error) => new QueryError(`Failed to delete project issues: ${error}`))),
       ),
       // Clear backfill limit after successful deletion
       Effect.flatMap(() =>
         Effect.tryPromise({
           try: () => this.clearBackfillLimit(projectKey),
-          catch: error => new QueryError(`Failed to clear backfill limit: ${error}`)
-        })
-      )
+          catch: (error) => new QueryError(`Failed to clear backfill limit: ${error}`),
+        }),
+      ),
     );
   }
 
@@ -115,10 +109,10 @@ export class CacheManager {
     // Delete from both issues table and searchable_content table
     const deleteIssuesStmt = this.db.prepare('DELETE FROM issues WHERE project_key = ?');
     const deleteContentStmt = this.db.prepare('DELETE FROM searchable_content WHERE project_key = ? AND source = ?');
-    
+
     deleteIssuesStmt.run(projectKey);
     deleteContentStmt.run(projectKey, 'jira');
-    
+
     // Also clear the backfill limit for this project
     await this.clearBackfillLimit(projectKey);
   }
@@ -149,9 +143,9 @@ export class CacheManager {
       Effect.flatMap(() =>
         Effect.tryPromise({
           try: () => this.contentManager.saveJiraIssue(issue),
-          catch: error => new QueryError(`Failed to save issue ${issue.key}: ${error}`)
-        })
-      )
+          catch: (error) => new QueryError(`Failed to save issue ${issue.key}: ${error}`),
+        }),
+      ),
     );
   }
 
@@ -161,14 +155,16 @@ export class CacheManager {
     await this.contentManager.saveJiraIssue(issue);
   }
 
-  async listIssuesByProject(projectKey: string): Promise<Array<{
-    key: string;
-    summary: string;
-    status: string;
-    priority: string;
-    assignee_name: string | null;
-    updated: string;
-  }>> {
+  async listIssuesByProject(projectKey: string): Promise<
+    Array<{
+      key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      assignee_name: string | null;
+      updated: string;
+    }>
+  > {
     const stmt = this.db.prepare(`
       SELECT key, summary, status, priority, assignee_name, updated
       FROM issues
@@ -185,15 +181,17 @@ export class CacheManager {
     }>;
   }
 
-  async listRecentIssues(limit: number = 20): Promise<Array<{
-    key: string;
-    project_key: string;
-    summary: string;
-    status: string;
-    priority: string;
-    assignee_name: string | null;
-    updated: string;
-  }>> {
+  async listRecentIssues(limit: number = 20): Promise<
+    Array<{
+      key: string;
+      project_key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      assignee_name: string | null;
+      updated: string;
+    }>
+  > {
     const stmt = this.db.prepare(`
       SELECT key, project_key, summary, status, priority, assignee_name, updated
       FROM issues
@@ -227,7 +225,7 @@ export class CacheManager {
         if (issues.length > 1000) {
           throw new ValidationError('Too many issues in batch (max 1000)', 'issues.length', issues.length);
         }
-        
+
         // Validate each issue
         issues.forEach((issue, index) => {
           if (!issue || typeof issue !== 'object') {
@@ -242,31 +240,33 @@ export class CacheManager {
         if (issues.length === 0) {
           return Effect.succeed(undefined);
         }
-        
+
         return Effect.try(() => {
           // Use transaction for atomicity and performance
           this.db.transaction(() => {
-            issues.forEach(issue => {
+            issues.forEach((issue) => {
               // Save each issue using content manager
               this.contentManager.saveJiraIssue(issue);
             });
           })();
         }).pipe(
-          Effect.mapError(error => new QueryError(`Failed to save batch of ${issues.length} issues: ${error}`))
+          Effect.mapError((error) => new QueryError(`Failed to save batch of ${issues.length} issues: ${error}`)),
         );
-      })
+      }),
     );
   }
 
-  async listMyOpenIssues(assigneeEmail: string): Promise<Array<{
-    key: string;
-    project_key: string;
-    summary: string;
-    status: string;
-    priority: string;
-    assignee_name: string | null;
-    updated: string;
-  }>> {
+  async listMyOpenIssues(assigneeEmail: string): Promise<
+    Array<{
+      key: string;
+      project_key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      assignee_name: string | null;
+      updated: string;
+    }>
+  > {
     const stmt = this.db.prepare(`
       SELECT key, project_key, summary, status, priority, assignee_name, updated
       FROM issues
@@ -301,7 +301,7 @@ export class CacheManager {
       WHERE project_key = ?
     `);
     const results = stmt.all(projectKey) as { key: string }[];
-    return results.map(r => r.key);
+    return results.map((r) => r.key);
   }
 
   async getLatestIssueUpdate(projectKey: string): Promise<string | null> {
@@ -324,16 +324,16 @@ export class CacheManager {
     return result?.oldest_update || null;
   }
 
-  async getIssueUpdateRange(projectKey: string): Promise<{ oldest: string | null, newest: string | null }> {
+  async getIssueUpdateRange(projectKey: string): Promise<{ oldest: string | null; newest: string | null }> {
     const stmt = this.db.prepare(`
       SELECT MIN(updated) as oldest_update, MAX(updated) as newest_update
       FROM issues
       WHERE project_key = ?
     `);
-    const result = stmt.get(projectKey) as { oldest_update: string | null, newest_update: string | null };
+    const result = stmt.get(projectKey) as { oldest_update: string | null; newest_update: string | null };
     return {
       oldest: result?.oldest_update || null,
-      newest: result?.newest_update || null
+      newest: result?.newest_update || null,
     };
   }
 
@@ -380,16 +380,14 @@ export class CacheManager {
   }
 
   async getBoardsLastSync(): Promise<number | null> {
-    const result = this.db.prepare(
-      'SELECT MAX(synced_at) as last_sync FROM boards'
-    ).get() as { last_sync: number | null };
+    const result = this.db.prepare('SELECT MAX(synced_at) as last_sync FROM boards').get() as {
+      last_sync: number | null;
+    };
     return result?.last_sync || null;
   }
 
   async getBoardCount(): Promise<number> {
-    const result = this.db.prepare(
-      'SELECT COUNT(*) as count FROM boards'
-    ).get() as { count: number };
+    const result = this.db.prepare('SELECT COUNT(*) as count FROM boards').get() as { count: number };
     return result.count;
   }
 
@@ -397,38 +395,38 @@ export class CacheManager {
     if (typeof description === 'string') {
       return description;
     }
-    
+
     // Handle Atlassian Document Format (ADF)
     if (description?.content) {
       return this.parseADF(description);
     }
-    
+
     return '';
   }
 
   private parseADF(doc: { content?: ADFNode[] }): string {
     let text = '';
-    
+
     const parseNode = (node: ADFNode): string => {
       if (node.type === 'text') {
         return node.text || '';
       }
-      
+
       if (node.type === 'paragraph' && node.content) {
-        return '\n' + node.content.map(n => parseNode(n)).join('') + '\n';
+        return `\n${node.content.map((n) => parseNode(n)).join('')}\n`;
       }
-      
+
       if (node.content) {
-        return node.content.map(n => parseNode(n)).join('');
+        return node.content.map((n) => parseNode(n)).join('');
       }
-      
+
       return '';
     };
-    
+
     if (doc.content) {
-      text = doc.content.map(node => parseNode(node)).join('');
+      text = doc.content.map((node) => parseNode(node)).join('');
     }
-    
+
     return text.trim();
   }
 
@@ -438,7 +436,7 @@ export class CacheManager {
       INSERT OR REPLACE INTO boards (id, name, type, project_key, project_name, self_url, synced_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    
+
     const now = Date.now();
     for (const board of boards) {
       stmt.run(
@@ -448,7 +446,7 @@ export class CacheManager {
         board.location?.projectKey || null,
         board.location?.projectName || null,
         null, // self_url not available in Board schema
-        now
+        now,
       );
     }
   }
@@ -464,7 +462,7 @@ export class CacheManager {
         AND b.synced_at > (strftime('%s', 'now', '-7 days') * 1000)
       ORDER BY b.project_key, b.name
     `);
-    
+
     const rows = stmt.all(userEmail) as Array<{
       id: number;
       name: string;
@@ -472,14 +470,17 @@ export class CacheManager {
       project_key: string | null;
       project_name: string | null;
     }>;
-    return rows.map(row => ({
+    return rows.map((row) => ({
       id: row.id,
       name: row.name,
       type: row.type,
-      location: row.project_key || row.project_name ? {
-        projectKey: row.project_key || undefined,
-        projectName: row.project_name || undefined
-      } : undefined
+      location:
+        row.project_key || row.project_name
+          ? {
+              projectKey: row.project_key || undefined,
+              projectName: row.project_name || undefined,
+            }
+          : undefined,
     }));
   }
 
@@ -489,7 +490,7 @@ export class CacheManager {
       WHERE synced_at > (strftime('%s', 'now', '-7 days') * 1000)
       ORDER BY project_key, name
     `);
-    
+
     const rows = stmt.all() as Array<{
       id: number;
       name: string;
@@ -497,14 +498,17 @@ export class CacheManager {
       project_key: string | null;
       project_name: string | null;
     }>;
-    return rows.map(row => ({
+    return rows.map((row) => ({
       id: row.id,
       name: row.name,
       type: row.type,
-      location: row.project_key || row.project_name ? {
-        projectKey: row.project_key || undefined,
-        projectName: row.project_name || undefined
-      } : undefined
+      location:
+        row.project_key || row.project_name
+          ? {
+              projectKey: row.project_key || undefined,
+              projectName: row.project_name || undefined,
+            }
+          : undefined,
     }));
   }
 
@@ -515,11 +519,21 @@ export class CacheManager {
       INSERT OR REPLACE INTO user_workspaces (id, type, name, key_or_id, usage_count, last_used, auto_sync)
       VALUES (?, ?, ?, ?, COALESCE((SELECT usage_count FROM user_workspaces WHERE id = ?) + 1, 1), ?, 0)
     `);
-    
+
     stmt.run(id, type, name, keyOrId, id, Date.now());
   }
 
-  async getActiveWorkspaces(): Promise<Array<{id: string; type: string; name: string; keyOrId: string; usageCount: number; lastUsed: number; autoSync: boolean}>> {
+  async getActiveWorkspaces(): Promise<
+    Array<{
+      id: string;
+      type: string;
+      name: string;
+      keyOrId: string;
+      usageCount: number;
+      lastUsed: number;
+      autoSync: boolean;
+    }>
+  > {
     const stmt = this.db.prepare(`
       SELECT id, type, name, key_or_id, usage_count, last_used, auto_sync
       FROM user_workspaces
@@ -527,7 +541,7 @@ export class CacheManager {
       ORDER BY usage_count DESC, last_used DESC
       LIMIT 10
     `);
-    
+
     const rows = stmt.all() as Array<{
       id: string;
       type: string;
@@ -537,14 +551,14 @@ export class CacheManager {
       last_used: number;
       auto_sync: number;
     }>;
-    return rows.map(row => ({
+    return rows.map((row) => ({
       id: row.id,
       type: row.type,
       name: row.name,
       keyOrId: row.key_or_id,
       usageCount: row.usage_count,
       lastUsed: row.last_used,
-      autoSync: row.auto_sync === 1
+      autoSync: row.auto_sync === 1,
     }));
   }
 
@@ -554,40 +568,45 @@ export class CacheManager {
       SET auto_sync = ?, synced_at = CASE WHEN ? THEN ? ELSE synced_at END
       WHERE id = ?
     `);
-    
+
     stmt.run(autoSync ? 1 : 0, autoSync, Date.now(), id);
   }
 
   // Sprint management methods
-  async trackUserSprint(userEmail: string, sprint: {
-    id: string;
-    name: string;
-    boardId: number;
-    projectKey: string;
-  }): Promise<void> {
+  async trackUserSprint(
+    userEmail: string,
+    sprint: {
+      id: string;
+      name: string;
+      boardId: number;
+      projectKey: string;
+    },
+  ): Promise<void> {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO user_sprints 
       (user_email, sprint_id, sprint_name, board_id, project_key, last_accessed, is_active)
       VALUES (?, ?, ?, ?, ?, ?, 1)
     `);
-    
+
     stmt.run(userEmail, sprint.id, sprint.name, sprint.boardId, sprint.projectKey, Date.now());
   }
 
-  async getUserActiveSprints(userEmail: string): Promise<Array<{
-    sprintId: string;
-    sprintName: string;
-    boardId: number;
-    projectKey: string;
-    lastAccessed: number;
-  }>> {
+  async getUserActiveSprints(userEmail: string): Promise<
+    Array<{
+      sprintId: string;
+      sprintName: string;
+      boardId: number;
+      projectKey: string;
+      lastAccessed: number;
+    }>
+  > {
     const stmt = this.db.prepare(`
       SELECT sprint_id, sprint_name, board_id, project_key, last_accessed
       FROM user_sprints
       WHERE user_email = ? AND is_active = 1
       ORDER BY last_accessed DESC
     `);
-    
+
     const rows = stmt.all(userEmail) as Array<{
       sprint_id: string;
       sprint_name: string;
@@ -595,37 +614,42 @@ export class CacheManager {
       project_key: string;
       last_accessed: number;
     }>;
-    return rows.map(row => ({
+    return rows.map((row) => ({
       sprintId: row.sprint_id,
       sprintName: row.sprint_name,
       boardId: row.board_id,
       projectKey: row.project_key,
-      lastAccessed: row.last_accessed
+      lastAccessed: row.last_accessed,
     }));
   }
 
-  async getSprintIssues(sprintId: string, options?: { 
-    assignee?: string | null 
-  }): Promise<Array<{
-    key: string;
-    project_key: string;
-    summary: string;
-    status: string;
-    priority: string;
-    assignee_name: string | null;
-    assignee_email: string | null;
-    updated: string;
-    sprint_id: string;
-    sprint_name: string;
-  }>> {
+  async getSprintIssues(
+    sprintId: string,
+    options?: {
+      assignee?: string | null;
+    },
+  ): Promise<
+    Array<{
+      key: string;
+      project_key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      assignee_name: string | null;
+      assignee_email: string | null;
+      updated: string;
+      sprint_id: string;
+      sprint_name: string;
+    }>
+  > {
     let query = `
       SELECT key, project_key, summary, status, priority, assignee_name, assignee_email, updated, sprint_id, sprint_name
       FROM issues
       WHERE sprint_id = ?
     `;
-    
+
     const params: (string | null)[] = [sprintId];
-    
+
     if (options?.assignee === null) {
       // Only unassigned issues
       query += ` AND (assignee_email IS NULL OR assignee_email = '')`;
@@ -634,9 +658,9 @@ export class CacheManager {
       query += ` AND assignee_email = ?`;
       params.push(options.assignee);
     }
-    
+
     query += ` ORDER BY priority DESC, updated DESC`;
-    
+
     const stmt = this.db.prepare(query);
     return stmt.all(...params) as Array<{
       key: string;
@@ -652,19 +676,21 @@ export class CacheManager {
     }>;
   }
 
-  async getCachedSprintIssues(sprintId: string): Promise<Array<{
-    sprint_id: string;
-    key: string;
-    project_key: string;
-    summary: string;
-    status: string;
-    priority: string;
-    priority_order: number;
-    assignee_name: string | null;
-    assignee_email: string | null;
-    updated: string;
-    cached_at: number;
-  }>> {
+  async getCachedSprintIssues(sprintId: string): Promise<
+    Array<{
+      sprint_id: string;
+      key: string;
+      project_key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      priority_order: number;
+      assignee_name: string | null;
+      assignee_email: string | null;
+      updated: string;
+      cached_at: number;
+    }>
+  > {
     const stmt = this.db.prepare(`
       SELECT * FROM sprint_issues_cache
       WHERE sprint_id = ?
@@ -685,16 +711,19 @@ export class CacheManager {
     }>;
   }
 
-  async setCachedSprintIssues(sprintId: string, issues: Array<{
-    key: string;
-    project_key: string;
-    summary: string;
-    status: string;
-    priority: string;
-    assignee_name?: string | null;
-    assignee_email?: string | null;
-    updated: string;
-  }>): Promise<void> {
+  async setCachedSprintIssues(
+    sprintId: string,
+    issues: Array<{
+      key: string;
+      project_key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      assignee_name?: string | null;
+      assignee_email?: string | null;
+      updated: string;
+    }>,
+  ): Promise<void> {
     // Delete existing cached issues for this sprint
     const deleteStmt = this.db.prepare('DELETE FROM sprint_issues_cache WHERE sprint_id = ?');
     deleteStmt.run(sprintId);
@@ -710,7 +739,7 @@ export class CacheManager {
     `);
 
     const now = Date.now();
-    const priorityOrder: Record<string, number> = { 'Highest': 1, 'High': 2, 'Medium': 3, 'Low': 4, 'Lowest': 5 };
+    const priorityOrder: Record<string, number> = { Highest: 1, High: 2, Medium: 3, Low: 4, Lowest: 5 };
 
     for (const issue of issues) {
       insertStmt.run(
@@ -724,7 +753,7 @@ export class CacheManager {
         issue.assignee_name || null,
         issue.assignee_email || null,
         issue.updated,
-        now
+        now,
       );
     }
   }

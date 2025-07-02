@@ -1,9 +1,9 @@
-import { Effect, Console, pipe } from 'effect';
 import chalk from 'chalk';
-import { JiraClient, type Issue } from '../../lib/jira-client.js';
+import { Console, Effect, pipe } from 'effect';
 import { CacheManager } from '../../lib/cache.js';
-import { ContentManager } from '../../lib/content-manager.js';
 import { ConfigManager } from '../../lib/config.js';
+import { ContentManager } from '../../lib/content-manager.js';
+import { type Issue, JiraClient } from '../../lib/jira-client.js';
 import { formatDescription, getJiraStatusIcon } from '../formatters/issue.js';
 
 // Effect wrapper for getting configuration and managers
@@ -68,7 +68,7 @@ const getCachedIssueEffect = (cacheManager: CacheManager, issueKey: string) =>
   });
 
 // Effect wrapper for background refresh
-const refreshInBackgroundEffect = (config: { jiraUrl: string }, issue: Issue) =>
+const refreshInBackgroundEffect = (_config: { jiraUrl: string }, issue: Issue) =>
   Effect.tryPromise({
     try: async () => {
       // Background refresh logic would go here
@@ -83,36 +83,37 @@ const refreshInBackgroundEffect = (config: { jiraUrl: string }, issue: Issue) =>
 // Effect for formatting issue output
 const formatIssueOutputEffect = (issue: Issue) =>
   Effect.sync(() => {
-    console.log('\n' + chalk.bold.blue(issue.key) + ' - ' + chalk.bold(issue.fields.summary));
+    console.log(`\n${chalk.bold.blue(issue.key)} - ${chalk.bold(issue.fields.summary)}`);
     console.log(chalk.dim('─'.repeat(50)));
-    
-    console.log(chalk.gray('Status:') + ' ' + getJiraStatusIcon(issue.fields.status.name) + ' ' + issue.fields.status.name);
-    
+
+    console.log(`${chalk.gray('Status:')} ${getJiraStatusIcon(issue.fields.status.name)} ${issue.fields.status.name}`);
+
     if (issue.fields.assignee) {
-      console.log(chalk.gray('Assignee:') + ' ' + issue.fields.assignee.displayName);
+      console.log(`${chalk.gray('Assignee:')} ${issue.fields.assignee.displayName}`);
     } else {
-      console.log(chalk.gray('Assignee:') + ' ' + chalk.dim('Unassigned'));
+      console.log(`${chalk.gray('Assignee:')} ${chalk.dim('Unassigned')}`);
     }
-    
-    console.log(chalk.gray('Reporter:') + ' ' + issue.fields.reporter.displayName);
-    
+
+    console.log(`${chalk.gray('Reporter:')} ${issue.fields.reporter.displayName}`);
+
     if (issue.fields.priority) {
-      console.log(chalk.gray('Priority:') + ' ' + issue.fields.priority.name);
+      console.log(`${chalk.gray('Priority:')} ${issue.fields.priority.name}`);
     }
-    
-    console.log(chalk.gray('Created:') + ' ' + new Date(issue.fields.created).toLocaleString());
-    console.log(chalk.gray('Updated:') + ' ' + new Date(issue.fields.updated).toLocaleString());
-    
+
+    console.log(`${chalk.gray('Created:')} ${new Date(issue.fields.created).toLocaleString()}`);
+    console.log(`${chalk.gray('Updated:')} ${new Date(issue.fields.updated).toLocaleString()}`);
+
     if (issue.fields.labels && issue.fields.labels.length > 0) {
-      console.log(chalk.gray('Labels:') + ' ' + issue.fields.labels.map((l: string) => chalk.cyan(`[${l}]`)).join(' '));
+      console.log(`${chalk.gray('Labels:')} ${issue.fields.labels.map((l: string) => chalk.cyan(`[${l}]`)).join(' ')}`);
     }
-    
-    const sprintField = issue.fields.customfield_10020 || 
-                      issue.fields.customfield_10021 || 
-                      issue.fields.customfield_10016 ||
-                      issue.fields.customfield_10018 ||
-                      issue.fields.customfield_10019;
-    
+
+    const sprintField =
+      issue.fields.customfield_10020 ||
+      issue.fields.customfield_10021 ||
+      issue.fields.customfield_10016 ||
+      issue.fields.customfield_10018 ||
+      issue.fields.customfield_10019;
+
     if (sprintField) {
       let sprintName = 'Unknown Sprint';
       if (Array.isArray(sprintField) && sprintField.length > 0) {
@@ -126,25 +127,37 @@ const formatIssueOutputEffect = (issue: Issue) =>
       } else if (sprintField && typeof sprintField === 'object' && 'name' in sprintField) {
         sprintName = (sprintField as { name: string }).name;
       }
-      console.log(chalk.gray('Sprint:') + ' ' + chalk.magenta(sprintName));
+      console.log(`${chalk.gray('Sprint:')} ${chalk.magenta(sprintName)}`);
     }
-    
-    console.log('\n' + chalk.gray('Description:'));
+
+    console.log(`\n${chalk.gray('Description:')}`);
     const description = formatDescription(issue.fields.description);
     console.log(description);
-    
-    if (issue.fields.comment && typeof issue.fields.comment === 'object' && 'comments' in issue.fields.comment && Array.isArray((issue.fields.comment as { comments: unknown[] }).comments) && (issue.fields.comment as { comments: unknown[] }).comments.length > 0) {
-      console.log('\n' + chalk.gray('Recent Comments:'));
-      (issue.fields.comment as { comments: { author: { displayName: string }; created: string; body: unknown }[] }).comments.slice(-3).forEach((comment: { author: { displayName: string }; created: string; body: unknown }) => {
-        console.log(chalk.dim('─'.repeat(30)));
-        console.log(chalk.cyan(comment.author.displayName) + ' - ' + chalk.dim(new Date(comment.created).toLocaleString()));
-        console.log(formatDescription(comment.body));
-      });
+
+    if (
+      issue.fields.comment &&
+      typeof issue.fields.comment === 'object' &&
+      'comments' in issue.fields.comment &&
+      Array.isArray((issue.fields.comment as { comments: unknown[] }).comments) &&
+      (issue.fields.comment as { comments: unknown[] }).comments.length > 0
+    ) {
+      console.log(`\n${chalk.gray('Recent Comments:')}`);
+      (
+        issue.fields.comment as { comments: { author: { displayName: string }; created: string; body: unknown }[] }
+      ).comments
+        .slice(-3)
+        .forEach((comment: { author: { displayName: string }; created: string; body: unknown }) => {
+          console.log(chalk.dim('─'.repeat(30)));
+          console.log(
+            `${chalk.cyan(comment.author.displayName)} - ${chalk.dim(new Date(comment.created).toLocaleString())}`,
+          );
+          console.log(formatDescription(comment.body));
+        });
     }
   });
 
 // Pure Effect-based viewIssue implementation
-const viewIssueEffect = (issueKey: string, _options: { json?: boolean, sync?: boolean } = {}) =>
+const viewIssueEffect = (issueKey: string, _options: { json?: boolean; sync?: boolean } = {}) =>
   pipe(
     getManagersEffect(),
     Effect.flatMap(({ config, configManager, cacheManager, contentManager, jiraClient }) =>
@@ -156,12 +169,14 @@ const viewIssueEffect = (issueKey: string, _options: { json?: boolean, sync?: bo
             Effect.flatMap(() => updateSearchIndexEffect(contentManager, issue)),
             Effect.flatMap(() => formatIssueOutputEffect(issue)),
             Effect.flatMap(() => refreshInBackgroundEffect(config, issue)),
-            Effect.tap(() => Effect.sync(() => {
-              cacheManager.close();
-              contentManager.close();
-              configManager.close();
-            }))
-          )
+            Effect.tap(() =>
+              Effect.sync(() => {
+                cacheManager.close();
+                contentManager.close();
+                configManager.close();
+              }),
+            ),
+          ),
         ),
         Effect.catchAll((error) => {
           // Try to get from cache on network error
@@ -172,11 +187,13 @@ const viewIssueEffect = (issueKey: string, _options: { json?: boolean, sync?: bo
                 return pipe(
                   Console.log(chalk.yellow('⚠️  Showing cached data (network error occurred)')),
                   Effect.flatMap(() => formatIssueOutputEffect(cachedIssue)),
-                  Effect.tap(() => Effect.sync(() => {
-                    cacheManager.close();
-                    contentManager.close();
-                    configManager.close();
-                  }))
+                  Effect.tap(() =>
+                    Effect.sync(() => {
+                      cacheManager.close();
+                      contentManager.close();
+                      configManager.close();
+                    }),
+                  ),
                 );
               } else {
                 return pipe(
@@ -185,36 +202,36 @@ const viewIssueEffect = (issueKey: string, _options: { json?: boolean, sync?: bo
                     contentManager.close();
                     configManager.close();
                   }),
-                  Effect.flatMap(() => Effect.fail(error))
+                  Effect.flatMap(() => Effect.fail(error)),
                 );
               }
             }),
-            Effect.catchAll(() => 
+            Effect.catchAll(() =>
               pipe(
                 Effect.sync(() => {
                   cacheManager.close();
                   contentManager.close();
                   configManager.close();
                 }),
-                Effect.flatMap(() => Effect.fail(error))
-              )
-            )
+                Effect.flatMap(() => Effect.fail(error)),
+              ),
+            ),
           );
-        })
-      )
+        }),
+      ),
     ),
     Effect.catchAll((error) =>
       pipe(
         Console.error(chalk.red('Error:'), error.message),
-        Effect.flatMap(() => Effect.fail(error))
-      )
-    )
+        Effect.flatMap(() => Effect.fail(error)),
+      ),
+    ),
   );
 
-export async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boolean } = {}) {
+export async function viewIssue(issueKey: string, options: { json?: boolean; sync?: boolean } = {}) {
   try {
     await Effect.runPromise(viewIssueEffect(issueKey, options));
-  } catch (error) {
+  } catch (_error) {
     process.exit(1);
   }
 }

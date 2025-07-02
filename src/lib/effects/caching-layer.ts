@@ -1,11 +1,6 @@
-import { Effect, Duration, Context, Layer, pipe, Clock, Option } from 'effect';
-import { Database } from 'bun:sqlite';
-import {
-  DatabaseError,
-  ValidationError,
-  CacheError,
-  CacheCorruptedError
-} from './errors.js';
+import type { Database } from 'bun:sqlite';
+import { Clock, Context, Duration, Effect, Layer, Option, pipe } from 'effect';
+import { CacheCorruptedError, CacheError, DatabaseError, ValidationError } from './errors.js';
 
 /**
  * Cache entry with TTL and metadata
@@ -59,7 +54,7 @@ export interface CacheService {
     key: string,
     compute: Effect.Effect<T, E>,
     ttl?: Duration.Duration,
-    tags?: string[]
+    tags?: string[],
   ) => Effect.Effect<T, E | CacheError>;
   warmUp: <T>(entries: Array<{ key: string; value: T; ttl?: Duration.Duration }>) => Effect.Effect<void, CacheError>;
   refresh: <T, E>(key: string, compute: Effect.Effect<T, E>) => Effect.Effect<T, E | CacheError>;
@@ -78,12 +73,12 @@ export class MultiTierCache implements CacheService {
     size: 0,
     maxSize: 0,
     hitRate: 0,
-    memoryUsage: 0
+    memoryUsage: 0,
   };
 
   constructor(
     private config: CacheConfig,
-    private db?: Database // SQLite database for L2 cache
+    private db?: Database, // SQLite database for L2 cache
   ) {
     this.stats.maxSize = config.maxSize;
   }
@@ -95,21 +90,17 @@ export class MultiTierCache implements CacheService {
     return pipe(
       Effect.sync(() => this.validateKey(key)),
       Effect.flatMap(() => this.getFromL1<T>(key)),
-      Effect.flatMap(maybeValue => 
-        Option.isSome(maybeValue) 
-          ? Effect.succeed(maybeValue)
-          : this.getFromL2<T>(key)
-      ),
-      Effect.tap(maybeValue => {
+      Effect.flatMap((maybeValue) => (Option.isSome(maybeValue) ? Effect.succeed(maybeValue) : this.getFromL2<T>(key))),
+      Effect.tap((maybeValue) => {
         if (Option.isSome(maybeValue)) {
           return this.recordHit();
         } else {
           return this.recordMiss();
         }
       }),
-      Effect.mapError(error => 
-        error instanceof CacheError ? error : new CacheError(`Cache get failed: ${error}`, error)
-      )
+      Effect.mapError((error) =>
+        error instanceof CacheError ? error : new CacheError(`Cache get failed: ${error}`, error),
+      ),
     );
   }
 
@@ -117,10 +108,10 @@ export class MultiTierCache implements CacheService {
    * Set value in cache with automatic tier management
    */
   set<T>(
-    key: string, 
-    value: T, 
+    key: string,
+    value: T,
     ttl: Duration.Duration = this.config.defaultTtl,
-    tags: string[] = []
+    tags: string[] = [],
   ): Effect.Effect<void, CacheError> {
     return pipe(
       Effect.sync(() => {
@@ -128,7 +119,7 @@ export class MultiTierCache implements CacheService {
         this.validateValue(value);
       }),
       Effect.flatMap(() => Clock.currentTimeMillis),
-      Effect.flatMap(now => {
+      Effect.flatMap((now) => {
         const entry: CacheEntry<T> = {
           value,
           createdAt: now,
@@ -136,18 +127,18 @@ export class MultiTierCache implements CacheService {
           accessCount: 0,
           lastAccessed: now,
           size: this.calculateSize(value),
-          tags
+          tags,
         };
 
         return pipe(
           this.setInL1(key, entry),
           Effect.flatMap(() => this.setInL2(key, entry)),
-          Effect.flatMap(() => this.evictIfNeeded())
+          Effect.flatMap(() => this.evictIfNeeded()),
         );
       }),
-      Effect.mapError(error => 
-        error instanceof CacheError ? error : new CacheError(`Cache set failed: ${error}`, error)
-      )
+      Effect.mapError((error) =>
+        error instanceof CacheError ? error : new CacheError(`Cache set failed: ${error}`, error),
+      ),
     );
   }
 
@@ -164,12 +155,12 @@ export class MultiTierCache implements CacheService {
 
         return pipe(
           this.deleteFromL2(key),
-          Effect.map(existedInL2 => existedInL1 || existedInL2)
+          Effect.map((existedInL2) => existedInL1 || existedInL2),
         );
       }),
-      Effect.mapError(error => 
-        error instanceof CacheError ? error : new CacheError(`Cache delete failed: ${error}`, error)
-      )
+      Effect.mapError((error) =>
+        error instanceof CacheError ? error : new CacheError(`Cache delete failed: ${error}`, error),
+      ),
     );
   }
 
@@ -184,9 +175,9 @@ export class MultiTierCache implements CacheService {
         this.stats.size = 0;
       }),
       Effect.flatMap(() => this.clearL2()),
-      Effect.mapError(error => 
-        error instanceof CacheError ? error : new CacheError(`Cache clear failed: ${error}`, error)
-      )
+      Effect.mapError((error) =>
+        error instanceof CacheError ? error : new CacheError(`Cache clear failed: ${error}`, error),
+      ),
     );
   }
 
@@ -213,15 +204,15 @@ export class MultiTierCache implements CacheService {
 
         return invalidated;
       }),
-      Effect.flatMap(l1Invalidated => 
+      Effect.flatMap((l1Invalidated) =>
         pipe(
           this.invalidateL2ByTag(tag),
-          Effect.map(l2Invalidated => l1Invalidated + l2Invalidated)
-        )
+          Effect.map((l2Invalidated) => l1Invalidated + l2Invalidated),
+        ),
       ),
-      Effect.mapError(error => 
-        error instanceof CacheError ? error : new CacheError(`Tag invalidation failed: ${error}`, error)
-      )
+      Effect.mapError((error) =>
+        error instanceof CacheError ? error : new CacheError(`Tag invalidation failed: ${error}`, error),
+      ),
     );
   }
 
@@ -231,11 +222,10 @@ export class MultiTierCache implements CacheService {
   getStats(): Effect.Effect<CacheStats, never> {
     return Effect.sync(() => {
       this.stats.size = this.l1Cache.size;
-      this.stats.hitRate = this.stats.hits + this.stats.misses > 0 
-        ? this.stats.hits / (this.stats.hits + this.stats.misses)
-        : 0;
+      this.stats.hitRate =
+        this.stats.hits + this.stats.misses > 0 ? this.stats.hits / (this.stats.hits + this.stats.misses) : 0;
       this.stats.memoryUsage = this.calculateMemoryUsage();
-      
+
       return { ...this.stats };
     });
   }
@@ -247,23 +237,23 @@ export class MultiTierCache implements CacheService {
     key: string,
     compute: Effect.Effect<T, E>,
     ttl: Duration.Duration = this.config.defaultTtl,
-    tags: string[] = []
+    tags: string[] = [],
   ): Effect.Effect<T, E | CacheError> {
     return pipe(
       this.get<T>(key),
-      Effect.flatMap(maybeValue => 
+      Effect.flatMap((maybeValue) =>
         Option.isSome(maybeValue)
           ? Effect.succeed(maybeValue.value)
           : pipe(
               compute,
-              Effect.flatMap(value => 
+              Effect.flatMap((value) =>
                 pipe(
                   this.set(key, value, ttl, tags),
-                  Effect.map(() => value)
-                )
-              )
-            )
-      )
+                  Effect.map(() => value),
+                ),
+              ),
+            ),
+      ),
     );
   }
 
@@ -271,13 +261,11 @@ export class MultiTierCache implements CacheService {
    * Warm up cache with multiple entries
    */
   warmUp<T>(entries: Array<{ key: string; value: T; ttl?: Duration.Duration }>): Effect.Effect<void, CacheError> {
-    const warmUpEffects = entries.map(entry => 
-      this.set(entry.key, entry.value, entry.ttl)
-    );
+    const warmUpEffects = entries.map((entry) => this.set(entry.key, entry.value, entry.ttl));
 
     return pipe(
       Effect.all(warmUpEffects, { concurrency: 10 }),
-      Effect.map(() => undefined)
+      Effect.map(() => undefined),
     );
   }
 
@@ -287,17 +275,17 @@ export class MultiTierCache implements CacheService {
   refresh<T, E>(key: string, compute: Effect.Effect<T, E>): Effect.Effect<T, E | CacheError> {
     return pipe(
       this.delete(key),
-      Effect.flatMap(() => 
+      Effect.flatMap(() =>
         pipe(
           compute,
-          Effect.flatMap(value => 
+          Effect.flatMap((value) =>
             pipe(
               this.set(key, value),
-              Effect.map(() => value)
-            )
-          )
-        )
-      )
+              Effect.map(() => value),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -307,9 +295,9 @@ export class MultiTierCache implements CacheService {
   private getFromL1<T>(key: string): Effect.Effect<Option.Option<T>, never> {
     return pipe(
       Clock.currentTimeMillis,
-      Effect.map(now => {
+      Effect.map((now) => {
         const entry = this.l1Cache.get(key);
-        
+
         if (!entry) {
           return Option.none<T>();
         }
@@ -326,7 +314,7 @@ export class MultiTierCache implements CacheService {
         this.updateAccessOrder(key);
 
         return Option.some(entry.value as T);
-      })
+      }),
     );
   }
 
@@ -347,7 +335,11 @@ export class MultiTierCache implements CacheService {
 
     return Effect.tryPromise({
       try: async () => {
-        const stmt = this.db!.prepare('SELECT value, expires_at FROM cache_l2 WHERE key = ?');
+        if (!this.db) {
+          return Option.none<T>();
+        }
+
+        const stmt = this.db.prepare('SELECT value, expires_at FROM cache_l2 WHERE key = ?');
         const row = stmt.get(key) as { value: string; expires_at: number } | undefined;
 
         if (!row) {
@@ -357,24 +349,23 @@ export class MultiTierCache implements CacheService {
         const now = Date.now();
         if (row.expires_at <= now) {
           // Expired, delete it
-          const deleteStmt = this.db!.prepare('DELETE FROM cache_l2 WHERE key = ?');
+          const deleteStmt = this.db.prepare('DELETE FROM cache_l2 WHERE key = ?');
           deleteStmt.run(key);
           return Option.none<T>();
         }
 
         try {
           const value = JSON.parse(row.value);
-          
+
           // Promote to L1
           await this.promoteToL1(key, value, row.expires_at);
-          
+
           return Option.some(value);
         } catch (parseError) {
           throw new CacheCorruptedError(`Failed to parse cached value for key ${key}`, parseError);
         }
       },
-      catch: (error) => 
-        error instanceof CacheError ? error : new CacheError(`L2 cache get failed: ${error}`, error)
+      catch: (error) => (error instanceof CacheError ? error : new CacheError(`L2 cache get failed: ${error}`, error)),
     });
   }
 
@@ -385,25 +376,21 @@ export class MultiTierCache implements CacheService {
 
     return Effect.tryPromise({
       try: async () => {
-        const serializedValue = JSON.stringify(entry.value);
-        const compressedValue = this.config.enableCompression 
-          ? await this.compress(serializedValue)
-          : serializedValue;
+        if (!this.db) {
+          return;
+        }
 
-        const stmt = this.db!.prepare(`
+        const serializedValue = JSON.stringify(entry.value);
+        const compressedValue = this.config.enableCompression ? await this.compress(serializedValue) : serializedValue;
+
+        const stmt = this.db.prepare(`
           INSERT OR REPLACE INTO cache_l2 (key, value, expires_at, tags, size)
           VALUES (?, ?, ?, ?, ?)
         `);
-        
-        stmt.run(
-          key,
-          compressedValue,
-          entry.expiresAt,
-          JSON.stringify(entry.tags),
-          entry.size
-        );
+
+        stmt.run(key, compressedValue, entry.expiresAt, JSON.stringify(entry.tags), entry.size);
       },
-      catch: (error) => new CacheError(`L2 cache set failed: ${error}`, error)
+      catch: (error) => new CacheError(`L2 cache set failed: ${error}`, error),
     });
   }
 
@@ -414,11 +401,15 @@ export class MultiTierCache implements CacheService {
 
     return Effect.tryPromise({
       try: async () => {
-        const stmt = this.db!.prepare('DELETE FROM cache_l2 WHERE key = ?');
+        if (!this.db) {
+          return false;
+        }
+
+        const stmt = this.db.prepare('DELETE FROM cache_l2 WHERE key = ?');
         const result = stmt.run(key);
         return result.changes > 0;
       },
-      catch: (error) => new CacheError(`L2 cache delete failed: ${error}`, error)
+      catch: (error) => new CacheError(`L2 cache delete failed: ${error}`, error),
     });
   }
 
@@ -429,10 +420,14 @@ export class MultiTierCache implements CacheService {
 
     return Effect.tryPromise({
       try: async () => {
-        const stmt = this.db!.prepare('DELETE FROM cache_l2');
+        if (!this.db) {
+          return;
+        }
+
+        const stmt = this.db.prepare('DELETE FROM cache_l2');
         stmt.run();
       },
-      catch: (error) => new CacheError(`L2 cache clear failed: ${error}`, error)
+      catch: (error) => new CacheError(`L2 cache clear failed: ${error}`, error),
     });
   }
 
@@ -443,14 +438,18 @@ export class MultiTierCache implements CacheService {
 
     return Effect.tryPromise({
       try: async () => {
-        const stmt = this.db!.prepare(`
+        if (!this.db) {
+          return 0;
+        }
+
+        const stmt = this.db.prepare(`
           DELETE FROM cache_l2 
           WHERE json_extract(tags, '$') LIKE '%' || ? || '%'
         `);
         const result = stmt.run(tag);
         return result.changes;
       },
-      catch: (error) => new CacheError(`L2 tag invalidation failed: ${error}`, error)
+      catch: (error) => new CacheError(`L2 tag invalidation failed: ${error}`, error),
     });
   }
 
@@ -467,7 +466,7 @@ export class MultiTierCache implements CacheService {
         accessCount: 1,
         lastAccessed: now,
         size: this.calculateSize(value),
-        tags: []
+        tags: [],
       };
 
       this.l1Cache.set(key, entry);
@@ -485,8 +484,9 @@ export class MultiTierCache implements CacheService {
   }
 
   private shouldEvict(): boolean {
-    return this.l1Cache.size > this.config.maxSize || 
-           this.calculateMemoryUsage() > this.config.maxMemoryMb * 1024 * 1024;
+    return (
+      this.l1Cache.size > this.config.maxSize || this.calculateMemoryUsage() > this.config.maxMemoryMb * 1024 * 1024
+    );
   }
 
   private evictOne(): void {
@@ -620,17 +620,17 @@ export const CacheLayer = Layer.effect(
       maxMemoryMb: 100,
       evictionPolicy: 'lru',
       enableCompression: false,
-      persistToDisk: true
+      persistToDisk: true,
     };
 
     // Initialize L2 cache database
     const { Database } = yield* Effect.promise(() => import('bun:sqlite'));
-    const { homedir } = yield* Effect.promise(() => import('os'));
-    const { join } = yield* Effect.promise(() => import('path'));
-    
+    const { homedir } = yield* Effect.promise(() => import('node:os'));
+    const { join } = yield* Effect.promise(() => import('node:path'));
+
     const dbPath = join(homedir(), '.ji', 'cache.db');
     const db = new Database(dbPath);
-    
+
     // Create L2 cache table
     db.exec(`
       CREATE TABLE IF NOT EXISTS cache_l2 (
@@ -642,7 +642,7 @@ export const CacheLayer = Layer.effect(
         created_at INTEGER DEFAULT (unixepoch() * 1000)
       )
     `);
-    
+
     // Create indexes for performance
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_cache_l2_expires 
@@ -651,12 +651,12 @@ export const CacheLayer = Layer.effect(
       CREATE INDEX IF NOT EXISTS idx_cache_l2_tags 
       ON cache_l2(tags);
     `);
-    
+
     // Clean up expired entries on startup
     db.exec('DELETE FROM cache_l2 WHERE expires_at <= unixepoch() * 1000');
-    
+
     return new MultiTierCache(config, db);
-  })
+  }),
 );
 
 /**
@@ -671,12 +671,10 @@ export class CacheWarmingService {
   warmUpIssueCache(projectKeys: string[]): Effect.Effect<void, CacheError | DatabaseError> {
     return pipe(
       Effect.all(
-        projectKeys.map(projectKey => 
-          this.warmUpProjectIssues(projectKey)
-        ),
-        { concurrency: 3 }
+        projectKeys.map((projectKey) => this.warmUpProjectIssues(projectKey)),
+        { concurrency: 3 },
       ),
-      Effect.map(() => undefined)
+      Effect.map(() => undefined),
     );
   }
 
@@ -685,52 +683,41 @@ export class CacheWarmingService {
       try: async () => {
         // This would fetch recent issues for the project
         const recentIssues: Array<{ key: string; title: string; updated: string }> = []; // Placeholder
-        
+
         const cacheEntries = recentIssues.map((issue: { key: string; title: string; updated: string }) => ({
           key: `issue:${issue.key}`,
           value: issue,
-          ttl: Duration.hours(2)
+          ttl: Duration.hours(2),
         }));
-        
+
         return cacheEntries;
       },
-      catch: (error) => new DatabaseError(`Failed to load issues for warming: ${error}`, error)
-    }).pipe(
-      Effect.flatMap(entries => this.cache.warmUp(entries))
-    );
+      catch: (error) => new DatabaseError(`Failed to load issues for warming: ${error}`, error),
+    }).pipe(Effect.flatMap((entries) => this.cache.warmUp(entries)));
   }
 
   /**
    * Warm up search cache with popular queries
    */
   warmUpSearchCache(): Effect.Effect<void, CacheError> {
-    const popularQueries = [
-      'error',
-      'bug',
-      'deployment',
-      'configuration',
-      'authentication'
-    ];
+    const popularQueries = ['error', 'bug', 'deployment', 'configuration', 'authentication'];
 
     return pipe(
       Effect.all(
-        popularQueries.map(query => 
+        popularQueries.map((query) =>
           pipe(
-            this.cache.getOrCompute(
-              `search:${query}`,
-              this.executeSearch(query),
-              Duration.minutes(15),
-              ['search', 'popular']
+            this.cache.getOrCompute(`search:${query}`, this.executeSearch(query), Duration.minutes(15), [
+              'search',
+              'popular',
+            ]),
+            Effect.mapError((error) =>
+              error instanceof CacheError ? error : new CacheError(`Warm up failed: ${error}`, error),
             ),
-            Effect.mapError(error => 
-              error instanceof CacheError ? error : 
-              new CacheError(`Warm up failed: ${error}`, error)
-            )
-          )
+          ),
         ),
-        { concurrency: 2 }
+        { concurrency: 2 },
       ),
-      Effect.map(() => undefined)
+      Effect.map(() => undefined),
     );
   }
 
@@ -740,7 +727,7 @@ export class CacheWarmingService {
         // This would execute the actual search
         return [];
       },
-      catch: (error) => new DatabaseError(`Search failed: ${error}`, error)
+      catch: (error) => new DatabaseError(`Search failed: ${error}`, error),
     });
   }
 }
@@ -759,9 +746,9 @@ export class CacheInvalidationService {
       Effect.all([
         this.cache.delete(`issue:${issueKey}`),
         this.cache.invalidateByTag('search'),
-        this.cache.invalidateByTag(`project:${issueKey.split('-')[0]}`)
+        this.cache.invalidateByTag(`project:${issueKey.split('-')[0]}`),
       ]),
-      Effect.map(() => undefined)
+      Effect.map(() => undefined),
     );
   }
 
@@ -771,7 +758,7 @@ export class CacheInvalidationService {
   onProjectSynced(projectKey: string): Effect.Effect<void, CacheError> {
     return pipe(
       this.cache.invalidateByTag(`project:${projectKey}`),
-      Effect.map(() => undefined)
+      Effect.map(() => undefined),
     );
   }
 
@@ -781,7 +768,7 @@ export class CacheInvalidationService {
   scheduledCleanup(): Effect.Effect<void, CacheError> {
     return pipe(
       this.cache.invalidateByTag('temporary'),
-      Effect.flatMap(() => this.cleanupExpiredEntries())
+      Effect.flatMap(() => this.cleanupExpiredEntries()),
     );
   }
 
@@ -801,9 +788,7 @@ export function createCacheService(): Effect.Effect<CacheService, DatabaseError>
     CacheLayer,
     Layer.build,
     Effect.scoped,
-    Effect.map(context => Context.get(context, CacheServiceContext)),
-    Effect.mapError(error => 
-      new DatabaseError(`Failed to create cache service: ${error}`, error)
-    )
+    Effect.map((context) => Context.get(context, CacheServiceContext)),
+    Effect.mapError((error) => new DatabaseError(`Failed to create cache service: ${error}`, error)),
   );
 }

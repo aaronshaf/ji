@@ -1,12 +1,8 @@
-import { Effect, Stream, Duration, pipe, Option, Context, Layer } from 'effect';
-import { Database } from 'bun:sqlite';
-import {
-  NetworkError,
-  DatabaseError,
-  ValidationError
-} from './errors.js';
+import type { Database } from 'bun:sqlite';
+import { Context, Duration, Effect, Layer, Option, pipe, Stream } from 'effect';
 import type { SearchResult } from '../content-manager.js';
 import type { CacheService } from './caching-layer.js';
+import { DatabaseError, NetworkError, ValidationError } from './errors.js';
 
 /**
  * Enhanced search query with metadata
@@ -76,11 +72,14 @@ export interface SearchAnalytics {
  */
 export interface StreamingSearchService {
   search: (query: SearchQuery) => Stream.Stream<EnhancedSearchResult, NetworkError | DatabaseError>;
-  searchWithFacets: (query: SearchQuery) => Effect.Effect<{
-    results: EnhancedSearchResult[];
-    facets: Record<string, Array<{ value: string; count: number }>>;
-    total: number;
-  }, NetworkError | DatabaseError>;
+  searchWithFacets: (query: SearchQuery) => Effect.Effect<
+    {
+      results: EnhancedSearchResult[];
+      facets: Record<string, Array<{ value: string; count: number }>>;
+      total: number;
+    },
+    NetworkError | DatabaseError
+  >;
   autoComplete: (partial: string) => Stream.Stream<string, DatabaseError>;
   similarDocuments: (contentId: string) => Effect.Effect<SearchResult[], NetworkError | DatabaseError>;
   bulkSearch: (queries: SearchQuery[]) => Effect.Effect<EnhancedSearchResult[][], NetworkError | DatabaseError>;
@@ -92,7 +91,7 @@ export interface StreamingSearchService {
 export class EnhancedSearchEngine implements StreamingSearchService {
   constructor(
     private cache: CacheService,
-    private analytics: SearchAnalytics
+    private analytics: SearchAnalytics,
   ) {}
 
   /**
@@ -101,30 +100,31 @@ export class EnhancedSearchEngine implements StreamingSearchService {
   search(query: SearchQuery): Stream.Stream<EnhancedSearchResult, NetworkError | DatabaseError> {
     return pipe(
       Stream.fromEffect(this.validateQuery(query)),
-      Stream.mapError(error => new DatabaseError(`Validation failed: ${error.message}`, error)),
+      Stream.mapError((error) => new DatabaseError(`Validation failed: ${error.message}`, error)),
       Stream.flatMap(() => this.createSearchStream(query)),
-      Stream.tap(result => this.recordInteraction(query, result))
+      Stream.tap((result) => this.recordInteraction(query, result)),
     );
   }
 
   /**
    * Search with faceted navigation
    */
-  searchWithFacets(query: SearchQuery): Effect.Effect<{
-    results: EnhancedSearchResult[];
-    facets: Record<string, Array<{ value: string; count: number }>>;
-    total: number;
-  }, NetworkError | DatabaseError> {
+  searchWithFacets(query: SearchQuery): Effect.Effect<
+    {
+      results: EnhancedSearchResult[];
+      facets: Record<string, Array<{ value: string; count: number }>>;
+      total: number;
+    },
+    NetworkError | DatabaseError
+  > {
     return pipe(
       this.validateQuery(query),
-      Effect.mapError(error => new DatabaseError(`Validation failed: ${error.message}`, error)),
+      Effect.mapError((error) => new DatabaseError(`Validation failed: ${error.message}`, error)),
       Effect.flatMap(() => this.getCachedResults(query)),
-      Effect.flatMap(maybeResults => 
-        Option.isSome(maybeResults)
-          ? Effect.succeed(maybeResults.value)
-          : this.executeSearchWithFacets(query)
+      Effect.flatMap((maybeResults) =>
+        Option.isSome(maybeResults) ? Effect.succeed(maybeResults.value) : this.executeSearchWithFacets(query),
       ),
-      Effect.tap(results => this.cacheResults(query, results))
+      Effect.tap((results) => this.cacheResults(query, results)),
     );
   }
 
@@ -134,12 +134,10 @@ export class EnhancedSearchEngine implements StreamingSearchService {
   autoComplete(partial: string): Stream.Stream<string, DatabaseError> {
     return pipe(
       Stream.fromEffect(this.validatePartialQuery(partial)),
-      Stream.mapError(error => new DatabaseError(`Validation failed: ${error.message}`, error)),
-      Stream.flatMap(() => 
-        Stream.fromEffect(this.analytics.getSuggestions(partial))
-      ),
-      Stream.flatMap(suggestions => Stream.fromIterable(suggestions)),
-      Stream.take(10) // Limit suggestions
+      Stream.mapError((error) => new DatabaseError(`Validation failed: ${error.message}`, error)),
+      Stream.flatMap(() => Stream.fromEffect(this.analytics.getSuggestions(partial))),
+      Stream.flatMap((suggestions) => Stream.fromIterable(suggestions)),
+      Stream.take(10), // Limit suggestions
     );
   }
 
@@ -149,17 +147,18 @@ export class EnhancedSearchEngine implements StreamingSearchService {
   similarDocuments(contentId: string): Effect.Effect<SearchResult[], NetworkError | DatabaseError> {
     return pipe(
       this.validateContentId(contentId),
-      Effect.mapError(error => new DatabaseError(`Validation failed: ${error.message}`, error)),
-      Effect.flatMap(() => this.cache.getOrCompute(
-        `similar:${contentId}`,
-        this.computeSimilarDocuments(contentId),
-        Duration.hours(1),
-        ['similarity', contentId]
-      )),
-      Effect.mapError(error => 
-        error instanceof NetworkError || error instanceof DatabaseError ? error : 
-        new DatabaseError(`Cache operation failed: ${error}`, error)
-      )
+      Effect.mapError((error) => new DatabaseError(`Validation failed: ${error.message}`, error)),
+      Effect.flatMap(() =>
+        this.cache.getOrCompute(`similar:${contentId}`, this.computeSimilarDocuments(contentId), Duration.hours(1), [
+          'similarity',
+          contentId,
+        ]),
+      ),
+      Effect.mapError((error) =>
+        error instanceof NetworkError || error instanceof DatabaseError
+          ? error
+          : new DatabaseError(`Cache operation failed: ${error}`, error),
+      ),
     );
   }
 
@@ -169,9 +168,9 @@ export class EnhancedSearchEngine implements StreamingSearchService {
   bulkSearch(queries: SearchQuery[]): Effect.Effect<EnhancedSearchResult[][], NetworkError | DatabaseError> {
     return pipe(
       Effect.all(
-        queries.map(query => this.executeSearchQuery(query)),
-        { concurrency: 5 }
-      )
+        queries.map((query) => this.executeSearchQuery(query)),
+        { concurrency: 5 },
+      ),
     );
   }
 
@@ -182,33 +181,33 @@ export class EnhancedSearchEngine implements StreamingSearchService {
     return pipe(
       // Start with cached results for immediate response
       Stream.fromEffect(this.getCachedQuickResults(query)),
-      Stream.flatMap(cachedResults => {
+      Stream.flatMap((cachedResults) => {
         if (cachedResults.length > 0) {
-          return Stream.concat(
-            Stream.fromIterable(cachedResults),
-            this.createLiveSearchStream(query)
-          );
+          return Stream.concat(Stream.fromIterable(cachedResults), this.createLiveSearchStream(query));
         } else {
           return this.createLiveSearchStream(query);
         }
-      })
+      }),
     );
   }
 
-  private createLiveSearchStream(query: SearchQuery): Stream.Stream<EnhancedSearchResult, NetworkError | DatabaseError> {
+  private createLiveSearchStream(
+    query: SearchQuery,
+  ): Stream.Stream<EnhancedSearchResult, NetworkError | DatabaseError> {
     return pipe(
       // Search multiple sources concurrently
-      Stream.mergeAll([
-        this.searchJiraStream(query).pipe(Stream.mapError(error => error as NetworkError | DatabaseError)),
-        this.searchConfluenceStream(query).pipe(Stream.mapError(error => error as NetworkError | DatabaseError)),
-        this.searchMeilisearchStream(query).pipe(Stream.mapError(error => error as NetworkError | DatabaseError))
-      ], { concurrency: 3 }),
-      Stream.map(result => this.enhanceResult(result, query)),
-      Stream.groupedWithin(10, Duration.millis(100)), // Batch results for better UX
-      Stream.flatMap(chunk => 
-        Stream.fromEffect(this.rankResults(Array.from(chunk)))
+      Stream.mergeAll(
+        [
+          this.searchJiraStream(query).pipe(Stream.mapError((error) => error as NetworkError | DatabaseError)),
+          this.searchConfluenceStream(query).pipe(Stream.mapError((error) => error as NetworkError | DatabaseError)),
+          this.searchMeilisearchStream(query).pipe(Stream.mapError((error) => error as NetworkError | DatabaseError)),
+        ],
+        { concurrency: 3 },
       ),
-      Stream.flatMap(rankedResults => Stream.fromIterable(rankedResults))
+      Stream.map((result) => this.enhanceResult(result, query)),
+      Stream.groupedWithin(10, Duration.millis(100)), // Batch results for better UX
+      Stream.flatMap((chunk) => Stream.fromEffect(this.rankResults(Array.from(chunk)))),
+      Stream.flatMap((rankedResults) => Stream.fromIterable(rankedResults)),
     );
   }
 
@@ -218,27 +217,25 @@ export class EnhancedSearchEngine implements StreamingSearchService {
         try: async () => {
           const { ContentManager } = await import('../content-manager.js');
           const contentManager = new ContentManager();
-          
+
           try {
             const results = await contentManager.searchContent(query.query, {
               source: 'jira',
-              limit: query.limit || 20
+              limit: query.limit || 20,
             });
-            
-            return results.map(content => ({
+
+            return results.map((content) => ({
               content,
               score: 1.0,
-              snippet: content.content.slice(0, 200) + '...'
+              snippet: `${content.content.slice(0, 200)}...`,
             }));
           } finally {
             contentManager.close();
           }
         },
-        catch: (error) => new DatabaseError(`Jira search failed: ${error}`, error)
-      })
-    ).pipe(
-      Stream.flatMap(results => Stream.fromIterable(results))
-    );
+        catch: (error) => new DatabaseError(`Jira search failed: ${error}`, error),
+      }),
+    ).pipe(Stream.flatMap((results) => Stream.fromIterable(results)));
   }
 
   private searchConfluenceStream(query: SearchQuery): Stream.Stream<SearchResult, DatabaseError> {
@@ -247,27 +244,25 @@ export class EnhancedSearchEngine implements StreamingSearchService {
         try: async () => {
           const { ContentManager } = await import('../content-manager.js');
           const contentManager = new ContentManager();
-          
+
           try {
             const results = await contentManager.searchContent(query.query, {
               source: 'confluence',
-              limit: query.limit || 20
+              limit: query.limit || 20,
             });
-            
-            return results.map(content => ({
+
+            return results.map((content) => ({
               content,
               score: 1.0,
-              snippet: content.content.slice(0, 200) + '...'
+              snippet: `${content.content.slice(0, 200)}...`,
             }));
           } finally {
             contentManager.close();
           }
         },
-        catch: (error) => new DatabaseError(`Confluence search failed: ${error}`, error)
-      })
-    ).pipe(
-      Stream.flatMap(results => Stream.fromIterable(results))
-    );
+        catch: (error) => new DatabaseError(`Confluence search failed: ${error}`, error),
+      }),
+    ).pipe(Stream.flatMap((results) => Stream.fromIterable(results)));
   }
 
   private searchMeilisearchStream(query: SearchQuery): Stream.Stream<SearchResult, NetworkError> {
@@ -276,134 +271,132 @@ export class EnhancedSearchEngine implements StreamingSearchService {
         try: async () => {
           const { MeilisearchAdapter } = await import('../meilisearch-adapter.js');
           const meilisearch = new MeilisearchAdapter();
-          
+
           const results = await meilisearch.search(query.query, {
             source: query.source,
-            limit: query.limit || 20
+            limit: query.limit || 20,
           });
-          
+
           return results;
         },
-        catch: (error) => new NetworkError(`Meilisearch failed: ${error}`, error)
-      })
-    ).pipe(
-      Stream.flatMap(results => Stream.fromIterable(results))
-    );
+        catch: (error) => new NetworkError(`Meilisearch failed: ${error}`, error),
+      }),
+    ).pipe(Stream.flatMap((results) => Stream.fromIterable(results)));
   }
 
   private enhanceResult(result: SearchResult, query: SearchQuery): EnhancedSearchResult {
     const searchTime = Date.now(); // Would be calculated properly
-    
+
     return {
       ...result,
       rank: 0, // Will be set during ranking
       highlights: this.generateHighlights(result, query),
       searchTime,
       cacheHit: false,
-      explanation: this.generateExplanation(result, query)
+      explanation: this.generateExplanation(result, query),
     };
   }
 
   private generateHighlights(result: SearchResult, query: SearchQuery): SearchHighlight[] {
-    const queryTerms = query.query.toLowerCase().split(/\s+/).filter(term => term.length > 2);
+    const queryTerms = query.query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((term) => term.length > 2);
     const highlights: SearchHighlight[] = [];
-    
+
     // Highlight in title
     const titleHighlights = this.highlightText(result.content.title, queryTerms);
     if (titleHighlights.length > 0) {
       highlights.push({
         field: 'title',
-        fragments: titleHighlights
+        fragments: titleHighlights,
       });
     }
-    
+
     // Highlight in content
     const contentHighlights = this.highlightText(result.content.content.slice(0, 1000), queryTerms);
     if (contentHighlights.length > 0) {
       highlights.push({
         field: 'content',
-        fragments: contentHighlights.slice(0, 3) // Limit fragments
+        fragments: contentHighlights.slice(0, 3), // Limit fragments
       });
     }
-    
+
     return highlights;
   }
 
   private highlightText(text: string, terms: string[]): string[] {
     const fragments: string[] = [];
     const lowerText = text.toLowerCase();
-    
+
     for (const term of terms) {
       const index = lowerText.indexOf(term);
       if (index >= 0) {
         const start = Math.max(0, index - 50);
         const end = Math.min(text.length, index + term.length + 50);
         const fragment = text.slice(start, end);
-        const highlightedFragment = fragment.replace(
-          new RegExp(term, 'gi'),
-          `<mark>$&</mark>`
-        );
+        const highlightedFragment = fragment.replace(new RegExp(term, 'gi'), `<mark>$&</mark>`);
         fragments.push(highlightedFragment);
       }
     }
-    
+
     return fragments;
   }
 
   private generateExplanation(result: SearchResult, query: SearchQuery): SearchExplanation {
     const factors: Array<{ factor: string; score: number; description: string }> = [];
-    
+
     // Text relevance
     const textScore = this.calculateTextRelevance(result, query);
     factors.push({
       factor: 'text_relevance',
       score: textScore,
-      description: 'How well the content matches the search query'
+      description: 'How well the content matches the search query',
     });
-    
+
     // Freshness boost
     const freshnessScore = this.calculateFreshnessScore(result);
     factors.push({
       factor: 'freshness',
       score: freshnessScore,
-      description: 'Boost for recently updated content'
+      description: 'Boost for recently updated content',
     });
-    
+
     // Source preference
     const sourceScore = query.source ? 1.0 : 0.8;
     factors.push({
       factor: 'source_preference',
       score: sourceScore,
-      description: 'Preference for specific content sources'
+      description: 'Preference for specific content sources',
     });
-    
+
     const totalScore = factors.reduce((sum, factor) => sum + factor.score, 0) / factors.length;
-    
+
     return {
       totalScore,
-      factors
+      factors,
     };
   }
 
   private calculateTextRelevance(result: SearchResult, query: SearchQuery): number {
     const queryTerms = query.query.toLowerCase().split(/\s+/);
-    const contentText = (result.content.title + ' ' + result.content.content).toLowerCase();
-    
+    const contentText = `${result.content.title} ${result.content.content}`.toLowerCase();
+
     let matches = 0;
     for (const term of queryTerms) {
       if (contentText.includes(term)) {
         matches++;
       }
     }
-    
+
     return queryTerms.length > 0 ? matches / queryTerms.length : 0;
   }
 
   private calculateFreshnessScore(result: SearchResult): number {
     if (!result.content.updatedAt) return 0.5;
-    
+
     const daysSinceUpdate = (Date.now() - result.content.updatedAt) / (1000 * 60 * 60 * 24);
-    
+
     if (daysSinceUpdate <= 7) return 1.0;
     if (daysSinceUpdate <= 30) return 0.8;
     if (daysSinceUpdate <= 90) return 0.6;
@@ -415,42 +408,45 @@ export class EnhancedSearchEngine implements StreamingSearchService {
       const rankedResults = results
         .map((result, index) => ({
           ...result,
-          rank: index + 1
+          rank: index + 1,
         }))
         .sort((a, b) => {
           // Primary sort by explanation score
           const scoreDiff = (b.explanation?.totalScore || 0) - (a.explanation?.totalScore || 0);
           if (scoreDiff !== 0) return scoreDiff;
-          
+
           // Secondary sort by original score
           return b.score - a.score;
         })
         .map((result, index) => ({
           ...result,
-          rank: index + 1
+          rank: index + 1,
         }));
-      
+
       return rankedResults;
     });
   }
 
-  private executeSearchWithFacets(query: SearchQuery): Effect.Effect<{
-    results: EnhancedSearchResult[];
-    facets: Record<string, Array<{ value: string; count: number }>>;
-    total: number;
-  }, NetworkError | DatabaseError> {
+  private executeSearchWithFacets(query: SearchQuery): Effect.Effect<
+    {
+      results: EnhancedSearchResult[];
+      facets: Record<string, Array<{ value: string; count: number }>>;
+      total: number;
+    },
+    NetworkError | DatabaseError
+  > {
     return pipe(
       this.executeSearchQuery(query),
-      Effect.flatMap(results => 
+      Effect.flatMap((results) =>
         pipe(
           this.calculateFacets(results, query.facets || []),
-          Effect.map(facets => ({
+          Effect.map((facets) => ({
             results,
             facets,
-            total: results.length
-          }))
-        )
-      )
+            total: results.length,
+          })),
+        ),
+      ),
     );
   }
 
@@ -459,33 +455,33 @@ export class EnhancedSearchEngine implements StreamingSearchService {
       this.search(query),
       Stream.take(query.limit || 20),
       Stream.runCollect,
-      Effect.map(chunk => Array.from(chunk))
+      Effect.map((chunk) => Array.from(chunk)),
     );
   }
 
   private calculateFacets(
-    results: EnhancedSearchResult[], 
-    facetFields: string[]
+    results: EnhancedSearchResult[],
+    facetFields: string[],
   ): Effect.Effect<Record<string, Array<{ value: string; count: number }>>, never> {
     return Effect.sync(() => {
       const facets: Record<string, Array<{ value: string; count: number }>> = {};
-      
+
       for (const field of facetFields) {
         const valueCount = new Map<string, number>();
-        
+
         for (const result of results) {
           const value = this.extractFacetValue(result, field);
           if (value) {
             valueCount.set(value, (valueCount.get(value) || 0) + 1);
           }
         }
-        
+
         facets[field] = Array.from(valueCount.entries())
           .map(([value, count]) => ({ value, count }))
           .sort((a, b) => b.count - a.count)
           .slice(0, 10); // Limit facet values
       }
-      
+
       return facets;
     });
   }
@@ -514,15 +510,18 @@ export class EnhancedSearchEngine implements StreamingSearchService {
         // For now, return empty array as placeholder
         return [];
       },
-      catch: (error) => new DatabaseError(`Similar documents computation failed: ${error}`, error)
+      catch: (error) => new DatabaseError(`Similar documents computation failed: ${error}`, error),
     });
   }
 
-  private getCachedResults(query: SearchQuery): Effect.Effect<Option.Option<{
-    results: EnhancedSearchResult[];
-    facets: Record<string, Array<{ value: string; count: number }>>;
-    total: number;
-  }>, never> {
+  private getCachedResults(query: SearchQuery): Effect.Effect<
+    Option.Option<{
+      results: EnhancedSearchResult[];
+      facets: Record<string, Array<{ value: string; count: number }>>;
+      total: number;
+    }>,
+    never
+  > {
     const cacheKey = this.generateQueryCacheKey(query);
     return pipe(
       this.cache.get<{
@@ -530,7 +529,7 @@ export class EnhancedSearchEngine implements StreamingSearchService {
         facets: Record<string, Array<{ value: string; count: number }>>;
         total: number;
       }>(cacheKey),
-      Effect.catchAll(() => Effect.succeed(Option.none()))
+      Effect.catchAll(() => Effect.succeed(Option.none())),
     );
   }
 
@@ -538,26 +537,29 @@ export class EnhancedSearchEngine implements StreamingSearchService {
     const quickCacheKey = `quick:${this.generateQueryCacheKey(query)}`;
     return pipe(
       this.cache.get<EnhancedSearchResult[]>(quickCacheKey),
-      Effect.map(maybeResults => Option.getOrElse(maybeResults, () => [])),
-      Effect.catchAll(() => Effect.succeed([]))
+      Effect.map((maybeResults) => Option.getOrElse(maybeResults, () => [])),
+      Effect.catchAll(() => Effect.succeed([])),
     );
   }
 
-  private cacheResults(query: SearchQuery, results: {
-    results: EnhancedSearchResult[];
-    facets: Record<string, Array<{ value: string; count: number }>>;
-    total: number;
-  }): Effect.Effect<void, never> {
+  private cacheResults(
+    query: SearchQuery,
+    results: {
+      results: EnhancedSearchResult[];
+      facets: Record<string, Array<{ value: string; count: number }>>;
+      total: number;
+    },
+  ): Effect.Effect<void, never> {
     const cacheKey = this.generateQueryCacheKey(query);
     const quickCacheKey = `quick:${cacheKey}`;
-    
+
     return pipe(
       Effect.all([
         this.cache.set(cacheKey, results, Duration.minutes(15), ['search']),
-        this.cache.set(quickCacheKey, results.results.slice(0, 5), Duration.minutes(30), ['search', 'quick'])
+        this.cache.set(quickCacheKey, results.results.slice(0, 5), Duration.minutes(30), ['search', 'quick']),
       ]),
       Effect.map(() => undefined),
-      Effect.catchAll(() => Effect.succeed(undefined)) // Don't fail on cache errors
+      Effect.catchAll(() => Effect.succeed(undefined)), // Don't fail on cache errors
     );
   }
 
@@ -566,16 +568,16 @@ export class EnhancedSearchEngine implements StreamingSearchService {
       query: query.query.toLowerCase().trim(),
       source: query.source || 'all',
       filters: query.filters || [],
-      sort: query.sort || { field: 'relevance', direction: 'desc' }
+      sort: query.sort || { field: 'relevance', direction: 'desc' },
     };
-    
+
     return `search:${Buffer.from(JSON.stringify(normalized)).toString('base64')}`;
   }
 
   private recordInteraction(query: SearchQuery, result: EnhancedSearchResult): Effect.Effect<void, never> {
     return pipe(
       this.analytics.recordQuery(query, [result]),
-      Effect.catchAll(() => Effect.succeed(undefined)) // Don't fail on analytics errors
+      Effect.catchAll(() => Effect.succeed(undefined)), // Don't fail on analytics errors
     );
   }
 
@@ -623,13 +625,13 @@ export class SearchAnalyticsService implements SearchAnalytics {
     return Effect.tryPromise({
       try: async () => {
         const queryId = `query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
+
         const stmt = this.db.prepare(`
           INSERT INTO search_analytics (
             id, query, source, filters, result_count, timestamp, user_id, session_id
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        
+
         stmt.run(
           queryId,
           query.query,
@@ -638,10 +640,10 @@ export class SearchAnalyticsService implements SearchAnalytics {
           results.length,
           Date.now(),
           query.userId || null,
-          query.sessionId || null
+          query.sessionId || null,
         );
       },
-      catch: (error) => new DatabaseError(`Failed to record search query: ${error}`, error)
+      catch: (error) => new DatabaseError(`Failed to record search query: ${error}`, error),
     });
   }
 
@@ -652,10 +654,10 @@ export class SearchAnalyticsService implements SearchAnalytics {
           INSERT INTO search_clicks (query_id, result_id, position, timestamp)
           VALUES (?, ?, ?, ?)
         `);
-        
+
         stmt.run(queryId, resultId, position, Date.now());
       },
-      catch: (error) => new DatabaseError(`Failed to record search click: ${error}`, error)
+      catch: (error) => new DatabaseError(`Failed to record search click: ${error}`, error),
     });
   }
 
@@ -670,13 +672,13 @@ export class SearchAnalyticsService implements SearchAnalytics {
           ORDER BY count DESC
           LIMIT ?
         `);
-        
-        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
         const rows = stmt.all(sevenDaysAgo, limit) as Array<{ query: string; count: number }>;
-        
+
         return rows;
       },
-      catch: (error) => new DatabaseError(`Failed to get popular queries: ${error}`, error)
+      catch: (error) => new DatabaseError(`Failed to get popular queries: ${error}`, error),
     });
   }
 
@@ -688,22 +690,22 @@ export class SearchAnalyticsService implements SearchAnalytics {
           FROM search_analytics
           WHERE query = ? AND timestamp > ?
         `);
-        
+
         const clickStmt = this.db.prepare(`
           SELECT COUNT(*) as click_count
           FROM search_analytics sa
           JOIN search_clicks sc ON sa.id = sc.query_id
           WHERE sa.query = ? AND sa.timestamp > ?
         `);
-        
-        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-        
+
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
         const queryCount = (queryStmt.get(query, sevenDaysAgo) as { query_count?: number })?.query_count || 0;
         const clickCount = (clickStmt.get(query, sevenDaysAgo) as { click_count?: number })?.click_count || 0;
-        
+
         return queryCount > 0 ? clickCount / queryCount : 0;
       },
-      catch: (error) => new DatabaseError(`Failed to get click-through rate: ${error}`, error)
+      catch: (error) => new DatabaseError(`Failed to get click-through rate: ${error}`, error),
     });
   }
 
@@ -717,13 +719,13 @@ export class SearchAnalyticsService implements SearchAnalytics {
           ORDER BY COUNT(*) DESC
           LIMIT 10
         `);
-        
-        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
         const rows = stmt.all(`%${partial}%`, sevenDaysAgo) as Array<{ query: string }>;
-        
-        return rows.map(row => row.query);
+
+        return rows.map((row) => row.query);
       },
-      catch: (error) => new DatabaseError(`Failed to get suggestions: ${error}`, error)
+      catch: (error) => new DatabaseError(`Failed to get suggestions: ${error}`, error),
     });
   }
 }
@@ -742,15 +744,15 @@ export const SearchServiceLayer = Layer.effect(
     // Create a simple cache service instance for now
     const { createCacheService } = yield* Effect.promise(() => import('./caching-layer.js'));
     const cacheService = yield* createCacheService();
-    
+
     // Initialize search analytics database
     const { Database } = yield* Effect.promise(() => import('bun:sqlite'));
-    const { homedir } = yield* Effect.promise(() => import('os'));
-    const { join } = yield* Effect.promise(() => import('path'));
-    
+    const { homedir } = yield* Effect.promise(() => import('node:os'));
+    const { join } = yield* Effect.promise(() => import('node:path'));
+
     const dbPath = join(homedir(), '.ji', 'data.db');
     const db = new Database(dbPath);
-    
+
     // Create analytics tables
     db.exec(`
       CREATE TABLE IF NOT EXISTS search_analytics (
@@ -764,7 +766,7 @@ export const SearchServiceLayer = Layer.effect(
         session_id TEXT
       )
     `);
-    
+
     db.exec(`
       CREATE TABLE IF NOT EXISTS search_clicks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -775,7 +777,7 @@ export const SearchServiceLayer = Layer.effect(
         FOREIGN KEY (query_id) REFERENCES search_analytics(id)
       )
     `);
-    
+
     // Create indexes for performance
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_search_analytics_query 
@@ -787,10 +789,10 @@ export const SearchServiceLayer = Layer.effect(
       CREATE INDEX IF NOT EXISTS idx_search_clicks_query 
       ON search_clicks(query_id);
     `);
-    
+
     const analytics = new SearchAnalyticsService(db);
     return new EnhancedSearchEngine(cacheService, analytics);
-  })
+  }),
 );
 
 /**
@@ -801,9 +803,7 @@ export function createStreamingSearchService(): Effect.Effect<StreamingSearchSer
     SearchServiceLayer,
     Layer.build,
     Effect.scoped,
-    Effect.map(context => Context.get(context, StreamingSearchServiceContext)),
-    Effect.mapError(error => 
-      new DatabaseError(`Failed to create search service: ${error}`, error)
-    )
+    Effect.map((context) => Context.get(context, StreamingSearchServiceContext)),
+    Effect.mapError((error) => new DatabaseError(`Failed to create search service: ${error}`, error)),
   );
 }

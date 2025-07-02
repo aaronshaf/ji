@@ -1,23 +1,17 @@
 #!/usr/bin/env bun
 import chalk from 'chalk';
 import { auth } from './commands/auth.js';
-import { viewIssue } from './commands/issue.js';
-import { showMyIssues, takeIssue } from './commands/mine.js';
-import { showSprint } from './commands/sprint.js';
 import { showMyBoards } from './commands/board.js';
-import { syncWorkspaces, syncJiraProject, syncConfluence } from './commands/sync.js';
-import { search, ask } from './commands/search.js';
-import { 
-  addMemory, 
-  listMemories, 
-  deleteMemory, 
-  showMemoryStats, 
-  clearMemories 
-} from './commands/memory.js';
 import { showRecentConfluencePages, viewConfluencePage } from './commands/confluence.js';
-import { configureModels } from './commands/models.js';
-import { initializeSetup } from './commands/setup.js';
 import { syncToMeilisearch } from './commands/index.js';
+import { viewIssue } from './commands/issue.js';
+import { addMemory, clearMemories, deleteMemory, listMemories, showMemoryStats } from './commands/memory.js';
+import { showMyIssues, takeIssue } from './commands/mine.js';
+import { configureModels } from './commands/models.js';
+import { ask, search } from './commands/search.js';
+import { initializeSetup } from './commands/setup.js';
+import { showSprint } from './commands/sprint.js';
+import { syncConfluence, syncJiraProject, syncWorkspaces } from './commands/sync.js';
 import { refreshInBackground, refreshSprintInBackground } from './utils/background.js';
 
 // Helper function to show usage
@@ -74,7 +68,7 @@ ${chalk.gray('Examples:')}
 
 async function main() {
   const args = process.argv.slice(2);
-  
+
   if (args.length === 0 || args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
     showHelp();
     process.exit(0);
@@ -163,7 +157,7 @@ async function main() {
         await search(query, {
           source: args.includes('--jira') ? 'jira' : args.includes('--confluence') ? 'confluence' : undefined,
           limit: 10,
-          includeAll: args.includes('--all')
+          includeAll: args.includes('--all'),
         });
         break;
       }

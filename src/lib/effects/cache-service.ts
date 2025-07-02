@@ -3,9 +3,9 @@
  * Replaces the traditional CacheManager with a fully Effect-based implementation
  */
 
-import { Effect, Layer, Context, Option, pipe, Stream, Schema } from 'effect';
-import type { Issue, Board } from './jira-client-service.js';
-import { DatabaseService, DatabaseServiceTag } from './layers.js';
+import { Context, Effect, Layer, Option, pipe, Schema, Stream } from 'effect';
+import type { Board, Issue } from './jira-client-service.js';
+import { type DatabaseService, DatabaseServiceTag } from './layers.js';
 
 // ADF (Atlassian Document Format) schema
 interface ADFNode {
@@ -14,48 +14,52 @@ interface ADFNode {
   readonly content?: readonly ADFNode[];
 }
 
-const ADFNodeSchema: Schema.Schema<ADFNode> = Schema.suspend(() => Schema.Struct({
-  type: Schema.String,
-  text: Schema.optional(Schema.String),
-  content: Schema.optional(Schema.Array(ADFNodeSchema))
-}));
+const ADFNodeSchema: Schema.Schema<ADFNode> = Schema.suspend(() =>
+  Schema.Struct({
+    type: Schema.String,
+    text: Schema.optional(Schema.String),
+    content: Schema.optional(Schema.Array(ADFNodeSchema)),
+  }),
+);
 
 const ADFDocumentSchema = Schema.Struct({
-  content: Schema.optional(Schema.Array(ADFNodeSchema))
+  content: Schema.optional(Schema.Array(ADFNodeSchema)),
 });
 
-import { 
-  QueryError, 
-  ParseError, 
-  ValidationError,
-  ConcurrencyError,
-  DataIntegrityError
-} from './errors.js';
+import { ConcurrencyError, type DataIntegrityError, ParseError, type QueryError, ValidationError } from './errors.js';
 
 // ============= Cache Service Interface =============
 export interface CacheService {
   // Issue operations
   readonly getIssue: (key: string) => Effect.Effect<Option.Option<Issue>, ValidationError | QueryError | ParseError>;
-  readonly saveIssue: (issue: Issue) => Effect.Effect<void, ValidationError | QueryError | DataIntegrityError | ConcurrencyError>;
+  readonly saveIssue: (
+    issue: Issue,
+  ) => Effect.Effect<void, ValidationError | QueryError | DataIntegrityError | ConcurrencyError>;
   readonly deleteIssue: (key: string) => Effect.Effect<void, ValidationError | QueryError>;
-  readonly listIssuesByProject: (projectKey: string) => Effect.Effect<Issue[], ValidationError | QueryError | ParseError>;
+  readonly listIssuesByProject: (
+    projectKey: string,
+  ) => Effect.Effect<Issue[], ValidationError | QueryError | ParseError>;
   readonly deleteProjectIssues: (projectKey: string) => Effect.Effect<void, ValidationError | QueryError>;
-  
+
   // Board operations
   readonly getBoard: (id: number) => Effect.Effect<Option.Option<Board>, ValidationError | QueryError | ParseError>;
   readonly saveBoard: (board: Board) => Effect.Effect<void, ValidationError | QueryError | DataIntegrityError>;
   readonly saveBoards: (boards: Board[]) => Effect.Effect<void, ValidationError | QueryError | DataIntegrityError>;
   readonly listBoards: () => Effect.Effect<Board[], QueryError | ParseError>;
   readonly getBoardCount: () => Effect.Effect<number, QueryError>;
-  
+
   // Cache management
   readonly clearCache: () => Effect.Effect<void, QueryError>;
   readonly getStats: () => Effect.Effect<CacheStats, QueryError>;
   readonly compact: () => Effect.Effect<void, QueryError>;
-  
+
   // Streaming operations for large datasets
-  readonly streamIssuesByProject: (projectKey: string) => Stream.Stream<Issue, ValidationError | QueryError | ParseError>;
-  readonly batchSaveIssues: (issues: Issue[]) => Effect.Effect<void, ValidationError | QueryError | DataIntegrityError | ConcurrencyError>;
+  readonly streamIssuesByProject: (
+    projectKey: string,
+  ) => Stream.Stream<Issue, ValidationError | QueryError | ParseError>;
+  readonly batchSaveIssues: (
+    issues: Issue[],
+  ) => Effect.Effect<void, ValidationError | QueryError | DataIntegrityError | ConcurrencyError>;
 }
 
 export interface CacheStats {
@@ -66,25 +70,17 @@ export interface CacheStats {
   cacheSize: number; // in bytes
 }
 
-export class CacheServiceTag extends Context.Tag('CacheService')<
-  CacheServiceTag,
-  CacheService
->() {}
+export class CacheServiceTag extends Context.Tag('CacheService')<CacheServiceTag, CacheService>() {}
 
 // ============= Cache Service Implementation =============
 class CacheServiceImpl implements CacheService {
   constructor(private db: DatabaseService) {}
-  
+
   // ============= Issue Operations =============
   getIssue(key: string): Effect.Effect<Option.Option<Issue>, ValidationError | QueryError | ParseError> {
     return pipe(
       this.validateIssueKey(key),
-      Effect.flatMap(() =>
-        this.db.query<{ raw_data: string }>(
-          'SELECT raw_data FROM issues WHERE key = ?',
-          [key]
-        )
-      ),
+      Effect.flatMap(() => this.db.query<{ raw_data: string }>('SELECT raw_data FROM issues WHERE key = ?', [key])),
       Effect.flatMap((rows) => {
         if (rows.length === 0) {
           return Effect.succeed(Option.none());
@@ -92,14 +88,14 @@ class CacheServiceImpl implements CacheService {
         return pipe(
           Effect.try({
             try: () => JSON.parse(rows[0].raw_data) as Issue,
-            catch: (error) => new ParseError(`Failed to parse issue ${key}`, 'raw_data', rows[0].raw_data, error)
+            catch: (error) => new ParseError(`Failed to parse issue ${key}`, 'raw_data', rows[0].raw_data, error),
           }),
-          Effect.map(Option.some)
+          Effect.map(Option.some),
         );
-      })
+      }),
     );
   }
-  
+
   saveIssue(issue: Issue): Effect.Effect<void, ValidationError | QueryError | DataIntegrityError | ConcurrencyError> {
     return pipe(
       this.validateIssue(issue),
@@ -129,18 +125,18 @@ class CacheServiceImpl implements CacheService {
                   new Date(issue.fields.updated).getTime(),
                   this.extractDescription(issue.fields.description),
                   JSON.stringify(issue),
-                  Date.now()
-                ]
-              )
+                  Date.now(),
+                ],
+              ),
             ),
             Effect.tap(() => this.updateProjectCache(issue.fields.project?.key || 'UNKNOWN')),
-            Effect.asVoid
-          )
-        )
-      )
+            Effect.asVoid,
+          ),
+        ),
+      ),
     );
   }
-  
+
   deleteIssue(key: string): Effect.Effect<void, ValidationError | QueryError> {
     return pipe(
       this.validateIssueKey(key),
@@ -149,38 +145,35 @@ class CacheServiceImpl implements CacheService {
           pipe(
             this.db.execute('DELETE FROM issues WHERE key = ?', [key]),
             Effect.flatMap(() =>
-              this.db.execute(
-                'DELETE FROM searchable_content WHERE id = ? AND source = ?',
-                [`jira:${key}`, 'jira']
-              )
-            )
-          )
-        )
+              this.db.execute('DELETE FROM searchable_content WHERE id = ? AND source = ?', [`jira:${key}`, 'jira']),
+            ),
+          ),
+        ),
       ),
-      Effect.asVoid
+      Effect.asVoid,
     );
   }
-  
+
   listIssuesByProject(projectKey: string): Effect.Effect<Issue[], ValidationError | QueryError | ParseError> {
     return pipe(
       this.validateProjectKey(projectKey),
       Effect.flatMap(() =>
-        this.db.query<{ raw_data: string }>(
-          'SELECT raw_data FROM issues WHERE project_key = ? ORDER BY updated DESC',
-          [projectKey]
-        )
+        this.db.query<{ raw_data: string }>('SELECT raw_data FROM issues WHERE project_key = ? ORDER BY updated DESC', [
+          projectKey,
+        ]),
       ),
       Effect.flatMap((rows) =>
         Effect.forEach(rows, (row) =>
           Effect.try({
             try: () => JSON.parse(row.raw_data) as Issue,
-            catch: (error) => new ParseError(`Failed to parse issue in project ${projectKey}`, 'raw_data', row.raw_data, error)
-          })
-        )
-      )
+            catch: (error) =>
+              new ParseError(`Failed to parse issue in project ${projectKey}`, 'raw_data', row.raw_data, error),
+          }),
+        ),
+      ),
     );
   }
-  
+
   deleteProjectIssues(projectKey: string): Effect.Effect<void, ValidationError | QueryError> {
     return pipe(
       this.validateProjectKey(projectKey),
@@ -189,18 +182,18 @@ class CacheServiceImpl implements CacheService {
           pipe(
             this.db.execute('DELETE FROM issues WHERE project_key = ?', [projectKey]),
             Effect.flatMap(() =>
-              this.db.execute(
-                'DELETE FROM searchable_content WHERE project_key = ? AND source = ?',
-                [projectKey, 'jira']
-              )
-            )
-          )
-        )
+              this.db.execute('DELETE FROM searchable_content WHERE project_key = ? AND source = ?', [
+                projectKey,
+                'jira',
+              ]),
+            ),
+          ),
+        ),
       ),
-      Effect.asVoid
+      Effect.asVoid,
     );
   }
-  
+
   // ============= Board Operations =============
   getBoard(id: number): Effect.Effect<Option.Option<Board>, ValidationError | QueryError | ParseError> {
     return pipe(
@@ -213,10 +206,7 @@ class CacheServiceImpl implements CacheService {
           project_key: string;
           project_name: string;
           self_url: string;
-        }>(
-          'SELECT id, name, type, project_key, project_name, self_url FROM boards WHERE id = ?',
-          [id]
-        )
+        }>('SELECT id, name, type, project_key, project_name, self_url FROM boards WHERE id = ?', [id]),
       ),
       Effect.map((rows) => {
         if (rows.length === 0) {
@@ -227,16 +217,18 @@ class CacheServiceImpl implements CacheService {
           id: row.id,
           name: row.name,
           type: row.type as 'scrum' | 'kanban',
-          location: row.project_key ? {
-            projectKey: row.project_key,
-            projectName: row.project_name,
-          } : undefined,
-          self: row.self_url
+          location: row.project_key
+            ? {
+                projectKey: row.project_key,
+                projectName: row.project_name,
+              }
+            : undefined,
+          self: row.self_url,
         } as Board);
-      })
+      }),
     );
   }
-  
+
   saveBoard(board: Board): Effect.Effect<void, ValidationError | QueryError | DataIntegrityError> {
     return pipe(
       this.validateBoard(board),
@@ -252,26 +244,22 @@ class CacheServiceImpl implements CacheService {
             board.location?.projectKey || null,
             board.location?.projectName || null,
             board.self,
-            Date.now()
-          ]
-        )
+            Date.now(),
+          ],
+        ),
       ),
-      Effect.asVoid
+      Effect.asVoid,
     );
   }
-  
+
   saveBoards(boards: Board[]): Effect.Effect<void, ValidationError | QueryError | DataIntegrityError> {
     return pipe(
       Effect.forEach(boards, (board) => this.validateBoard(board)),
-      Effect.flatMap(() =>
-        this.db.transaction(
-          Effect.forEach(boards, (board) => this.saveBoard(board))
-        )
-      ),
-      Effect.asVoid
+      Effect.flatMap(() => this.db.transaction(Effect.forEach(boards, (board) => this.saveBoard(board)))),
+      Effect.asVoid,
     );
   }
-  
+
   listBoards(): Effect.Effect<Board[], QueryError | ParseError> {
     return pipe(
       this.db.query<{
@@ -283,27 +271,32 @@ class CacheServiceImpl implements CacheService {
         self_url: string;
       }>('SELECT id, name, type, project_key, project_name, self_url FROM boards ORDER BY name'),
       Effect.map((rows) =>
-        rows.map((row) => ({
-          id: row.id,
-          name: row.name,
-          type: row.type as 'scrum' | 'kanban',
-          location: row.project_key ? {
-            projectKey: row.project_key,
-            projectName: row.project_name || '',
-          } : undefined,
-          self: row.self_url
-        } as Board))
-      )
+        rows.map(
+          (row) =>
+            ({
+              id: row.id,
+              name: row.name,
+              type: row.type as 'scrum' | 'kanban',
+              location: row.project_key
+                ? {
+                    projectKey: row.project_key,
+                    projectName: row.project_name || '',
+                  }
+                : undefined,
+              self: row.self_url,
+            }) as Board,
+        ),
+      ),
     );
   }
-  
+
   getBoardCount(): Effect.Effect<number, QueryError> {
     return pipe(
       this.db.query<{ count: number }>('SELECT COUNT(*) as count FROM boards'),
-      Effect.map((rows) => rows[0]?.count || 0)
+      Effect.map((rows) => rows[0]?.count || 0),
     );
   }
-  
+
   // ============= Cache Management =============
   clearCache(): Effect.Effect<void, QueryError> {
     return pipe(
@@ -312,52 +305,54 @@ class CacheServiceImpl implements CacheService {
           this.db.execute('DELETE FROM issues'),
           Effect.flatMap(() => this.db.execute('DELETE FROM boards')),
           Effect.flatMap(() => this.db.execute('DELETE FROM searchable_content')),
-          Effect.flatMap(() => this.db.execute('VACUUM'))
-        )
+          Effect.flatMap(() => this.db.execute('VACUUM')),
+        ),
       ),
-      Effect.asVoid
+      Effect.asVoid,
     );
   }
-  
+
   getStats(): Effect.Effect<CacheStats, QueryError> {
     return Effect.all({
       totalIssues: pipe(
         this.db.query<{ count: number }>('SELECT COUNT(*) as count FROM issues'),
-        Effect.map((rows) => rows[0]?.count || 0)
+        Effect.map((rows) => rows[0]?.count || 0),
       ),
       totalBoards: this.getBoardCount(),
       projectCounts: pipe(
         this.db.query<{ project_key: string; count: number }>(
-          'SELECT project_key, COUNT(*) as count FROM issues GROUP BY project_key'
+          'SELECT project_key, COUNT(*) as count FROM issues GROUP BY project_key',
         ),
         Effect.map((rows) =>
-          rows.reduce((acc, row) => {
-            acc[row.project_key] = row.count;
-            return acc;
-          }, {} as Record<string, number>)
-        )
+          rows.reduce(
+            (acc, row) => {
+              acc[row.project_key] = row.count;
+              return acc;
+            },
+            {} as Record<string, number>,
+          ),
+        ),
       ),
       lastSync: pipe(
         this.db.query<{ max_sync: number | null }>('SELECT MAX(synced_at) as max_sync FROM issues'),
         Effect.map((rows) => {
           const maxSync = rows[0]?.max_sync;
           return maxSync ? new Date(maxSync) : null;
-        })
+        }),
       ),
       cacheSize: pipe(
-        this.db.query<{ size: number }>('SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()'),
-        Effect.map((rows) => rows[0]?.size || 0)
-      )
+        this.db.query<{ size: number }>(
+          'SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()',
+        ),
+        Effect.map((rows) => rows[0]?.size || 0),
+      ),
     });
   }
-  
+
   compact(): Effect.Effect<void, QueryError> {
-    return pipe(
-      this.db.execute('VACUUM'),
-      Effect.asVoid
-    );
+    return pipe(this.db.execute('VACUUM'), Effect.asVoid);
   }
-  
+
   // ============= Streaming Operations =============
   streamIssuesByProject(projectKey: string): Stream.Stream<Issue, ValidationError | QueryError | ParseError> {
     return pipe(
@@ -366,22 +361,25 @@ class CacheServiceImpl implements CacheService {
         Stream.fromEffect(
           this.db.query<{ raw_data: string }>(
             'SELECT raw_data FROM issues WHERE project_key = ? ORDER BY updated DESC',
-            [projectKey]
-          )
-        )
+            [projectKey],
+          ),
+        ),
       ),
       Stream.flatMap(Stream.fromIterable),
       Stream.mapEffect((row) =>
         Effect.try({
           try: () => JSON.parse(row.raw_data) as Issue,
-          catch: (error) => new ParseError(`Failed to parse issue in project ${projectKey}`, 'raw_data', row.raw_data, error)
-        })
+          catch: (error) =>
+            new ParseError(`Failed to parse issue in project ${projectKey}`, 'raw_data', row.raw_data, error),
+        }),
       ),
-      Stream.rechunk(100) // Process in chunks of 100
+      Stream.rechunk(100), // Process in chunks of 100
     );
   }
-  
-  batchSaveIssues(issues: Issue[]): Effect.Effect<void, ValidationError | QueryError | DataIntegrityError | ConcurrencyError> {
+
+  batchSaveIssues(
+    issues: Issue[],
+  ): Effect.Effect<void, ValidationError | QueryError | DataIntegrityError | ConcurrencyError> {
     return pipe(
       Effect.forEach(issues, (issue) => this.validateIssue(issue)),
       Effect.flatMap(() =>
@@ -389,13 +387,13 @@ class CacheServiceImpl implements CacheService {
           pipe(
             Stream.fromIterable(issues),
             Stream.mapEffect((issue) => this.saveIssue(issue)),
-            Stream.runDrain
-          )
-        )
-      )
+            Stream.runDrain,
+          ),
+        ),
+      ),
     );
   }
-  
+
   // ============= Private Validation Methods =============
   private validateIssueKey(key: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
@@ -404,7 +402,7 @@ class CacheServiceImpl implements CacheService {
       }
     });
   }
-  
+
   private validateProjectKey(projectKey: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!projectKey || projectKey.length === 0) {
@@ -412,7 +410,7 @@ class CacheServiceImpl implements CacheService {
       }
     });
   }
-  
+
   private validateBoardId(id: number): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!id || id <= 0) {
@@ -420,7 +418,7 @@ class CacheServiceImpl implements CacheService {
       }
     });
   }
-  
+
   private validateIssue(issue: Issue): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!issue) {
@@ -434,7 +432,7 @@ class CacheServiceImpl implements CacheService {
       }
     });
   }
-  
+
   private validateBoard(board: Board): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!board) {
@@ -448,82 +446,75 @@ class CacheServiceImpl implements CacheService {
       }
     });
   }
-  
+
   private checkIssueVersion(issue: Issue): Effect.Effect<void, QueryError | ConcurrencyError> {
     return pipe(
-      this.db.query<{ updated: number }>(
-        'SELECT updated FROM issues WHERE key = ?',
-        [issue.key]
-      ),
+      this.db.query<{ updated: number }>('SELECT updated FROM issues WHERE key = ?', [issue.key]),
       Effect.flatMap((rows) => {
         if (rows.length > 0) {
           const cachedUpdated = new Date(rows[0].updated);
           const issueUpdated = new Date(issue.fields.updated);
-          
+
           if (cachedUpdated > issueUpdated) {
-            return Effect.fail(
-              new ConcurrencyError(
-                'Issue has been updated by another process',
-                issue.key,
-                'save'
-              )
-            );
+            return Effect.fail(new ConcurrencyError('Issue has been updated by another process', issue.key, 'save'));
           }
         }
         return Effect.succeed(undefined);
-      })
+      }),
     );
   }
-  
+
   private updateProjectCache(projectKey: string): Effect.Effect<void, QueryError> {
-    return this.db.execute(
-      'INSERT OR IGNORE INTO projects (key, name) VALUES (?, ?)',
-      [projectKey, projectKey]
-    ).pipe(Effect.asVoid);
+    return this.db
+      .execute('INSERT OR IGNORE INTO projects (key, name) VALUES (?, ?)', [projectKey, projectKey])
+      .pipe(Effect.asVoid);
   }
-  
+
   private extractDescription(description: string | { content?: unknown[] } | null | undefined): string {
     if (typeof description === 'string') {
       return description;
     }
-    
+
     if (description?.content) {
       return this.parseADF(description);
     }
-    
+
     return '';
   }
-  
+
   private parseADF(doc: { content?: unknown[] }): string {
     return pipe(
       Effect.try({
         try: () => Schema.decodeUnknownSync(ADFDocumentSchema)(doc),
-        catch: () => ({ content: [] as ADFNode[] }) // Fallback to empty content
+        catch: () => ({ content: [] as ADFNode[] }), // Fallback to empty content
       }),
-      Effect.map(validatedDoc => {
+      Effect.map((validatedDoc) => {
         const parseNode = (node: ADFNode): string => {
           if (node.type === 'text') {
             return node.text || '';
           }
-          
+
           if (node.type === 'paragraph' && node.content) {
-            return '\n' + node.content.map(n => parseNode(n)).join('') + '\n';
+            return `\n${node.content.map((n) => parseNode(n)).join('')}\n`;
           }
-          
+
           if (node.content) {
-            return node.content.map(n => parseNode(n)).join('');
+            return node.content.map((n) => parseNode(n)).join('');
           }
-          
+
           return '';
         };
-        
+
         if (validatedDoc.content) {
-          return validatedDoc.content.map(node => parseNode(node)).join('').trim();
+          return validatedDoc.content
+            .map((node) => parseNode(node))
+            .join('')
+            .trim();
         }
-        
+
         return '';
       }),
-      Effect.runSync
+      Effect.runSync,
     );
   }
 }
@@ -533,8 +524,8 @@ export const CacheServiceLive = Layer.effect(
   CacheServiceTag,
   pipe(
     DatabaseServiceTag,
-    Effect.map((db) => new CacheServiceImpl(db))
-  )
+    Effect.map((db) => new CacheServiceImpl(db)),
+  ),
 );
 
 // ============= Helper Functions =============

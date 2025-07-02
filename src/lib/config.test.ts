@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { ConfigManager } from './config.js';
 
 describe('ConfigManager', () => {
@@ -11,8 +11,8 @@ describe('ConfigManager', () => {
 
   it('should have required methods', () => {
     const methods: Array<keyof ConfigManager> = ['getConfig', 'setConfig', 'close'];
-    
-    methods.forEach(method => {
+
+    methods.forEach((method) => {
       expect(ConfigManager.prototype[method]).toBeDefined();
       expect(typeof ConfigManager.prototype[method]).toBe('function');
     });

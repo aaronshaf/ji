@@ -1,9 +1,8 @@
-import { Schema } from 'effect';
 import { Database } from 'bun:sqlite';
-import { homedir } from 'os';
-import { join } from 'path';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'fs';
-import { Effect, pipe } from 'effect';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { Effect, pipe, Schema } from 'effect';
 
 // Error types for better error handling
 export class ConfigError extends Error {
@@ -34,7 +33,7 @@ export type Config = Schema.Schema.Type<typeof ConfigSchema>;
 export interface Settings {
   askModel?: string;
   embeddingModel?: string; // Model for generating embeddings for hybrid search
-  analysisModel?: string;  // Smaller, faster model for source selection and query generation
+  analysisModel?: string; // Smaller, faster model for source selection and query generation
 }
 
 export class ConfigManager {
@@ -45,7 +44,7 @@ export class ConfigManager {
   constructor() {
     this.configDir = join(homedir(), '.ji');
     this.authFile = join(this.configDir, 'auth.json');
-    
+
     if (!existsSync(this.configDir)) {
       mkdirSync(this.configDir, { recursive: true });
     }
@@ -62,7 +61,7 @@ export class ConfigManager {
         value TEXT NOT NULL
       )
     `);
-    
+
     // Create projects table
     this.db.run(`
       CREATE TABLE IF NOT EXISTS projects (
@@ -70,7 +69,7 @@ export class ConfigManager {
         name TEXT NOT NULL
       )
     `);
-    
+
     // Create issues table with proper relations
     this.db.run(`
       CREATE TABLE IF NOT EXISTS issues (
@@ -91,7 +90,7 @@ export class ConfigManager {
         FOREIGN KEY (project_key) REFERENCES projects(key)
       )
     `);
-    
+
     // Create unified searchable content table
     this.db.run(`
       CREATE TABLE IF NOT EXISTS searchable_content (
@@ -109,8 +108,7 @@ export class ConfigManager {
         synced_at INTEGER NOT NULL
       )
     `);
-    
-    
+
     // Create FTS5 virtual table for full-text search
     this.db.run(`
       CREATE VIRTUAL TABLE IF NOT EXISTS content_fts USING fts5(
@@ -119,7 +117,7 @@ export class ConfigManager {
         content
       )
     `);
-    
+
     // Create boards table for cached board data
     this.db.run(`
       CREATE TABLE IF NOT EXISTS boards (
@@ -132,7 +130,7 @@ export class ConfigManager {
         synced_at INTEGER NOT NULL
       )
     `);
-    
+
     // Create user workspaces table to track frequently used spaces/projects
     this.db.run(`
       CREATE TABLE IF NOT EXISTS user_workspaces (
@@ -146,7 +144,7 @@ export class ConfigManager {
         synced_at INTEGER
       )
     `);
-    
+
     // Create user sprints table to track active sprints
     this.db.run(`
       CREATE TABLE IF NOT EXISTS user_sprints (
@@ -175,10 +173,10 @@ export class ConfigManager {
         access_count INTEGER DEFAULT 1
       )
     `);
-    
+
     // Run migrations for existing databases
     this.runMigrations();
-    
+
     // Create indexes
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_key)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_issues_updated ON issues(updated DESC)`);
@@ -200,49 +198,52 @@ export class ConfigManager {
         if (fileExists) {
           return pipe(
             Effect.try(() => readFileSync(this.authFile, 'utf-8')),
-            Effect.mapError(error => new FileError(`Failed to read auth file: ${error}`)),
-            Effect.flatMap(authData =>
-              Effect.try(() => JSON.parse(authData))
-                .pipe(Effect.mapError(error => new ParseError(`Invalid JSON in auth file: ${error}`)))
+            Effect.mapError((error) => new FileError(`Failed to read auth file: ${error}`)),
+            Effect.flatMap((authData) =>
+              Effect.try(() => JSON.parse(authData)).pipe(
+                Effect.mapError((error) => new ParseError(`Invalid JSON in auth file: ${error}`)),
+              ),
             ),
-            Effect.flatMap(config =>
-              Schema.decodeUnknown(ConfigSchema)(config)
-                .pipe(Effect.mapError(error => new ValidationError(`Invalid config schema: ${error}`)))
-            )
+            Effect.flatMap((config) =>
+              Schema.decodeUnknown(ConfigSchema)(config).pipe(
+                Effect.mapError((error) => new ValidationError(`Invalid config schema: ${error}`)),
+              ),
+            ),
           ) as Effect.Effect<Config, ConfigError | FileError | ParseError | ValidationError>;
         }
-        
+
         // Fall back to database
         return pipe(
           Effect.try(() => {
             const stmt = this.db.prepare('SELECT key, value FROM config');
             return stmt.all() as { key: string; value: string }[];
           }),
-          Effect.mapError(error => new FileError(`Database error: ${error}`)),
+          Effect.mapError((error) => new FileError(`Database error: ${error}`)),
           Effect.filterOrFail(
-            rows => rows.length > 0,
-            () => new ConfigError('No configuration found. Please run "ji auth" first.')
+            (rows) => rows.length > 0,
+            () => new ConfigError('No configuration found. Please run "ji auth" first.'),
           ),
-          Effect.map(rows => {
+          Effect.map((rows) => {
             const config: Record<string, string> = {};
-            rows.forEach(row => {
+            rows.forEach((row) => {
               config[row.key] = row.value;
             });
             return config;
           }),
-          Effect.flatMap(config =>
-            Schema.decodeUnknown(ConfigSchema)(config)
-              .pipe(Effect.mapError(error => new ValidationError(`Invalid database config: ${error}`)))
+          Effect.flatMap((config) =>
+            Schema.decodeUnknown(ConfigSchema)(config).pipe(
+              Effect.mapError((error) => new ValidationError(`Invalid database config: ${error}`)),
+            ),
           ),
           // Migrate to auth file
-          Effect.tap(parsed =>
+          Effect.tap((parsed) =>
             Effect.tryPromise({
               try: () => this.setConfig(parsed),
-              catch: () => new FileError('Failed to migrate config to auth file')
-            }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
-          )
+              catch: () => new FileError('Failed to migrate config to auth file'),
+            }).pipe(Effect.catchAll(() => Effect.succeed(undefined))),
+          ),
         );
-      })
+      }),
     );
   }
 
@@ -257,15 +258,15 @@ export class ConfigManager {
         console.error('Failed to read auth file:', error);
       }
     }
-    
+
     // Fall back to database (for backward compatibility)
     const stmt = this.db.prepare('SELECT key, value FROM config');
     const rows = stmt.all() as { key: string; value: string }[];
-    
+
     if (rows.length === 0) return null;
 
     const config: Record<string, string> = {};
-    rows.forEach(row => {
+    rows.forEach((row) => {
       config[row.key] = row.value;
     });
 
@@ -281,10 +282,10 @@ export class ConfigManager {
 
   async setConfig(config: Config): Promise<void> {
     const validated = Schema.decodeUnknownSync(ConfigSchema)(config);
-    
+
     // Save to auth file with restrictive permissions
     writeFileSync(this.authFile, JSON.stringify(validated, null, 2), 'utf-8');
-    
+
     // Set file permissions to 600 (read/write for owner only)
     chmodSync(this.authFile, 0o600);
   }
@@ -300,14 +301,13 @@ export class ConfigManager {
         dflt_value: string | null;
         pk: number;
       }>;
-      const hasContentHash = contentTableInfo.some(col => col.name === 'content_hash');
-      
+      const hasContentHash = contentTableInfo.some((col) => col.name === 'content_hash');
+
       if (!hasContentHash) {
         console.log('Migrating database: Adding content hash tracking...');
         this.db.run(`ALTER TABLE searchable_content ADD COLUMN content_hash TEXT`);
       }
-      
-      
+
       // Add sprint fields to issues table if they don't exist
       const issuesTableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as Array<{
         cid: number;
@@ -317,8 +317,8 @@ export class ConfigManager {
         dflt_value: string | null;
         pk: number;
       }>;
-      const hasSprintId = issuesTableInfo.some(col => col.name === 'sprint_id');
-      
+      const hasSprintId = issuesTableInfo.some((col) => col.name === 'sprint_id');
+
       if (!hasSprintId) {
         console.log('Migrating database: Adding sprint fields to issues...');
         this.db.run(`ALTER TABLE issues ADD COLUMN sprint_id TEXT`);
@@ -343,7 +343,7 @@ export class ConfigManager {
           UNIQUE(sprint_id, key)
         )
       `);
-      
+
       // Check if reporter_email has NOT NULL constraint
       const tableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as Array<{
         cid: number;
@@ -353,11 +353,11 @@ export class ConfigManager {
         dflt_value: string | null;
         pk: number;
       }>;
-      const reporterEmailCol = tableInfo.find(col => col.name === 'reporter_email');
-      
+      const reporterEmailCol = tableInfo.find((col) => col.name === 'reporter_email');
+
       if (reporterEmailCol && reporterEmailCol.notnull === 1) {
         console.log('Migrating database: Making reporter_email nullable...');
-        
+
         // SQLite doesn't support ALTER COLUMN, so we need to recreate the table
         this.db.run(`
           CREATE TABLE IF NOT EXISTS issues_new (
@@ -378,17 +378,17 @@ export class ConfigManager {
             FOREIGN KEY (project_key) REFERENCES projects(key)
           )
         `);
-        
+
         // Copy data
         this.db.run(`INSERT INTO issues_new SELECT * FROM issues`);
-        
+
         // Drop old table and rename new one
         this.db.run(`DROP TABLE issues`);
         this.db.run(`ALTER TABLE issues_new RENAME TO issues`);
-        
+
         console.log('Migration complete!');
       }
-    } catch (error) {
+    } catch (_error) {
       // If any error occurs during migration, just continue
       // The table creation will handle it
     }
@@ -414,11 +414,11 @@ export class ConfigManager {
     const askModel = await this.getSetting('askModel');
     const embeddingModel = await this.getSetting('embeddingModel');
     const analysisModel = await this.getSetting('analysisModel');
-    
+
     return {
       askModel: askModel || undefined,
       embeddingModel: embeddingModel || undefined,
-      analysisModel: analysisModel || undefined
+      analysisModel: analysisModel || undefined,
     };
   }
 

@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { Effect, pipe } from 'effect';
 
 // Error types for Ollama operations
@@ -26,22 +26,22 @@ export class OllamaClient {
     return Effect.tryPromise({
       try: async () => {
         const response = await fetch(`${this.baseUrl}/api/tags`, {
-          signal: AbortSignal.timeout(5000) // 5 second timeout
+          signal: AbortSignal.timeout(5000), // 5 second timeout
         });
-        
+
         if (!response.ok) {
           if (response.status >= 500) {
             throw new NetworkError(`Ollama server error: ${response.status} ${response.statusText}`);
           }
           return false; // Ollama is running but returned client error
         }
-        
+
         return true;
       },
       catch: (error) => {
         if (error instanceof NetworkError) return error;
         return new NetworkError(`Failed to connect to Ollama: ${error}`);
-      }
+      },
     });
   }
 
@@ -53,7 +53,7 @@ export class OllamaClient {
         console.error(`Ollama API returned ${response.status}`);
         return false;
       }
-      
+
       return true;
     } catch (error) {
       console.error('Failed to connect to Ollama:', error);
@@ -61,10 +61,11 @@ export class OllamaClient {
     }
   }
 
-
-
   // Effect-based generate
-  generateEffect(prompt: string, options?: { model?: string; temperature?: number }): Effect.Effect<string, ValidationError | NetworkError | GenerationError> {
+  generateEffect(
+    prompt: string,
+    options?: { model?: string; temperature?: number },
+  ): Effect.Effect<string, ValidationError | NetworkError | GenerationError> {
     return pipe(
       // Validate inputs
       Effect.sync(() => {
@@ -81,7 +82,7 @@ export class OllamaClient {
       Effect.flatMap(() => {
         const model = options?.model || 'gemma3n:latest';
         const temperature = options?.temperature ?? 0.7;
-        
+
         return Effect.tryPromise({
           try: async () => {
             const response = await fetch(`${this.baseUrl}/api/generate`, {
@@ -94,9 +95,9 @@ export class OllamaClient {
                 options: {
                   temperature,
                   top_p: 0.9,
-                }
+                },
               }),
-              signal: AbortSignal.timeout(60000) // 60 second timeout
+              signal: AbortSignal.timeout(60000), // 60 second timeout
             });
 
             if (!response.ok) {
@@ -106,25 +107,25 @@ export class OllamaClient {
               throw new GenerationError(`Generation failed: ${response.status} ${response.statusText}`);
             }
 
-            const data = await response.json() as { response?: string; error?: string };
-            
+            const data = (await response.json()) as { response?: string; error?: string };
+
             if (data.error) {
               throw new GenerationError(`Ollama error: ${data.error}`);
             }
-            
+
             if (!data.response) {
               throw new GenerationError('Empty response from Ollama');
             }
-            
+
             return data.response;
           },
           catch: (error) => {
             if (error instanceof NetworkError) return error;
             if (error instanceof GenerationError) return error;
             return new NetworkError(`Failed to generate response: ${error}`);
-          }
+          },
         });
-      })
+      }),
     );
   }
 
@@ -132,7 +133,7 @@ export class OllamaClient {
   async generate(prompt: string, options?: { model?: string; temperature?: number }): Promise<string> {
     const model = options?.model || 'gemma3n:latest';
     const temperature = options?.temperature ?? 0.7;
-    
+
     try {
       const response = await fetch(`${this.baseUrl}/api/generate`, {
         method: 'POST',
@@ -144,8 +145,8 @@ export class OllamaClient {
           options: {
             temperature,
             top_p: 0.9,
-          }
-        })
+          },
+        }),
       });
 
       if (!response.ok) {
@@ -153,7 +154,7 @@ export class OllamaClient {
         return '';
       }
 
-      const data = await response.json() as { response: string };
+      const data = (await response.json()) as { response: string };
       return data.response;
     } catch (error) {
       console.error('Failed to generate response:', error);
@@ -163,7 +164,7 @@ export class OllamaClient {
 
   async generateStream(prompt: string, options?: { model?: string }): Promise<ReadableStream<Uint8Array> | null> {
     const model = options?.model || 'gemma3n:latest';
-    
+
     try {
       const response = await fetch(`${this.baseUrl}/api/generate`, {
         method: 'POST',
@@ -175,8 +176,8 @@ export class OllamaClient {
           options: {
             temperature: 0.7,
             top_p: 0.9,
-          }
-        })
+          },
+        }),
       });
 
       if (!response.ok) {
@@ -191,37 +192,38 @@ export class OllamaClient {
     }
   }
 
-
-
-
   // Create a hash of content for change detection (Effect version)
   static contentHashEffect(content: string): Effect.Effect<string, Error> {
     // Validate input first
     if (!content || content.length === 0) {
-      return Effect.fail(new Error("Cannot hash empty content"));
+      return Effect.fail(new Error('Cannot hash empty content'));
     }
-    
-    if (content.length > 10_000_000) { // 10MB limit
-      return Effect.fail(new Error("Content too large to hash"));
+
+    if (content.length > 10_000_000) {
+      // 10MB limit
+      return Effect.fail(new Error('Content too large to hash'));
     }
-    
+
     // Create hash using Effect.sync since this operation won't throw
-    return Effect.sync(() => 
-      createHash('sha256').update(content).digest('hex').substring(0, 16)
-    );
+    return Effect.sync(() => createHash('sha256').update(content).digest('hex').substring(0, 16));
   }
-  
+
   // Backward-compatible version
   static contentHash(content: string): string {
     // Run the Effect synchronously and handle errors
     return Effect.runSync(
       pipe(
-        this.contentHashEffect(content),
-        Effect.catchAll((_error) => 
+        OllamaClient.contentHashEffect(content),
+        Effect.catchAll((_error) =>
           // Fallback to old behavior for compatibility
-          Effect.sync(() => createHash('sha256').update(content || '').digest('hex').substring(0, 16))
-        )
-      )
+          Effect.sync(() =>
+            createHash('sha256')
+              .update(content || '')
+              .digest('hex')
+              .substring(0, 16),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -4,8 +4,8 @@
  */
 
 import { Effect, Option, pipe } from 'effect';
-import { ConfigManager, type Config } from './config.js';
-import { DatabaseError, ConfigError, ValidationError } from './effects/errors.js';
+import { type Config, ConfigManager } from './config.js';
+import { ConfigError, DatabaseError, ValidationError } from './effects/errors.js';
 
 export class ConfigManagerEffect extends ConfigManager {
   /**
@@ -17,7 +17,7 @@ export class ConfigManagerEffect extends ConfigManager {
         const value = await this.getSetting(key);
         return Option.fromNullable(value);
       },
-      catch: (error) => new DatabaseError(`Failed to get setting '${key}'`, error)
+      catch: (error) => new DatabaseError(`Failed to get setting '${key}'`, error),
     });
   }
 
@@ -27,10 +27,12 @@ export class ConfigManagerEffect extends ConfigManager {
   getRequiredSettingEffect(key: string): Effect.Effect<string, DatabaseError | ConfigError> {
     return pipe(
       this.getSettingEffect(key),
-      Effect.flatMap(Option.match({
-        onNone: () => Effect.fail(new ConfigError(`Required setting '${key}' not found`)),
-        onSome: (value) => Effect.succeed(value)
-      }))
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.fail(new ConfigError(`Required setting '${key}' not found`)),
+          onSome: (value) => Effect.succeed(value),
+        }),
+      ),
     );
   }
 
@@ -55,9 +57,9 @@ export class ConfigManagerEffect extends ConfigManager {
           try: async () => {
             await this.setSetting(key, value);
           },
-          catch: (error) => new DatabaseError(`Failed to set setting '${key}'`, error)
-        })
-      )
+          catch: (error) => new DatabaseError(`Failed to set setting '${key}'`, error),
+        }),
+      ),
     );
   }
 
@@ -73,7 +75,7 @@ export class ConfigManagerEffect extends ConfigManager {
         }
         return config;
       },
-      catch: (error) => new ConfigError('Failed to load configuration', error)
+      catch: (error) => new ConfigError('Failed to load configuration', error),
     });
   }
 }

@@ -16,9 +16,9 @@ async function main() {
 
   // Example 1: Traditional vs Effect approach
   console.log('1. Comparing approaches for issue fetching:\n');
-  
+
   const testKey = 'EVAL-100';
-  
+
   // Traditional approach
   console.log('Traditional approach:');
   const traditionalIssue = await cacheManager.getIssue(testKey);
@@ -45,72 +45,67 @@ async function main() {
             return `  Unknown error: ${error}`;
         }
       },
-      onSuccess: (issue) => `  Found: ${issue.key}`
+      onSuccess: (issue) => `  Found: ${issue.key}`,
     }),
-    Effect.tap(result => Effect.sync(() => console.log(result))),
-    Effect.runPromise
+    Effect.tap((result) => Effect.sync(() => console.log(result))),
+    Effect.runPromise,
   );
 
   // Example 2: Batch operations
   console.log('\n2. Batch operations with Effect:\n');
-  
+
   const keys = ['EVAL-1', 'EVAL-2', 'NONEXISTENT-1'];
-  
+
   await pipe(
     cacheEffect.getIssues(keys),
-    Effect.tap(issues => 
+    Effect.tap((issues) =>
       Effect.sync(() => {
         console.log(`  Requested ${keys.length} issues`);
         console.log(`  Found ${issues.length} in cache`);
-        issues.forEach(issue => 
-          console.log(`    - ${issue.key}: ${issue.fields.summary}`)
-        );
-      })
+        issues.forEach((issue) => console.log(`    - ${issue.key}: ${issue.fields.summary}`));
+      }),
     ),
-    Effect.catchAll(error => 
-      Effect.sync(() => console.log(`  Error: ${error.message}`))
-    ),
-    Effect.runPromise
+    Effect.catchAll((error) => Effect.sync(() => console.log(`  Error: ${error.message}`))),
+    Effect.runPromise,
   );
 
   // Example 3: Checking existence
   console.log('\n3. Checking issue existence:\n');
-  
+
   for (const key of ['EVAL-1', 'NOTEXIST-1']) {
     await pipe(
       cacheEffect.hasIssue(key),
-      Effect.tap(exists => 
-        Effect.sync(() => console.log(`  ${key}: ${exists ? 'exists' : 'not found'}`))
-      ),
-      Effect.runPromise
+      Effect.tap((exists) => Effect.sync(() => console.log(`  ${key}: ${exists ? 'exists' : 'not found'}`))),
+      Effect.runPromise,
     );
   }
 
   // Example 4: Effect composition
   console.log('\n4. Composing multiple operations:\n');
-  
-  const getIssueSummary = (key: string) => pipe(
-    cacheEffect.getIssue(key),
-    Effect.map(issue => issue.fields.summary),
-    Effect.catchTag('NotFoundError', () => Effect.succeed('(not found)'))
-  );
-  
+
+  const getIssueSummary = (key: string) =>
+    pipe(
+      cacheEffect.getIssue(key),
+      Effect.map((issue) => issue.fields.summary),
+      Effect.catchTag('NotFoundError', () => Effect.succeed('(not found)')),
+    );
+
   const summaries = await pipe(
     ['EVAL-1', 'EVAL-2', 'EVAL-3'],
-    Effect.forEach(key => 
+    Effect.forEach((key) =>
       pipe(
         getIssueSummary(key),
-        Effect.map(summary => `${key}: ${summary}`)
-      )
+        Effect.map((summary) => `${key}: ${summary}`),
+      ),
     ),
-    Effect.runPromise
+    Effect.runPromise,
   );
-  
-  summaries.forEach(s => console.log(`  ${s}`));
+
+  summaries.forEach((s) => console.log(`  ${s}`));
 
   // Cleanup
   cacheManager.close();
-  
+
   console.log('\n✓ Demo complete');
 }
 

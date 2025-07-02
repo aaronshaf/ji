@@ -1,6 +1,6 @@
-import { Effect, pipe } from 'effect';
-import { CommandError } from './cli-commands.js';
 import chalk from 'chalk';
+import { Effect, pipe } from 'effect';
+import type { CommandError } from './cli-commands.js';
 
 /**
  * Error display configuration
@@ -36,7 +36,7 @@ export class CliErrorReporter {
       showStackTrace: false,
       showSuggestions: true,
       colorOutput: true,
-      ...options
+      ...options,
     };
   }
 
@@ -52,7 +52,7 @@ export class CliErrorReporter {
             title: 'Validation Error',
             message: error.message,
             suggestions: this.getValidationSuggestions(error),
-            details: error.field ? `Field: ${error.field}` : undefined
+            details: error.field ? `Field: ${error.field}` : undefined,
           };
 
         case 'AuthenticationError':
@@ -64,8 +64,8 @@ export class CliErrorReporter {
               'Check your API token is valid',
               'Verify your email address is correct',
               'Run "ji auth" to reconfigure credentials',
-              'Ensure your Jira URL is correct'
-            ]
+              'Ensure your Jira URL is correct',
+            ],
           };
 
         case 'NetworkError':
@@ -77,8 +77,8 @@ export class CliErrorReporter {
               'Check your internet connection',
               'Verify the Jira/Confluence URL is accessible',
               'Try again in a few moments',
-              'Check if the service is experiencing downtime'
-            ]
+              'Check if the service is experiencing downtime',
+            ],
           };
 
         case 'NotFoundError':
@@ -89,8 +89,8 @@ export class CliErrorReporter {
             suggestions: [
               'Check the resource identifier (issue key, page ID, etc.)',
               'Verify you have permission to access this resource',
-              'Ensure the resource exists and hasn\'t been deleted'
-            ]
+              "Ensure the resource exists and hasn't been deleted",
+            ],
           };
 
         case 'QueryError':
@@ -102,8 +102,8 @@ export class CliErrorReporter {
               'Try running the command again',
               'Check available disk space',
               'Run "ji sync --clean" to rebuild the cache',
-              'Report this issue if it persists'
-            ]
+              'Report this issue if it persists',
+            ],
           };
 
         case 'ConfigError':
@@ -114,8 +114,8 @@ export class CliErrorReporter {
             suggestions: [
               'Run "ji auth" to reconfigure',
               'Check your configuration files',
-              'Verify all required settings are present'
-            ]
+              'Verify all required settings are present',
+            ],
           };
 
         default:
@@ -123,10 +123,7 @@ export class CliErrorReporter {
             severity: 'error' as const,
             title: 'Unknown Error',
             message: (error as { message?: string }).message || 'An unknown error occurred',
-            suggestions: [
-              'Try running the command again',
-              'Report this issue with details of what you were doing'
-            ]
+            suggestions: ['Try running the command again', 'Report this issue with details of what you were doing'],
           };
       }
     });
@@ -138,7 +135,7 @@ export class CliErrorReporter {
   displayError(formattedError: FormattedError): Effect.Effect<void, never> {
     return Effect.sync(() => {
       const { colorOutput } = this.options;
-      
+
       // Choose colors based on severity
       const titleColor = colorOutput ? this.getSeverityColor(formattedError.severity) : (text: string) => text;
       const messageColor = colorOutput ? chalk.red : (text: string) => text;
@@ -173,7 +170,7 @@ export class CliErrorReporter {
   handleError(error: CommandError): Effect.Effect<void, never> {
     return pipe(
       this.formatError(error),
-      Effect.flatMap(formatted => this.displayError(formatted))
+      Effect.flatMap((formatted) => this.displayError(formatted)),
     );
   }
 
@@ -198,25 +195,22 @@ export class CliErrorReporter {
    */
   private getValidationSuggestions(error: { field?: string; message: string }): string[] {
     const suggestions: string[] = [];
-    
+
     if (error.field === 'issueKey' || error.message.includes('issue key')) {
       suggestions.push('Issue keys should be in format PROJECT-123 (e.g., DEV-456)');
     }
-    
+
     if (error.field === 'query' || error.message.includes('query')) {
       suggestions.push('Search queries should be 2-1000 characters long');
       suggestions.push('Try using more specific search terms');
     }
-    
+
     if (error.field === 'args' || error.message.includes('argument')) {
       suggestions.push('Check the command help for required arguments');
       suggestions.push('Use --help to see command usage');
     }
-    
-    return suggestions.length > 0 ? suggestions : [
-      'Check your input and try again',
-      'Use --help to see command usage'
-    ];
+
+    return suggestions.length > 0 ? suggestions : ['Check your input and try again', 'Use --help to see command usage'];
   }
 }
 
@@ -233,7 +227,7 @@ export interface ProgressOptions {
 export class ProgressTracker {
   private current = 0;
   private startTime = Date.now();
-  
+
   constructor(private options: ProgressOptions = {}) {}
 
   /**
@@ -243,26 +237,26 @@ export class ProgressTracker {
     return Effect.sync(() => {
       this.current = current;
       const { total, showPercentage, showEta } = this.options;
-      
+
       let output = message || this.options.message || 'Processing...';
-      
+
       if (total && showPercentage) {
         const percentage = Math.round((current / total) * 100);
         output += ` (${percentage}%)`;
       }
-      
+
       if (total && showEta && current > 0) {
         const elapsed = Date.now() - this.startTime;
         const rate = current / elapsed;
         const remaining = total - current;
         const eta = remaining / rate;
-        
+
         if (eta > 0 && eta < Infinity) {
           const etaSeconds = Math.round(eta / 1000);
           output += ` - ETA: ${etaSeconds}s`;
         }
       }
-      
+
       // Clear previous line and show progress
       process.stdout.write(`\\r${output}                    `);
     });
@@ -308,13 +302,13 @@ export class GracefulShutdown {
    */
   private async shutdown(signal: string): Promise<void> {
     if (this.isShuttingDown) return;
-    
+
     this.isShuttingDown = true;
     console.log(`\\nReceived ${signal}, shutting down gracefully...`);
-    
+
     try {
       // Execute all shutdown handlers
-      await Promise.all(this.shutdownHandlers.map(handler => handler()));
+      await Promise.all(this.shutdownHandlers.map((handler) => handler()));
       console.log('Shutdown complete');
       process.exit(0);
     } catch (error) {
@@ -331,7 +325,7 @@ export function createDefaultErrorReporter(): CliErrorReporter {
   return new CliErrorReporter({
     showStackTrace: process.env.NODE_ENV === 'development',
     showSuggestions: true,
-    colorOutput: process.stdout.isTTY
+    colorOutput: process.stdout.isTTY,
   });
 }
 
@@ -340,18 +334,18 @@ export function createDefaultErrorReporter(): CliErrorReporter {
  */
 export function withErrorHandling<T>(
   effect: Effect.Effect<T, CommandError>,
-  errorReporter?: CliErrorReporter
+  errorReporter?: CliErrorReporter,
 ): Effect.Effect<T, never> {
   const reporter = errorReporter || createDefaultErrorReporter();
-  
+
   return pipe(
     effect,
-    Effect.catchAll(error => 
+    Effect.catchAll((error) =>
       pipe(
         reporter.handleError(error),
-        Effect.flatMap(() => Effect.fail(undefined as never))
-      )
+        Effect.flatMap(() => Effect.fail(undefined as never)),
+      ),
     ),
-    Effect.catchAll(() => Effect.succeed(undefined as never))
+    Effect.catchAll(() => Effect.succeed(undefined as never)),
   );
 }

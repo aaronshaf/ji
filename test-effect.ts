@@ -10,9 +10,9 @@ const validHash = pipe(
   OllamaClient.contentHashEffect('Hello, Effect!'),
   Effect.matchEffect({
     onFailure: (error) => Effect.succeed(`Error: ${error.message}`),
-    onSuccess: (hash) => Effect.succeed(`Success: ${hash}`)
+    onSuccess: (hash) => Effect.succeed(`Success: ${hash}`),
   }),
-  Effect.runSync
+  Effect.runSync,
 );
 console.log(validHash);
 
@@ -22,9 +22,9 @@ const emptyHash = pipe(
   OllamaClient.contentHashEffect(''),
   Effect.matchEffect({
     onFailure: (error) => Effect.succeed(`Error: ${error.message}`),
-    onSuccess: (hash) => Effect.succeed(`Success: ${hash}`)
+    onSuccess: (hash) => Effect.succeed(`Success: ${hash}`),
   }),
-  Effect.runSync
+  Effect.runSync,
 );
 console.log(emptyHash);
 
@@ -35,9 +35,9 @@ const largeHash = pipe(
   OllamaClient.contentHashEffect(largeContent),
   Effect.matchEffect({
     onFailure: (error) => Effect.succeed(`Error: ${error.message}`),
-    onSuccess: (hash) => Effect.succeed(`Success: ${hash}`)
+    onSuccess: (hash) => Effect.succeed(`Success: ${hash}`),
   }),
-  Effect.runSync
+  Effect.runSync,
 );
 console.log(largeHash);
 
@@ -52,13 +52,13 @@ const pipeline = pipe(
   Effect.succeed('Initial content'),
   Effect.flatMap((content) => OllamaClient.contentHashEffect(content)),
   Effect.flatMap((hash) => OllamaClient.contentHashEffect(hash)), // Hash the hash
-  Effect.map((doubleHash) => `Double hash: ${doubleHash}`)
+  Effect.map((doubleHash) => `Double hash: ${doubleHash}`),
 );
 
 const pipelineResult = Effect.runSync(
   Effect.matchEffect(pipeline, {
     onFailure: (error) => Effect.succeed(`Pipeline failed: ${error.message}`),
-    onSuccess: (result) => Effect.succeed(result)
-  })
+    onSuccess: (result) => Effect.succeed(result),
+  }),
 );
 console.log(pipelineResult);

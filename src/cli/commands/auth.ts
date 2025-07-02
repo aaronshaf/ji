@@ -1,7 +1,7 @@
-import { Effect, Console, pipe } from 'effect';
+import { stdin as input, stdout as output } from 'node:process';
+import * as readline from 'node:readline/promises';
 import chalk from 'chalk';
-import * as readline from 'readline/promises';
-import { stdin as input, stdout as output } from 'process';
+import { Console, Effect, pipe } from 'effect';
 import { ConfigManager } from '../../lib/config.js';
 
 // Effect wrapper for readline operations
@@ -17,8 +17,8 @@ const verifyCredentials = (config: { jiraUrl: string; email: string; apiToken: s
     try: async () => {
       const response = await fetch(`${config.jiraUrl}/rest/api/3/myself`, {
         headers: {
-          'Authorization': `Basic ${Buffer.from(`${config.email}:${config.apiToken}`).toString('base64')}`,
-          'Accept': 'application/json',
+          Authorization: `Basic ${Buffer.from(`${config.email}:${config.apiToken}`).toString('base64')}`,
+          Accept: 'application/json',
         },
       });
 
@@ -62,24 +62,24 @@ const authEffect = (rl: readline.Interface) =>
   pipe(
     Console.log('\nJira & Confluence CLI Authentication Setup'),
     Effect.flatMap(() => askQuestion('Jira URL (e.g., https://company.atlassian.net): ', rl)),
-    Effect.map((jiraUrl: string) => jiraUrl.endsWith('/') ? jiraUrl.slice(0, -1) : jiraUrl),
+    Effect.map((jiraUrl: string) => (jiraUrl.endsWith('/') ? jiraUrl.slice(0, -1) : jiraUrl)),
     Effect.flatMap((jiraUrl) =>
       pipe(
         askQuestion('Email: ', rl),
         Effect.flatMap((email: string) =>
           pipe(
             askQuestion('API Token: ', rl),
-            Effect.map((apiToken: string) => ({ jiraUrl, email, apiToken }))
-          )
-        )
-      )
+            Effect.map((apiToken: string) => ({ jiraUrl, email, apiToken })),
+          ),
+        ),
+      ),
     ),
     Effect.tap(() => Console.log('\nVerifying credentials...')),
     Effect.flatMap((config) =>
       pipe(
         verifyCredentials(config),
-        Effect.map((user) => ({ config, user }))
-      )
+        Effect.map((user) => ({ config, user })),
+      ),
     ),
     Effect.tap(({ user }) => {
       // Type guard for the user object
@@ -94,11 +94,13 @@ const authEffect = (rl: readline.Interface) =>
     Effect.tap(() => Console.log('You can now use "ji issue view <issue-key>" to view issues.')),
     Effect.catchAll((error) =>
       pipe(
-        Console.error(chalk.red(`\nAuthentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`)),
+        Console.error(
+          chalk.red(`\nAuthentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`),
+        ),
         Effect.flatMap(() => Console.error('Please check your credentials and try again.')),
-        Effect.flatMap(() => Effect.fail(error))
-      )
-    )
+        Effect.flatMap(() => Effect.fail(error)),
+      ),
+    ),
   );
 
 export async function auth() {

@@ -1,5 +1,5 @@
 import { Effect, pipe } from 'effect';
-import { JiraClient, type Issue } from '../jira-client';
+import type { Issue, JiraClient } from '../jira-client';
 import { JiraError, NotFoundError } from './errors';
 
 export class JiraEffectClient {
@@ -13,8 +13,8 @@ export class JiraEffectClient {
       }),
       Effect.filterOrFail(
         (issue): issue is Issue => issue !== null,
-        () => new NotFoundError(`Issue ${key} not found`)
-      )
+        () => new NotFoundError(`Issue ${key} not found`),
+      ),
     );
   }
 

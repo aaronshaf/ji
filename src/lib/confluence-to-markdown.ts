@@ -23,9 +23,15 @@ export function confluenceToMarkdown(storageFormat: string): string {
   text = text.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n');
 
   // Convert code blocks
-  text = text.replace(/<ac:structured-macro[^>]*ac:name="code"[^>]*>.*?<ac:parameter[^>]*ac:name="language"[^>]*>([^<]*)<\/ac:parameter>.*?<ac:plain-text-body><!\[CDATA\[(.*?)\]\]><\/ac:plain-text-body>.*?<\/ac:structured-macro>/gs, '\n```$1\n$2\n```\n');
-  text = text.replace(/<ac:structured-macro[^>]*ac:name="code"[^>]*>.*?<ac:plain-text-body><!\[CDATA\[(.*?)\]\]><\/ac:plain-text-body>.*?<\/ac:structured-macro>/gs, '\n```\n$1\n```\n');
-  
+  text = text.replace(
+    /<ac:structured-macro[^>]*ac:name="code"[^>]*>.*?<ac:parameter[^>]*ac:name="language"[^>]*>([^<]*)<\/ac:parameter>.*?<ac:plain-text-body><!\[CDATA\[(.*?)\]\]><\/ac:plain-text-body>.*?<\/ac:structured-macro>/gs,
+    '\n```$1\n$2\n```\n',
+  );
+  text = text.replace(
+    /<ac:structured-macro[^>]*ac:name="code"[^>]*>.*?<ac:plain-text-body><!\[CDATA\[(.*?)\]\]><\/ac:plain-text-body>.*?<\/ac:structured-macro>/gs,
+    '\n```\n$1\n```\n',
+  );
+
   // Convert inline code
   text = text.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`');
 
@@ -75,68 +81,68 @@ export function confluenceToMarkdown(storageFormat: string): string {
 function convertTablesToMarkdown(html: string): string {
   // Match each table
   const tableRegex = /<table[^>]*>(.*?)<\/table>/gis;
-  
-  return html.replace(tableRegex, (match, tableContent) => {
+
+  return html.replace(tableRegex, (_match, tableContent) => {
     const rows: string[][] = [];
-    
+
     // Extract rows
     const rowRegex = /<tr[^>]*>(.*?)<\/tr>/gis;
     let rowMatch;
-    
+
     while ((rowMatch = rowRegex.exec(tableContent)) !== null) {
       const rowContent = rowMatch[1];
       const cells: string[] = [];
-      
+
       // Extract cells (th or td)
       const cellRegex = /<t[hd][^>]*>(.*?)<\/t[hd]>/gis;
       let cellMatch;
-      
+
       while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
         // Clean cell content
         const cellText = cellMatch[1]
           .replace(/<[^>]+>/g, '') // Remove any remaining HTML
-          .replace(/\n/g, ' ')     // Replace newlines with spaces
+          .replace(/\n/g, ' ') // Replace newlines with spaces
           .trim();
         cells.push(cellText);
       }
-      
+
       if (cells.length > 0) {
         rows.push(cells);
       }
     }
-    
+
     if (rows.length === 0) return '';
-    
+
     // Build markdown table
     let markdown = '\n\n';
-    
+
     // Add header row
     if (rows.length > 0) {
-      markdown += '| ' + rows[0].join(' | ') + ' |\n';
-      markdown += '|' + rows[0].map(() => '---').join('|') + '|\n';
-      
+      markdown += `| ${rows[0].join(' | ')} |\n`;
+      markdown += `|${rows[0].map(() => '---').join('|')}|\n`;
+
       // Add data rows
       for (let i = 1; i < rows.length; i++) {
         // Ensure row has same number of cells as header
         while (rows[i].length < rows[0].length) {
           rows[i].push('');
         }
-        markdown += '| ' + rows[i].join(' | ') + ' |\n';
+        markdown += `| ${rows[i].join(' | ')} |\n`;
       }
     }
-    
-    return markdown + '\n';
+
+    return `${markdown}\n`;
   });
 }
 
 // Export a function to extract team ownership information specifically
 export function extractTeamOwnership(markdown: string): Record<string, string[]> {
   const teams: Record<string, string[]> = {};
-  
+
   // Look for patterns like "Team Name | Features/Products"
   const lines = markdown.split('\n');
   let currentTeam = '';
-  
+
   for (const line of lines) {
     // Match team headers (e.g., "## EVAL" or "### Evaluate")
     const teamMatch = line.match(/^#{1,3}\s+([\w\s]+?)(?:\s*\([\w\s]+\))?\s*$/);
@@ -145,20 +151,23 @@ export function extractTeamOwnership(markdown: string): Record<string, string[]>
       teams[currentTeam] = [];
       continue;
     }
-    
+
     // Match feature lists after team names
     if (currentTeam && line.includes('|')) {
-      const parts = line.split('|').map(p => p.trim());
+      const parts = line.split('|').map((p) => p.trim());
       // Look for feature lists in table cells
       for (const part of parts) {
         if (part && !part.includes('---') && part.length > 3) {
           // Split by commas to get individual features
-          const features = part.split(',').map(f => f.trim()).filter(f => f);
+          const features = part
+            .split(',')
+            .map((f) => f.trim())
+            .filter((f) => f);
           teams[currentTeam].push(...features);
         }
       }
     }
   }
-  
+
   return teams;
 }

@@ -1,7 +1,7 @@
-import { Effect, pipe, Option } from 'effect';
-import { DatabaseError, ParseError, NotFoundError } from './errors';
-import type { Issue } from '../jira-client';
+import { Effect, Option, pipe } from 'effect';
 import type { CacheManager } from '../cache';
+import type { Issue } from '../jira-client';
+import { DatabaseError, NotFoundError, type ParseError } from './errors';
 
 /**
  * Effect-based wrapper for CacheManager operations
@@ -18,12 +18,12 @@ export class CacheEffect {
       // Use the public getIssue method instead of accessing db directly
       Effect.tryPromise({
         try: async () => await this.cache.getIssue(key),
-        catch: (error) => new DatabaseError(`Database error while fetching issue ${key}`, error)
+        catch: (error) => new DatabaseError(`Database error while fetching issue ${key}`, error),
       }),
       Effect.filterOrFail(
         (issue): issue is Issue => issue !== null,
-        () => new NotFoundError(`Issue ${key} not found in cache`)
-      )
+        () => new NotFoundError(`Issue ${key} not found in cache`),
+      ),
     );
   }
 
@@ -34,7 +34,7 @@ export class CacheEffect {
     return pipe(
       this.getIssue(key),
       Effect.map(Option.some),
-      Effect.catchTag('NotFoundError', () => Effect.succeed(Option.none()))
+      Effect.catchTag('NotFoundError', () => Effect.succeed(Option.none())),
     );
   }
 
@@ -46,7 +46,7 @@ export class CacheEffect {
       try: async () => {
         await this.cache.saveIssue(issue);
       },
-      catch: (error) => new DatabaseError(`Failed to save issue ${issue.key}`, error)
+      catch: (error) => new DatabaseError(`Failed to save issue ${issue.key}`, error),
     });
   }
 
@@ -58,22 +58,25 @@ export class CacheEffect {
       try: async () => {
         await this.cache.deleteProjectIssues(projectKey);
       },
-      catch: (error) => new DatabaseError(`Failed to delete issues for project ${projectKey}`, error)
+      catch: (error) => new DatabaseError(`Failed to delete issues for project ${projectKey}`, error),
     });
   }
 
   /**
    * Get issue update range for a project
    */
-  getIssueUpdateRange(projectKey: string): Effect.Effect<{
-    newest: string | null;
-    oldest: string | null;
-  }, DatabaseError> {
+  getIssueUpdateRange(projectKey: string): Effect.Effect<
+    {
+      newest: string | null;
+      oldest: string | null;
+    },
+    DatabaseError
+  > {
     return Effect.tryPromise({
       try: async () => {
         return await this.cache.getIssueUpdateRange(projectKey);
       },
-      catch: (error) => new DatabaseError(`Failed to get update range for project ${projectKey}`, error)
+      catch: (error) => new DatabaseError(`Failed to get update range for project ${projectKey}`, error),
     });
   }
 
@@ -83,15 +86,16 @@ export class CacheEffect {
   getIssues(keys: string[]): Effect.Effect<Issue[], DatabaseError | ParseError> {
     return pipe(
       keys,
-      Effect.forEach(key => 
-        pipe(
-          this.getIssueOption(key),
-          Effect.map(Option.getOrNull),
-          Effect.map(issue => issue ? [issue] : [])
-        ),
-        { concurrency: 10 } // Process up to 10 issues in parallel
+      Effect.forEach(
+        (key) =>
+          pipe(
+            this.getIssueOption(key),
+            Effect.map(Option.getOrNull),
+            Effect.map((issue) => (issue ? [issue] : [])),
+          ),
+        { concurrency: 10 }, // Process up to 10 issues in parallel
       ),
-      Effect.map(results => results.flat())
+      Effect.map((results) => results.flat()),
     );
   }
 
@@ -102,7 +106,7 @@ export class CacheEffect {
     return pipe(
       this.getIssue(key),
       Effect.map(() => true),
-      Effect.catchAll(() => Effect.succeed(false))
+      Effect.catchAll(() => Effect.succeed(false)),
     );
   }
 }

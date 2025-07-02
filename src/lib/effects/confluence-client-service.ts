@@ -4,19 +4,26 @@
  * Handles all Confluence API interactions with proper error handling and retry strategies
  */
 
-import { Effect, Layer, Context, pipe, Schedule, Duration, Option, Stream } from 'effect';
+import { Context, Duration, Effect, Layer, Option, pipe, Schedule, Stream } from 'effect';
 import { z } from 'zod';
-import { HttpClientService, HttpClientServiceTag, ConfigService, ConfigServiceTag, LoggerService, LoggerServiceTag } from './layers.js';
-import { 
-  NetworkError, 
-  AuthenticationError, 
-  NotFoundError, 
-  ValidationError,
+import {
+  AuthenticationError,
+  type ConfigError,
+  NetworkError,
+  NotFoundError,
+  ParseError,
   RateLimitError,
   TimeoutError,
-  ParseError,
-  ConfigError
+  ValidationError,
 } from './errors.js';
+import {
+  type ConfigService,
+  ConfigServiceTag,
+  type HttpClientService,
+  HttpClientServiceTag,
+  type LoggerService,
+  LoggerServiceTag,
+} from './layers.js';
 
 // ============= Confluence API Schemas =============
 const PageSchema = z.object({
@@ -33,36 +40,50 @@ const PageSchema = z.object({
   version: z.object({
     number: z.number(),
     when: z.string(),
-    by: z.object({
-      displayName: z.string(),
-      userKey: z.string().optional(),
-      accountId: z.string().optional(),
-    }).optional(),
+    by: z
+      .object({
+        displayName: z.string(),
+        userKey: z.string().optional(),
+        accountId: z.string().optional(),
+      })
+      .optional(),
     message: z.string().optional(),
   }),
-  body: z.object({
-    storage: z.object({
-      value: z.string(),
-      representation: z.literal('storage'),
-    }).optional(),
-    view: z.object({
-      value: z.string(),
-      representation: z.literal('view'),
-    }).optional(),
-    atlas_doc_format: z.object({
-      value: z.string(),
-      representation: z.literal('atlas_doc_format'),
-    }).optional(),
-  }).optional(),
+  body: z
+    .object({
+      storage: z
+        .object({
+          value: z.string(),
+          representation: z.literal('storage'),
+        })
+        .optional(),
+      view: z
+        .object({
+          value: z.string(),
+          representation: z.literal('view'),
+        })
+        .optional(),
+      atlas_doc_format: z
+        .object({
+          value: z.string(),
+          representation: z.literal('atlas_doc_format'),
+        })
+        .optional(),
+    })
+    .optional(),
   _links: z.object({
     self: z.string(),
     webui: z.string(),
     base: z.string().optional(),
   }),
-  ancestors: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-  })).optional(),
+  ancestors: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+      }),
+    )
+    .optional(),
 });
 
 const SpaceSchema = z.object({
@@ -71,25 +92,35 @@ const SpaceSchema = z.object({
   name: z.string(),
   type: z.string(),
   status: z.string(),
-  description: z.object({
-    plain: z.object({
-      value: z.string(),
-      representation: z.literal('plain'),
-    }).optional(),
-  }).optional(),
-  homepage: z.object({
-    id: z.string(),
-    title: z.string(),
-  }).optional(),
+  description: z
+    .object({
+      plain: z
+        .object({
+          value: z.string(),
+          representation: z.literal('plain'),
+        })
+        .optional(),
+    })
+    .optional(),
+  homepage: z
+    .object({
+      id: z.string(),
+      title: z.string(),
+    })
+    .optional(),
   _links: z.object({
     self: z.string(),
     webui: z.string(),
     base: z.string().optional(),
   }),
-  permissions: z.array(z.object({
-    operation: z.string(),
-    targetType: z.string(),
-  })).optional(),
+  permissions: z
+    .array(
+      z.object({
+        operation: z.string(),
+        targetType: z.string(),
+      }),
+    )
+    .optional(),
 });
 
 const PageListResponseSchema = z.object({
@@ -97,12 +128,14 @@ const PageListResponseSchema = z.object({
   start: z.number(),
   limit: z.number(),
   size: z.number(),
-  _links: z.object({
-    base: z.string().optional(),
-    context: z.string().optional(),
-    next: z.string().optional(),
-    prev: z.string().optional(),
-  }).optional(),
+  _links: z
+    .object({
+      base: z.string().optional(),
+      context: z.string().optional(),
+      next: z.string().optional(),
+      prev: z.string().optional(),
+    })
+    .optional(),
 });
 
 const SpaceListResponseSchema = z.object({
@@ -110,12 +143,14 @@ const SpaceListResponseSchema = z.object({
   start: z.number(),
   limit: z.number(),
   size: z.number(),
-  _links: z.object({
-    base: z.string().optional(),
-    context: z.string().optional(),
-    next: z.string().optional(),
-    prev: z.string().optional(),
-  }).optional(),
+  _links: z
+    .object({
+      base: z.string().optional(),
+      context: z.string().optional(),
+      next: z.string().optional(),
+      prev: z.string().optional(),
+    })
+    .optional(),
 });
 
 const SearchResultSchema = z.object({
@@ -123,17 +158,23 @@ const SearchResultSchema = z.object({
     id: z.string(),
     type: z.string(),
     title: z.string(),
-    space: z.object({
-      key: z.string(),
-      name: z.string(),
-    }).optional(),
-    version: z.object({
-      number: z.number(),
-      when: z.string(),
-      by: z.object({
-        displayName: z.string(),
-      }).optional(),
-    }).optional(),
+    space: z
+      .object({
+        key: z.string(),
+        name: z.string(),
+      })
+      .optional(),
+    version: z
+      .object({
+        number: z.number(),
+        when: z.string(),
+        by: z
+          .object({
+            displayName: z.string(),
+          })
+          .optional(),
+      })
+      .optional(),
     _links: z.object({
       webui: z.string(),
       self: z.string().optional(),
@@ -149,12 +190,14 @@ const SearchResponseSchema = z.object({
   limit: z.number(),
   size: z.number(),
   totalSize: z.number().optional(),
-  _links: z.object({
-    base: z.string().optional(),
-    context: z.string().optional(),
-    next: z.string().optional(),
-    prev: z.string().optional(),
-  }).optional(),
+  _links: z
+    .object({
+      base: z.string().optional(),
+      context: z.string().optional(),
+      next: z.string().optional(),
+      prev: z.string().optional(),
+    })
+    .optional(),
 });
 
 const AttachmentSchema = z.object({
@@ -165,19 +208,23 @@ const AttachmentSchema = z.object({
   version: z.object({
     number: z.number(),
     when: z.string(),
-    by: z.object({
-      displayName: z.string(),
-    }).optional(),
+    by: z
+      .object({
+        displayName: z.string(),
+      })
+      .optional(),
   }),
   container: z.object({
     id: z.string(),
     title: z.string(),
   }),
-  metadata: z.object({
-    mediaType: z.string(),
-    fileSize: z.number().optional(),
-    comment: z.string().optional(),
-  }).optional(),
+  metadata: z
+    .object({
+      mediaType: z.string(),
+      fileSize: z.number().optional(),
+      comment: z.string().optional(),
+    })
+    .optional(),
   _links: z.object({
     self: z.string(),
     webui: z.string(),
@@ -264,42 +311,112 @@ type AllErrors = CommonErrors | ValidationError | NotFoundError;
 // ============= Confluence Client Service Interface =============
 export interface ConfluenceClientService {
   // Space operations
-  readonly getSpace: (spaceKey: string) => Effect.Effect<Space, ValidationError | NotFoundError | NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError>;
-  readonly getAllSpaces: (options?: SearchOptions) => Effect.Effect<SpaceSearchResult, NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | NotFoundError | ConfigError>;
-  readonly getSpacePermissions: (spaceKey: string) => Effect.Effect<Array<{ operation: string; targetType: string }>, ValidationError | NotFoundError | NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError>;
-  
+  readonly getSpace: (
+    spaceKey: string,
+  ) => Effect.Effect<
+    Space,
+    | ValidationError
+    | NotFoundError
+    | NetworkError
+    | AuthenticationError
+    | ParseError
+    | TimeoutError
+    | RateLimitError
+    | ConfigError
+  >;
+  readonly getAllSpaces: (
+    options?: SearchOptions,
+  ) => Effect.Effect<
+    SpaceSearchResult,
+    NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | NotFoundError | ConfigError
+  >;
+  readonly getSpacePermissions: (
+    spaceKey: string,
+  ) => Effect.Effect<
+    Array<{ operation: string; targetType: string }>,
+    | ValidationError
+    | NotFoundError
+    | NetworkError
+    | AuthenticationError
+    | ParseError
+    | TimeoutError
+    | RateLimitError
+    | ConfigError
+  >;
+
   // Content retrieval
   readonly getPage: (pageId: string, expand?: string[]) => Effect.Effect<Page, AllErrors>;
-  readonly getPageByTitle: (spaceKey: string, title: string) => Effect.Effect<Option.Option<Page>, ValidationError | CommonErrors | NotFoundError>;
-  readonly getSpaceContent: (spaceKey: string, options?: SpaceContentOptions) => Effect.Effect<PageSearchResult, ValidationError | CommonErrors | NotFoundError>;
+  readonly getPageByTitle: (
+    spaceKey: string,
+    title: string,
+  ) => Effect.Effect<Option.Option<Page>, ValidationError | CommonErrors | NotFoundError>;
+  readonly getSpaceContent: (
+    spaceKey: string,
+    options?: SpaceContentOptions,
+  ) => Effect.Effect<PageSearchResult, ValidationError | CommonErrors | NotFoundError>;
   readonly getAllSpacePages: (spaceKey: string) => Stream.Stream<Page, ValidationError | CommonErrors | NotFoundError>;
   readonly getChildPages: (pageId: string, expand?: string[]) => Effect.Effect<Page[], AllErrors>;
   readonly getPageAncestors: (pageId: string) => Effect.Effect<Array<{ id: string; title: string }>, AllErrors>;
-  
+
   // Content search and discovery
-  readonly searchContent: (cql: string, options?: SearchOptions) => Effect.Effect<Array<PageSummary>, ValidationError | CommonErrors | NotFoundError>;
-  readonly getRecentlyUpdatedPages: (spaceKey: string, limit?: number) => Effect.Effect<PageSummary[], ValidationError | CommonErrors | NotFoundError>;
-  readonly getPagesSince: (spaceKey: string, sinceDate: Date) => Stream.Stream<string, ValidationError | CommonErrors | NotFoundError>;
-  readonly getSpacePagesLightweight: (spaceKey: string) => Stream.Stream<PageSummary, ValidationError | CommonErrors | NotFoundError>;
-  
+  readonly searchContent: (
+    cql: string,
+    options?: SearchOptions,
+  ) => Effect.Effect<Array<PageSummary>, ValidationError | CommonErrors | NotFoundError>;
+  readonly getRecentlyUpdatedPages: (
+    spaceKey: string,
+    limit?: number,
+  ) => Effect.Effect<PageSummary[], ValidationError | CommonErrors | NotFoundError>;
+  readonly getPagesSince: (
+    spaceKey: string,
+    sinceDate: Date,
+  ) => Stream.Stream<string, ValidationError | CommonErrors | NotFoundError>;
+  readonly getSpacePagesLightweight: (
+    spaceKey: string,
+  ) => Stream.Stream<PageSummary, ValidationError | CommonErrors | NotFoundError>;
+
   // Content creation and updates
-  readonly createPage: (options: ContentCreationOptions) => Effect.Effect<Page, ValidationError | CommonErrors | NotFoundError>;
+  readonly createPage: (
+    options: ContentCreationOptions,
+  ) => Effect.Effect<Page, ValidationError | CommonErrors | NotFoundError>;
   readonly updatePage: (pageId: string, options: ContentUpdateOptions) => Effect.Effect<Page, AllErrors>;
   readonly deletePage: (pageId: string) => Effect.Effect<void, ValidationError | NotFoundError | CommonErrors>;
-  readonly movePage: (pageId: string, targetSpaceKey: string, targetParentId?: string) => Effect.Effect<Page, AllErrors>;
-  
+  readonly movePage: (
+    pageId: string,
+    targetSpaceKey: string,
+    targetParentId?: string,
+  ) => Effect.Effect<Page, AllErrors>;
+
   // Attachment operations
   readonly getPageAttachments: (pageId: string) => Effect.Effect<Attachment[], AllErrors>;
-  readonly downloadAttachment: (attachmentId: string) => Effect.Effect<ArrayBuffer, ValidationError | NotFoundError | CommonErrors>;
-  readonly uploadAttachment: (pageId: string, file: globalThis.File, comment?: string) => Effect.Effect<Attachment, AllErrors>;
-  
+  readonly downloadAttachment: (
+    attachmentId: string,
+  ) => Effect.Effect<ArrayBuffer, ValidationError | NotFoundError | CommonErrors>;
+  readonly uploadAttachment: (
+    pageId: string,
+    file: globalThis.File,
+    comment?: string,
+  ) => Effect.Effect<Attachment, AllErrors>;
+
   // Batch operations
   readonly batchGetPages: (pageIds: string[], concurrency?: number) => Stream.Stream<Page, AllErrors>;
-  readonly batchUpdatePages: (updates: Array<{ pageId: string; options: ContentUpdateOptions }>) => Effect.Effect<Array<{ pageId: string; success: boolean; error?: string }>, ValidationError | CommonErrors | NotFoundError>;
-  
+  readonly batchUpdatePages: (
+    updates: Array<{ pageId: string; options: ContentUpdateOptions }>,
+  ) => Effect.Effect<
+    Array<{ pageId: string; success: boolean; error?: string }>,
+    ValidationError | CommonErrors | NotFoundError
+  >;
+
   // Analytics and monitoring
-  readonly getSpaceAnalytics: (spaceKey: string) => Effect.Effect<{ pageCount: number; recentActivity: number; lastModified?: Date }, ValidationError | CommonErrors | NotFoundError>;
-  readonly validateSpaceAccess: (spaceKey: string) => Effect.Effect<boolean, ValidationError | CommonErrors | NotFoundError>;
+  readonly getSpaceAnalytics: (
+    spaceKey: string,
+  ) => Effect.Effect<
+    { pageCount: number; recentActivity: number; lastModified?: Date },
+    ValidationError | CommonErrors | NotFoundError
+  >;
+  readonly validateSpaceAccess: (
+    spaceKey: string,
+  ) => Effect.Effect<boolean, ValidationError | CommonErrors | NotFoundError>;
 }
 
 export class ConfluenceClientServiceTag extends Context.Tag('ConfluenceClientService')<
@@ -310,37 +427,54 @@ export class ConfluenceClientServiceTag extends Context.Tag('ConfluenceClientSer
 // ============= Confluence Client Service Implementation =============
 class ConfluenceClientServiceImpl implements ConfluenceClientService {
   private baseUrl: string = '';
-  
+
   constructor(
     private http: HttpClientService,
     private config: ConfigService,
-    private logger: LoggerService
+    private logger: LoggerService,
   ) {}
-  
+
   // ============= Space Operations =============
-  getSpace(spaceKey: string): Effect.Effect<Space, ValidationError | NotFoundError | NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError> {
+  getSpace(
+    spaceKey: string,
+  ): Effect.Effect<
+    Space,
+    | ValidationError
+    | NotFoundError
+    | NetworkError
+    | AuthenticationError
+    | ParseError
+    | TimeoutError
+    | RateLimitError
+    | ConfigError
+  > {
     return pipe(
       this.validateSpaceKey(spaceKey),
       Effect.flatMap(() => this.initializeBaseUrl()),
       Effect.flatMap(() => {
         const url = `${this.baseUrl}/space/${spaceKey}?expand=description.plain,homepage,permissions`;
-        
+
         return pipe(
           this.logger.debug('Fetching space', { spaceKey }),
           Effect.flatMap(() => this.makeRequest<unknown>(url)),
           Effect.flatMap((data) =>
             Effect.try({
               try: () => SpaceSchema.parse(data),
-              catch: (error) => new ParseError('Failed to parse space response', 'space', String(data), error)
-            })
+              catch: (error) => new ParseError('Failed to parse space response', 'space', String(data), error),
+            }),
           ),
-          Effect.tap(() => this.logger.debug('Space fetched successfully', { spaceKey }))
+          Effect.tap(() => this.logger.debug('Space fetched successfully', { spaceKey })),
         );
-      })
+      }),
     );
   }
-  
-  getAllSpaces(options: SearchOptions = {}): Effect.Effect<SpaceSearchResult, NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | NotFoundError | ConfigError> {
+
+  getAllSpaces(
+    options: SearchOptions = {},
+  ): Effect.Effect<
+    SpaceSearchResult,
+    NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | NotFoundError | ConfigError
+  > {
     return pipe(
       this.initializeBaseUrl(),
       Effect.flatMap(() => {
@@ -349,9 +483,9 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
           limit: (options.limit || 25).toString(),
           expand: options.expand?.join(',') || 'description.plain,homepage',
         });
-        
+
         const url = `${this.baseUrl}/space?${params}`;
-        
+
         return pipe(
           this.logger.debug('Fetching all spaces', { options }),
           Effect.flatMap(() => this.makeRequest<unknown>(url)),
@@ -364,77 +498,95 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
                   start: result.start,
                   limit: result.limit,
                   size: result.size,
-                  isLast: result.results.length < result.limit
+                  isLast: result.results.length < result.limit,
                 } as SpaceSearchResult;
               },
-              catch: (error) => new ParseError('Failed to parse spaces response', 'spaces', String(data), error)
-            })
+              catch: (error) => new ParseError('Failed to parse spaces response', 'spaces', String(data), error),
+            }),
           ),
-          Effect.tap((result) => this.logger.debug('Spaces fetched successfully', { count: result.values.length }))
+          Effect.tap((result) => this.logger.debug('Spaces fetched successfully', { count: result.values.length })),
         );
-      })
+      }),
     );
   }
-  
-  getSpacePermissions(spaceKey: string): Effect.Effect<Array<{ operation: string; targetType: string }>, ValidationError | NotFoundError | NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError> {
+
+  getSpacePermissions(
+    spaceKey: string,
+  ): Effect.Effect<
+    Array<{ operation: string; targetType: string }>,
+    | ValidationError
+    | NotFoundError
+    | NetworkError
+    | AuthenticationError
+    | ParseError
+    | TimeoutError
+    | RateLimitError
+    | ConfigError
+  > {
     return pipe(
       this.getSpace(spaceKey),
-      Effect.map((space) => space.permissions || [])
+      Effect.map((space) => space.permissions || []),
     );
   }
-  
+
   // ============= Content Retrieval =============
-  getPage(pageId: string, expand: string[] = ['body.storage', 'version', 'space', 'ancestors']): Effect.Effect<Page, AllErrors> {
+  getPage(
+    pageId: string,
+    expand: string[] = ['body.storage', 'version', 'space', 'ancestors'],
+  ): Effect.Effect<Page, AllErrors> {
     return pipe(
       this.validatePageId(pageId),
       Effect.flatMap(() => this.initializeBaseUrl()),
       Effect.flatMap(() => {
         const params = new URLSearchParams({
-          expand: expand.join(',')
+          expand: expand.join(','),
         });
-        
+
         const url = `${this.baseUrl}/content/${pageId}?${params}`;
-        
+
         return pipe(
           this.logger.debug('Fetching page', { pageId }),
           Effect.flatMap(() => this.makeRequest<unknown>(url)),
           Effect.flatMap((data) =>
             Effect.try({
               try: () => PageSchema.parse(data),
-              catch: (error) => new ParseError('Failed to parse page response', 'page', String(data), error)
-            })
+              catch: (error) => new ParseError('Failed to parse page response', 'page', String(data), error),
+            }),
           ),
-          Effect.tap(() => this.logger.debug('Page fetched successfully', { pageId }))
+          Effect.tap(() => this.logger.debug('Page fetched successfully', { pageId })),
         );
-      })
+      }),
     );
   }
-  
-  getPageByTitle(spaceKey: string, title: string): Effect.Effect<Option.Option<Page>, ValidationError | CommonErrors | NotFoundError> {
+
+  getPageByTitle(
+    spaceKey: string,
+    title: string,
+  ): Effect.Effect<Option.Option<Page>, ValidationError | CommonErrors | NotFoundError> {
     return pipe(
       this.validateSpaceKey(spaceKey),
       Effect.flatMap(() => this.validateNonEmpty(title, 'title')),
       Effect.flatMap(() => {
         const cql = `space="${spaceKey}" and type=page and title="${title.replace(/"/g, '\\"')}"`;
-        
+
         return pipe(
           this.searchContent(cql, { limit: 1 }),
           Effect.flatMap((results) => {
             if (results.length === 0) {
               return Effect.succeed(Option.none());
             }
-            
-            return pipe(
-              this.getPage(results[0].id),
-              Effect.map(Option.some)
-            );
-          })
+
+            return pipe(this.getPage(results[0].id), Effect.map(Option.some));
+          }),
         );
-      })
+      }),
     );
   }
-  
-  getSpaceContent(spaceKey: string, options: SpaceContentOptions = {}): Effect.Effect<PageSearchResult, ValidationError | CommonErrors | NotFoundError> {
+
+  getSpaceContent(
+    spaceKey: string,
+    options: SpaceContentOptions = {},
+  ): Effect.Effect<PageSearchResult, ValidationError | CommonErrors | NotFoundError> {
     return pipe(
       this.validateSpaceKey(spaceKey),
       Effect.flatMap(() => this.initializeBaseUrl()),
@@ -444,16 +596,16 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
           limit: (options.limit || 25).toString(),
           expand: options.expand?.join(',') || 'body.storage,version,space',
         });
-        
+
         if (options.depth) {
           params.append('depth', options.depth);
         }
         if (options.status) {
           params.append('status', options.status);
         }
-        
+
         const url = `${this.baseUrl}/space/${spaceKey}/content/page?${params}`;
-        
+
         return pipe(
           this.logger.debug('Fetching space content', { spaceKey, options }),
           Effect.flatMap(() => this.makeRequest<unknown>(url)),
@@ -466,52 +618,57 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
                   start: result.start,
                   limit: result.limit,
                   size: result.size,
-                  isLast: result.results.length < result.limit || !result._links?.next
+                  isLast: result.results.length < result.limit || !result._links?.next,
                 };
               },
-              catch: (error) => new ParseError('Failed to parse space content response', 'spaceContent', String(data), error)
-            })
+              catch: (error) =>
+                new ParseError('Failed to parse space content response', 'spaceContent', String(data), error),
+            }),
           ),
-          Effect.tap((result) => this.logger.debug('Space content fetched successfully', { spaceKey, count: result.values.length }))
+          Effect.tap((result) =>
+            this.logger.debug('Space content fetched successfully', { spaceKey, count: result.values.length }),
+          ),
         );
-      })
+      }),
     );
   }
-  
+
   getAllSpacePages(spaceKey: string): Stream.Stream<Page, ValidationError | CommonErrors | NotFoundError> {
     return pipe(
       Stream.fromEffect(this.validateSpaceKey(spaceKey)),
       Stream.flatMap(() =>
         Stream.paginateEffect(0, (start: number) =>
           pipe(
-            this.getSpaceContent(spaceKey, { 
-              start, 
-              limit: 100, 
-              expand: ['body.storage', 'version', 'space'] 
+            this.getSpaceContent(spaceKey, {
+              start,
+              limit: 100,
+              expand: ['body.storage', 'version', 'space'],
             }),
-            Effect.map((result) => [
-              result.values,
-              result.isLast ? Option.none<number>() : Option.some(start + 100)
-            ] as const)
-          )
-        )
+            Effect.map(
+              (result) => [result.values, result.isLast ? Option.none<number>() : Option.some(start + 100)] as const,
+            ),
+          ),
+        ),
       ),
       Stream.flatMap((pages) => Stream.fromIterable(pages)),
-      Stream.rechunk(50)
+      Stream.rechunk(50),
     );
   }
-  
-  getChildPages(pageId: string, expand: string[] = ['body.storage', 'version', 'space']): Effect.Effect<Page[], AllErrors> {
+
+  getChildPages(
+    pageId: string,
+    expand: string[] = ['body.storage', 'version', 'space'],
+  ): Effect.Effect<Page[], AllErrors> {
     return pipe(
       this.validatePageId(pageId),
       Effect.flatMap(() => this.initializeBaseUrl()),
       Effect.flatMap(() => {
         const params = new URLSearchParams({
-          expand: expand.join(',')
+          expand: expand.join(','),
         });
-        
+
         const url = `${this.baseUrl}/content/${pageId}/child/page?${params}`;
-        
+
         return pipe(
           this.logger.debug('Fetching child pages', { pageId }),
           Effect.flatMap(() => this.makeRequest<unknown>(url)),
@@ -521,24 +678,28 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
                 const result = PageListResponseSchema.parse(data);
                 return result.results;
               },
-              catch: (error) => new ParseError('Failed to parse child pages response', 'childPages', String(data), error)
-            })
+              catch: (error) =>
+                new ParseError('Failed to parse child pages response', 'childPages', String(data), error),
+            }),
           ),
-          Effect.tap((pages) => this.logger.debug('Child pages fetched successfully', { pageId, count: pages.length }))
+          Effect.tap((pages) => this.logger.debug('Child pages fetched successfully', { pageId, count: pages.length })),
         );
-      })
+      }),
     );
   }
-  
+
   getPageAncestors(pageId: string): Effect.Effect<Array<{ id: string; title: string }>, AllErrors> {
     return pipe(
       this.getPage(pageId, ['ancestors']),
-      Effect.map((page) => page.ancestors || [])
+      Effect.map((page) => page.ancestors || []),
     );
   }
-  
+
   // ============= Content Search and Discovery =============
-  searchContent(cql: string, options: SearchOptions = {}): Effect.Effect<Array<PageSummary>, ValidationError | CommonErrors | NotFoundError> {
+  searchContent(
+    cql: string,
+    options: SearchOptions = {},
+  ): Effect.Effect<Array<PageSummary>, ValidationError | CommonErrors | NotFoundError> {
     return pipe(
       this.validateCQL(cql),
       Effect.flatMap(() => this.initializeBaseUrl()),
@@ -548,13 +709,13 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
           start: (options.start || 0).toString(),
           limit: (options.limit || 25).toString(),
         });
-        
+
         if (options.expand) {
           params.append('expand', options.expand.join(','));
         }
-        
+
         const url = `${this.baseUrl}/search?${params}`;
-        
+
         return pipe(
           this.logger.debug('Searching content', { cql, options }),
           Effect.flatMap(() => this.makeRequest<unknown>(url)),
@@ -562,87 +723,105 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
             Effect.try({
               try: () => {
                 const result = SearchResponseSchema.parse(data);
-                return result.results.map((searchResult): PageSummary => ({
-                  id: searchResult.content.id,
-                  title: searchResult.content.title,
-                  version: {
-                    number: searchResult.content.version?.number || 0,
-                    when: searchResult.content.version?.when || searchResult.lastModified || new Date().toISOString(),
-                    by: searchResult.content.version?.by
-                  },
-                  webUrl: searchResult.content._links.webui,
-                  spaceKey: searchResult.content.space?.key
-                }));
+                return result.results.map(
+                  (searchResult): PageSummary => ({
+                    id: searchResult.content.id,
+                    title: searchResult.content.title,
+                    version: {
+                      number: searchResult.content.version?.number || 0,
+                      when: searchResult.content.version?.when || searchResult.lastModified || new Date().toISOString(),
+                      by: searchResult.content.version?.by,
+                    },
+                    webUrl: searchResult.content._links.webui,
+                    spaceKey: searchResult.content.space?.key,
+                  }),
+                );
               },
-              catch: (error) => new ParseError('Failed to parse search response', 'searchResults', String(data), error)
-            })
+              catch: (error) => new ParseError('Failed to parse search response', 'searchResults', String(data), error),
+            }),
           ),
-          Effect.tap((results) => this.logger.debug('Content search completed', { cql, count: results.length }))
+          Effect.tap((results) => this.logger.debug('Content search completed', { cql, count: results.length })),
         );
-      })
+      }),
     );
   }
-  
-  getRecentlyUpdatedPages(spaceKey: string, limit: number = 10): Effect.Effect<PageSummary[], ValidationError | CommonErrors | NotFoundError> {
+
+  getRecentlyUpdatedPages(
+    spaceKey: string,
+    limit: number = 10,
+  ): Effect.Effect<PageSummary[], ValidationError | CommonErrors | NotFoundError> {
     return pipe(
       this.validateSpaceKey(spaceKey),
       Effect.flatMap(() => {
         const cql = `space="${spaceKey}" and type=page order by lastmodified desc`;
         return this.searchContent(cql, { limit });
-      })
+      }),
     );
   }
-  
-  getPagesSince(spaceKey: string, sinceDate: Date): Stream.Stream<string, ValidationError | CommonErrors | NotFoundError> {
+
+  getPagesSince(
+    spaceKey: string,
+    sinceDate: Date,
+  ): Stream.Stream<string, ValidationError | CommonErrors | NotFoundError> {
     return pipe(
       Stream.fromEffect(this.validateSpaceKey(spaceKey)),
       Stream.flatMap(() => {
         const formattedDate = sinceDate.toISOString().replace('T', ' ').substring(0, 16);
         const cql = `space="${spaceKey}" and type=page and lastmodified > "${formattedDate}" order by lastmodified desc`;
-        
+
         return Stream.paginateEffect(0, (start: number) =>
           pipe(
             this.searchContent(cql, { start, limit: 100 }),
-            Effect.map((results) => [
-              results.map(r => r.id),
-              results.length < 100 ? Option.none<number>() : Option.some(start + 100)
-            ] as const)
-          )
+            Effect.map(
+              (results) =>
+                [
+                  results.map((r) => r.id),
+                  results.length < 100 ? Option.none<number>() : Option.some(start + 100),
+                ] as const,
+            ),
+          ),
         );
       }),
-      Stream.flatMap((ids) => Stream.fromIterable(ids))
+      Stream.flatMap((ids) => Stream.fromIterable(ids)),
     );
   }
-  
-  getSpacePagesLightweight(spaceKey: string): Stream.Stream<PageSummary, ValidationError | CommonErrors | NotFoundError> {
+
+  getSpacePagesLightweight(
+    spaceKey: string,
+  ): Stream.Stream<PageSummary, ValidationError | CommonErrors | NotFoundError> {
     return pipe(
       Stream.fromEffect(this.validateSpaceKey(spaceKey)),
       Stream.flatMap(() =>
         Stream.paginateEffect(0, (start: number) =>
           pipe(
-            this.getSpaceContent(spaceKey, { 
-              start, 
-              limit: 100, 
-              expand: ['version', 'space'] 
+            this.getSpaceContent(spaceKey, {
+              start,
+              limit: 100,
+              expand: ['version', 'space'],
             }),
-            Effect.map((result) => [
-              result.values.map((page): PageSummary => ({
-                id: page.id,
-                title: page.title,
-                version: page.version,
-                webUrl: page._links.webui,
-                spaceKey: page.space.key
-              })),
-              result.isLast ? Option.none<number>() : Option.some(start + 100)
-            ] as const)
-          )
-        )
+            Effect.map(
+              (result) =>
+                [
+                  result.values.map(
+                    (page): PageSummary => ({
+                      id: page.id,
+                      title: page.title,
+                      version: page.version,
+                      webUrl: page._links.webui,
+                      spaceKey: page.space.key,
+                    }),
+                  ),
+                  result.isLast ? Option.none<number>() : Option.some(start + 100),
+                ] as const,
+            ),
+          ),
+        ),
       ),
       Stream.flatMap((summaries) => Stream.fromIterable(summaries)),
-      Stream.rechunk(50)
+      Stream.rechunk(50),
     );
   }
-  
+
   // ============= Content Creation and Updates =============
   createPage(options: ContentCreationOptions): Effect.Effect<Page, ValidationError | CommonErrors | NotFoundError> {
     return pipe(
@@ -650,25 +829,27 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
       Effect.flatMap(() => this.initializeBaseUrl()),
       Effect.flatMap(() => {
         const url = `${this.baseUrl}/content`;
-        
+
         return pipe(
           this.logger.debug('Creating page', { title: options.title, spaceKey: options.space.key }),
-          Effect.flatMap(() => this.makeRequest<unknown>(url, {
-            method: 'POST',
-            body: JSON.stringify(options)
-          })),
+          Effect.flatMap(() =>
+            this.makeRequest<unknown>(url, {
+              method: 'POST',
+              body: JSON.stringify(options),
+            }),
+          ),
           Effect.flatMap((data) =>
             Effect.try({
               try: () => PageSchema.parse(data),
-              catch: (error) => new ParseError('Failed to parse created page response', 'page', String(data), error)
-            })
+              catch: (error) => new ParseError('Failed to parse created page response', 'page', String(data), error),
+            }),
           ),
-          Effect.tap((page) => this.logger.info('Page created successfully', { pageId: page.id, title: page.title }))
+          Effect.tap((page) => this.logger.info('Page created successfully', { pageId: page.id, title: page.title })),
         );
-      })
+      }),
     );
   }
-  
+
   updatePage(pageId: string, options: ContentUpdateOptions): Effect.Effect<Page, AllErrors> {
     return pipe(
       this.validatePageId(pageId),
@@ -676,41 +857,43 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
       Effect.flatMap(() => this.initializeBaseUrl()),
       Effect.flatMap(() => {
         const url = `${this.baseUrl}/content/${pageId}`;
-        
+
         return pipe(
           this.logger.debug('Updating page', { pageId }),
-          Effect.flatMap(() => this.makeRequest<unknown>(url, {
-            method: 'PUT',
-            body: JSON.stringify(options)
-          })),
+          Effect.flatMap(() =>
+            this.makeRequest<unknown>(url, {
+              method: 'PUT',
+              body: JSON.stringify(options),
+            }),
+          ),
           Effect.flatMap((data) =>
             Effect.try({
               try: () => PageSchema.parse(data),
-              catch: (error) => new ParseError('Failed to parse updated page response', 'page', String(data), error)
-            })
+              catch: (error) => new ParseError('Failed to parse updated page response', 'page', String(data), error),
+            }),
           ),
-          Effect.tap((page) => this.logger.info('Page updated successfully', { pageId: page.id, title: page.title }))
+          Effect.tap((page) => this.logger.info('Page updated successfully', { pageId: page.id, title: page.title })),
         );
-      })
+      }),
     );
   }
-  
+
   deletePage(pageId: string): Effect.Effect<void, ValidationError | NotFoundError | CommonErrors> {
     return pipe(
       this.validatePageId(pageId),
       Effect.flatMap(() => this.initializeBaseUrl()),
       Effect.flatMap(() => {
         const url = `${this.baseUrl}/content/${pageId}`;
-        
+
         return pipe(
           this.logger.warn('Deleting page', { pageId }),
           Effect.flatMap(() => this.makeRequest<void>(url, { method: 'DELETE' })),
-          Effect.tap(() => this.logger.info('Page deleted successfully', { pageId }))
+          Effect.tap(() => this.logger.info('Page deleted successfully', { pageId })),
         );
-      })
+      }),
     );
   }
-  
+
   movePage(pageId: string, targetSpaceKey: string, targetParentId?: string): Effect.Effect<Page, AllErrors> {
     return pipe(
       this.validatePageId(pageId),
@@ -720,27 +903,29 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
         const url = `${this.baseUrl}/content/${pageId}/move`;
         const body = {
           space: { key: targetSpaceKey },
-          ...(targetParentId && { parent: { id: targetParentId } })
+          ...(targetParentId && { parent: { id: targetParentId } }),
         };
-        
+
         return pipe(
           this.logger.debug('Moving page', { pageId, targetSpaceKey, targetParentId }),
-          Effect.flatMap(() => this.makeRequest<unknown>(url, {
-            method: 'PUT',
-            body: JSON.stringify(body)
-          })),
+          Effect.flatMap(() =>
+            this.makeRequest<unknown>(url, {
+              method: 'PUT',
+              body: JSON.stringify(body),
+            }),
+          ),
           Effect.flatMap((data) =>
             Effect.try({
               try: () => PageSchema.parse(data),
-              catch: (error) => new ParseError('Failed to parse moved page response', 'page', String(data), error)
-            })
+              catch: (error) => new ParseError('Failed to parse moved page response', 'page', String(data), error),
+            }),
           ),
-          Effect.tap((page) => this.logger.info('Page moved successfully', { pageId: page.id, targetSpaceKey }))
+          Effect.tap((page) => this.logger.info('Page moved successfully', { pageId: page.id, targetSpaceKey })),
         );
-      })
+      }),
     );
   }
-  
+
   // ============= Attachment Operations =============
   getPageAttachments(pageId: string): Effect.Effect<Attachment[], AllErrors> {
     return pipe(
@@ -748,7 +933,7 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
       Effect.flatMap(() => this.initializeBaseUrl()),
       Effect.flatMap(() => {
         const url = `${this.baseUrl}/content/${pageId}/child/attachment?expand=version,container,metadata`;
-        
+
         return pipe(
           this.logger.debug('Fetching page attachments', { pageId }),
           Effect.flatMap(() => this.makeRequest<unknown>(url)),
@@ -756,33 +941,36 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
             Effect.try({
               try: () => {
                 const result = data as { results: unknown[] };
-                return result.results.map(attachment => AttachmentSchema.parse(attachment));
+                return result.results.map((attachment) => AttachmentSchema.parse(attachment));
               },
-              catch: (error) => new ParseError('Failed to parse attachments response', 'attachments', String(data), error)
-            })
+              catch: (error) =>
+                new ParseError('Failed to parse attachments response', 'attachments', String(data), error),
+            }),
           ),
-          Effect.tap((attachments) => this.logger.debug('Page attachments fetched successfully', { pageId, count: attachments.length }))
+          Effect.tap((attachments) =>
+            this.logger.debug('Page attachments fetched successfully', { pageId, count: attachments.length }),
+          ),
         );
-      })
+      }),
     );
   }
-  
+
   downloadAttachment(attachmentId: string): Effect.Effect<ArrayBuffer, ValidationError | NotFoundError | CommonErrors> {
     return pipe(
       this.validateAttachmentId(attachmentId),
       Effect.flatMap(() => this.initializeBaseUrl()),
       Effect.flatMap(() => {
         const url = `${this.baseUrl}/content/${attachmentId}/download`;
-        
+
         return pipe(
           this.logger.debug('Downloading attachment', { attachmentId }),
           Effect.flatMap(() => this.makeRawRequest(url)),
-          Effect.tap(() => this.logger.debug('Attachment downloaded successfully', { attachmentId }))
+          Effect.tap(() => this.logger.debug('Attachment downloaded successfully', { attachmentId })),
         );
-      })
+      }),
     );
   }
-  
+
   uploadAttachment(pageId: string, file: globalThis.File, comment?: string): Effect.Effect<Attachment, AllErrors> {
     return pipe(
       this.validatePageId(pageId),
@@ -793,9 +981,9 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
         if (comment) {
           formData.append('comment', comment);
         }
-        
+
         const url = `${this.baseUrl}/content/${pageId}/child/attachment`;
-        
+
         return pipe(
           this.logger.debug('Uploading attachment', { pageId, fileName: file.name }),
           Effect.flatMap(() => this.makeFormRequest<unknown>(url, formData)),
@@ -805,15 +993,17 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
                 const result = data as { results: unknown[] };
                 return AttachmentSchema.parse(result.results[0]);
               },
-              catch: (error) => new ParseError('Failed to parse upload response', 'attachment', String(data), error)
-            })
+              catch: (error) => new ParseError('Failed to parse upload response', 'attachment', String(data), error),
+            }),
           ),
-          Effect.tap((attachment) => this.logger.info('Attachment uploaded successfully', { pageId, attachmentId: attachment.id }))
+          Effect.tap((attachment) =>
+            this.logger.info('Attachment uploaded successfully', { pageId, attachmentId: attachment.id }),
+          ),
         );
-      })
+      }),
     );
   }
-  
+
   // ============= Batch Operations =============
   batchGetPages(pageIds: string[], concurrency: number = 5): Stream.Stream<Page, AllErrors> {
     return pipe(
@@ -825,17 +1015,22 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
             // Log error but don't fail the entire stream
             return pipe(
               this.logger.warn('Failed to fetch page in batch', { pageId, error: error.message }),
-              Effect.flatMap(() => Effect.fail(error))
+              Effect.flatMap(() => Effect.fail(error)),
             );
-          })
-        )
+          }),
+        ),
       ),
       Stream.buffer({ capacity: concurrency }),
-      Stream.rechunk(10)
+      Stream.rechunk(10),
     );
   }
-  
-  batchUpdatePages(updates: Array<{ pageId: string; options: ContentUpdateOptions }>): Effect.Effect<Array<{ pageId: string; success: boolean; error?: string }>, ValidationError | CommonErrors | NotFoundError> {
+
+  batchUpdatePages(
+    updates: Array<{ pageId: string; options: ContentUpdateOptions }>,
+  ): Effect.Effect<
+    Array<{ pageId: string; success: boolean; error?: string }>,
+    ValidationError | CommonErrors | NotFoundError
+  > {
     return pipe(
       Effect.forEach(updates, ({ pageId, options }) =>
         pipe(
@@ -845,44 +1040,47 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
             Effect.succeed({
               pageId,
               success: false as const,
-              error: error.message
-            })
-          )
-        )
-      )
+              error: error.message,
+            }),
+          ),
+        ),
+      ),
     );
   }
-  
+
   // ============= Analytics and Monitoring =============
-  getSpaceAnalytics(spaceKey: string): Effect.Effect<{ pageCount: number; recentActivity: number; lastModified?: Date }, ValidationError | CommonErrors | NotFoundError> {
+  getSpaceAnalytics(
+    spaceKey: string,
+  ): Effect.Effect<
+    { pageCount: number; recentActivity: number; lastModified?: Date },
+    ValidationError | CommonErrors | NotFoundError
+  > {
     return pipe(
       this.validateSpaceKey(spaceKey),
       Effect.flatMap(() =>
         Effect.all({
           totalPages: pipe(
             this.getSpaceContent(spaceKey, { limit: 0 }),
-            Effect.map((result) => result.size)
+            Effect.map((result) => result.size),
           ),
           recentPages: pipe(
             this.getRecentlyUpdatedPages(spaceKey, 10),
-            Effect.map((pages) => pages.length)
+            Effect.map((pages) => pages.length),
           ),
           lastModified: pipe(
             this.getRecentlyUpdatedPages(spaceKey, 1),
-            Effect.map((pages) => 
-              pages.length > 0 ? new Date(pages[0].version.when) : undefined
-            )
-          )
-        })
+            Effect.map((pages) => (pages.length > 0 ? new Date(pages[0].version.when) : undefined)),
+          ),
+        }),
       ),
       Effect.map(({ totalPages, recentPages, lastModified }) => ({
         pageCount: totalPages,
         recentActivity: recentPages,
-        lastModified
-      }))
+        lastModified,
+      })),
     );
   }
-  
+
   validateSpaceAccess(spaceKey: string): Effect.Effect<boolean, ValidationError | CommonErrors | NotFoundError> {
     return pipe(
       this.getSpace(spaceKey),
@@ -892,91 +1090,122 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
           return Effect.succeed(false);
         }
         return Effect.fail(error);
-      })
+      }),
     );
   }
-  
+
   // ============= Private Helper Methods =============
   private initializeBaseUrl(): Effect.Effect<void, NetworkError | AuthenticationError | ConfigError> {
     if (this.baseUrl) {
       return Effect.succeed(undefined);
     }
-    
+
     return pipe(
       this.config.getConfig,
       Effect.map((config) => {
         this.baseUrl = `${config.jiraUrl}/wiki/rest/api`;
-      })
+      }),
     );
   }
-  
-  private makeRequest<T>(url: string, options: RequestInit = {}): Effect.Effect<T, NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ParseError | ConfigError> {
+
+  private makeRequest<T>(
+    url: string,
+    options: RequestInit = {},
+  ): Effect.Effect<
+    T,
+    NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ParseError | ConfigError
+  > {
     return pipe(
       this.config.getConfig,
       Effect.flatMap((config) => {
         const headers = this.getAuthHeaders(config);
-        
+
         return pipe(
           this.http.request<T>(url, {
             ...options,
             headers: {
               ...headers,
               'Content-Type': 'application/json',
-              ...options.headers
-            }
+              ...options.headers,
+            },
           }),
           Effect.mapError(this.mapHttpError),
-          Effect.retry(this.createRetrySchedule())
-        ) as Effect.Effect<T, NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ParseError | ConfigError, never>;
-      })
+          Effect.retry(this.createRetrySchedule()),
+        ) as Effect.Effect<
+          T,
+          NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ParseError | ConfigError,
+          never
+        >;
+      }),
     );
   }
-  
-  private makeRawRequest(url: string): Effect.Effect<ArrayBuffer, NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError> {
+
+  private makeRawRequest(
+    url: string,
+  ): Effect.Effect<
+    ArrayBuffer,
+    NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError
+  > {
     return pipe(
       this.config.getConfig,
       Effect.flatMap((config) => {
         const headers = this.getAuthHeaders(config);
-        
+
         return pipe(
           this.http.request<ArrayBuffer>(url, { headers }),
           Effect.mapError(this.mapHttpError),
-          Effect.retry(this.createRetrySchedule())
-        ) as Effect.Effect<ArrayBuffer, NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError, never>;
-      })
+          Effect.retry(this.createRetrySchedule()),
+        ) as Effect.Effect<
+          ArrayBuffer,
+          NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError,
+          never
+        >;
+      }),
     );
   }
-  
-  private makeFormRequest<T>(url: string, formData: globalThis.FormData): Effect.Effect<T, NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError> {
+
+  private makeFormRequest<T>(
+    url: string,
+    formData: globalThis.FormData,
+  ): Effect.Effect<
+    T,
+    NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError
+  > {
     return pipe(
       this.config.getConfig,
       Effect.flatMap((config) => {
         const headers = this.getAuthHeaders(config);
         // Don't set Content-Type for FormData - let the browser set it with boundary
         delete headers['Content-Type'];
-        
+
         return pipe(
           this.http.request<T>(url, {
             method: 'POST',
             headers,
-            body: formData
+            body: formData,
           }),
           Effect.mapError(this.mapHttpError),
-          Effect.retry(this.createRetrySchedule())
-        ) as Effect.Effect<T, NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError, never>;
-      })
+          Effect.retry(this.createRetrySchedule()),
+        ) as Effect.Effect<
+          T,
+          NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError,
+          never
+        >;
+      }),
     );
   }
-  
+
   private getAuthHeaders(config: { email: string; apiToken: string }): Record<string, string> {
     const token = Buffer.from(`${config.email}:${config.apiToken}`).toString('base64');
     return {
-      'Authorization': `Basic ${token}`,
-      'Accept': 'application/json',
+      Authorization: `Basic ${token}`,
+      Accept: 'application/json',
     };
   }
-  
-  private mapHttpError = (error: unknown): NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError => {
+
+  private mapHttpError = (
+    error: unknown,
+  ): NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError => {
     // This would need to be implemented based on the HttpClientService error types
     if (error instanceof Error) {
       if (error.message.includes('401') || error.message.includes('403')) {
@@ -994,15 +1223,11 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
     }
     return new NetworkError(String(error));
   };
-  
+
   private createRetrySchedule(): Schedule.Schedule<unknown, unknown, unknown> {
-    return pipe(
-      Schedule.exponential(Duration.millis(100)),
-      Schedule.intersect(Schedule.recurs(3)),
-      Schedule.jittered
-    );
+    return pipe(Schedule.exponential(Duration.millis(100)), Schedule.intersect(Schedule.recurs(3)), Schedule.jittered);
   }
-  
+
   // ============= Validation Methods =============
   private validateSpaceKey(spaceKey: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
@@ -1011,7 +1236,7 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
       }
     });
   }
-  
+
   private validatePageId(pageId: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!pageId || pageId.trim().length === 0) {
@@ -1019,7 +1244,7 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
       }
     });
   }
-  
+
   private validateAttachmentId(attachmentId: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!attachmentId || attachmentId.trim().length === 0) {
@@ -1027,7 +1252,7 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
       }
     });
   }
-  
+
   private validateCQL(cql: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!cql || cql.trim().length === 0) {
@@ -1038,7 +1263,7 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
       }
     });
   }
-  
+
   private validateNonEmpty(value: string, fieldName: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!value || value.trim().length === 0) {
@@ -1046,7 +1271,7 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
       }
     });
   }
-  
+
   private validateContentCreationOptions(options: ContentCreationOptions): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!options) {
@@ -1063,7 +1288,7 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
       }
     });
   }
-  
+
   private validateContentUpdateOptions(options: ContentUpdateOptions): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!options) {
@@ -1083,10 +1308,10 @@ export const ConfluenceClientServiceLive = Layer.effect(
     Effect.all({
       http: HttpClientServiceTag,
       config: ConfigServiceTag,
-      logger: LoggerServiceTag
+      logger: LoggerServiceTag,
     }),
-    Effect.map(({ http, config, logger }) => new ConfluenceClientServiceImpl(http, config, logger))
-  )
+    Effect.map(({ http, config, logger }) => new ConfluenceClientServiceImpl(http, config, logger)),
+  ),
 );
 
 // ============= Helper Functions =============
