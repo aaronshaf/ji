@@ -1,11 +1,10 @@
-import { Effect, Stream, Schedule, Duration, pipe, Option, Chunk, Context, Layer } from 'effect';
+import { Effect, Stream, Duration, pipe, Option, Context, Layer } from 'effect';
 import {
   NetworkError,
   DatabaseError,
-  ValidationError,
-  ParseError
+  ValidationError
 } from './errors.js';
-import type { SearchResult, SearchableContent } from '../content-manager.js';
+import type { SearchResult } from '../content-manager.js';
 import type { CacheService } from './caching-layer.js';
 
 /**
@@ -731,13 +730,13 @@ export class SearchAnalyticsService implements SearchAnalytics {
 /**
  * Search service context
  */
-export const StreamingSearchService = Context.GenericTag<StreamingSearchService>('StreamingSearchService');
+export const StreamingSearchServiceContext = Context.GenericTag<StreamingSearchService>('StreamingSearchService');
 
 /**
  * Search service layer
  */
 export const SearchServiceLayer = Layer.effect(
-  StreamingSearchService,
+  StreamingSearchServiceContext,
   Effect.gen(function* () {
     // Create a simple cache service instance for now
     const { createCacheService } = yield* Effect.promise(() => import('./caching-layer.js'));
@@ -801,7 +800,7 @@ export function createStreamingSearchService(): Effect.Effect<StreamingSearchSer
     SearchServiceLayer,
     Layer.build,
     Effect.scoped,
-    Effect.map(context => Context.get(context, StreamingSearchService)),
+    Effect.map(context => Context.get(context, StreamingSearchServiceContext)),
     Effect.mapError(error => 
       new DatabaseError(`Failed to create search service: ${error}`, error)
     )

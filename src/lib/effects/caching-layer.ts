@@ -1,4 +1,4 @@
-import { Effect, Schedule, Duration, Context, Layer, pipe, Clock, Option, Ref } from 'effect';
+import { Effect, Duration, Context, Layer, pipe, Clock, Option } from 'effect';
 import {
   DatabaseError,
   ValidationError,
@@ -605,13 +605,13 @@ export class MultiTierCache implements CacheService {
 /**
  * Cache service context
  */
-export const CacheService = Context.GenericTag<CacheService>('CacheService');
+export const CacheServiceContext = Context.GenericTag<CacheService>('CacheService');
 
 /**
  * Cache layer for dependency injection
  */
 export const CacheLayer = Layer.effect(
-  CacheService,
+  CacheServiceContext,
   Effect.gen(function* () {
     const config: CacheConfig = {
       maxSize: 10000,
@@ -679,7 +679,7 @@ export class CacheWarmingService {
     );
   }
 
-  private warmUpProjectIssues(projectKey: string): Effect.Effect<void, CacheError | DatabaseError> {
+  private warmUpProjectIssues(_projectKey: string): Effect.Effect<void, CacheError | DatabaseError> {
     return Effect.tryPromise({
       try: async () => {
         // This would fetch recent issues for the project
@@ -733,7 +733,7 @@ export class CacheWarmingService {
     );
   }
 
-  private executeSearch(query: string): Effect.Effect<any[], DatabaseError> {
+  private executeSearch(_query: string): Effect.Effect<any[], DatabaseError> {
     return Effect.tryPromise({
       try: async () => {
         // This would execute the actual search
@@ -800,7 +800,7 @@ export function createCacheService(): Effect.Effect<CacheService, DatabaseError>
     CacheLayer,
     Layer.build,
     Effect.scoped,
-    Effect.map(context => Context.get(context, CacheService)),
+    Effect.map(context => Context.get(context, CacheServiceContext)),
     Effect.mapError(error => 
       new DatabaseError(`Failed to create cache service: ${error}`, error)
     )

@@ -1,6 +1,5 @@
-import { Effect, Schedule, Queue, Layer, Context, pipe, Duration, Option } from 'effect';
+import { Effect, Schedule, Layer, Context, pipe, Duration, Option } from 'effect';
 import {
-  NetworkError,
   DatabaseError,
   ValidationError,
   ConfigError
@@ -254,13 +253,13 @@ export class SqliteJobQueue implements JobQueueService {
 /**
  * Job queue context
  */
-export const JobQueueService = Context.GenericTag<JobQueueService>('JobQueueService');
+export const JobQueueServiceContext = Context.GenericTag<JobQueueService>('JobQueueService');
 
 /**
  * Job queue layer for dependency injection
  */
 export const JobQueueLayer = Layer.effect(
-  JobQueueService,
+  JobQueueServiceContext,
   Effect.gen(function* () {
     const { Database } = yield* Effect.promise(() => import('bun:sqlite'));
     const { homedir } = yield* Effect.promise(() => import('os'));
@@ -601,7 +600,7 @@ export class JobWorker {
     });
   }
 
-  private cleanupCache(payload: Record<string, unknown>, config: Config): Effect.Effect<unknown, Error> {
+  private cleanupCache(payload: Record<string, unknown>, _config: Config): Effect.Effect<unknown, Error> {
     return Effect.tryPromise({
       try: async () => {
         const { olderThanDays = 30 } = payload;
@@ -622,7 +621,7 @@ export class JobWorker {
     });
   }
 
-  private refreshBoards(payload: Record<string, unknown>, config: Config): Effect.Effect<unknown, Error> {
+  private refreshBoards(payload: Record<string, unknown>, _config: Config): Effect.Effect<unknown, Error> {
     return Effect.tryPromise({
       try: async () => {
         const { projectKey } = payload;
@@ -637,7 +636,7 @@ export class JobWorker {
     });
   }
 
-  private updateSearchIndex(payload: Record<string, unknown>, config: Config): Effect.Effect<unknown, Error> {
+  private updateSearchIndex(payload: Record<string, unknown>, _config: Config): Effect.Effect<unknown, Error> {
     return Effect.tryPromise({
       try: async () => {
         const { force = false } = payload;
@@ -807,7 +806,7 @@ export function createJobQueueService(): Effect.Effect<JobQueueService, ConfigEr
     JobQueueLayer,
     Layer.build,
     Effect.scoped,
-    Effect.map(context => Context.get(context, JobQueueService)),
+    Effect.map(context => Context.get(context, JobQueueServiceContext)),
     Effect.mapError(error => 
       new DatabaseError(`Failed to create job queue service: ${error}`, error)
     )

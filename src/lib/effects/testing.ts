@@ -1,5 +1,4 @@
-import { Effect, Layer, Context, pipe, Duration, Schedule, TestClock, TestContext, Option } from 'effect';
-import { ValidationError, DatabaseError, NetworkError, ConfigError } from './errors.js';
+import { Effect, pipe, Duration, Option } from 'effect';
 import type { LoggingService } from './logging.js';
 import type { ConfigurationService, AppConfig } from './configuration.js';
 import type { CacheService } from './caching-layer.js';
@@ -333,10 +332,10 @@ export class PropertyGenerators {
    * Generate objects with specific shape
    */
   static object<T extends Record<string, any>>(
-    schema: { [K in keyof T]: PropertyGenerator<T[K]> }
+    _schema: { [K in keyof T]: PropertyGenerator<T[K]> }
   ): PropertyGenerator<T> {
     return {
-      name: `object<${Object.keys(schema).join(',')}>`,
+      name: `object<${Object.keys(_schema).join(',')}>`,
       generate: () => pipe(
         Effect.succeed({} as T)
       ),
@@ -540,9 +539,9 @@ export class PerformanceTestUtils {
    * Test operation under load
    */
   static loadTest<T, E>(
-    operation: Effect.Effect<T, E>,
-    concurrency: number = 10,
-    duration: Duration.Duration = Duration.seconds(10)
+    _operation: Effect.Effect<T, E>,
+    _concurrency: number = 10,
+    _duration: Duration.Duration = Duration.seconds(10)
   ): Effect.Effect<{
     totalOperations: number;
     successfulOperations: number;
