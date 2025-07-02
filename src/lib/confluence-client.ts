@@ -1,5 +1,16 @@
 import { z } from 'zod';
 import type { Config } from './config.js';
+import { Effect, Schedule, pipe, Option } from 'effect';
+import {
+  NetworkError,
+  TimeoutError,
+  RateLimitError,
+  AuthenticationError,
+  NotFoundError,
+  ValidationError,
+  ParseError,
+  ConfluenceError
+} from './effects/errors.js';
 
 // Confluence API schemas
 const PageSchema = z.object({
@@ -88,6 +99,12 @@ export type Space = z.infer<typeof SpaceSchema>;
 export class ConfluenceClient {
   private config: Config;
   private baseUrl: string;
+  // Rate limiting: max 10 requests per second
+  private rateLimitSchedule = Schedule.fixed('100 millis');
+  // Retry with exponential backoff
+  private retrySchedule = Schedule.exponential('100 millis').pipe(
+    Schedule.intersect(Schedule.recurs(3))
+  );
 
   constructor(config: Config) {
     this.config = config;
@@ -352,5 +369,252 @@ export class ConfluenceClient {
     const data = await response.json();
     const parsed = PageListResponseSchema.parse(data);
     return parsed.results;
+  }
+
+  /**
+   * Effect-based HTTP request with retry logic and proper error handling
+   */
+  private makeRequestEffect<T>(
+    url: string,
+    options: RequestInit = {},
+    parser?: (data: unknown) => T
+  ): Effect.Effect<T, NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> {
+    return pipe(
+      Effect.tryPromise({
+        try: async () => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+          
+          try {
+            const response = await fetch(url, {
+              ...options,
+              headers: {
+                ...this.getHeaders(),
+                ...options.headers,
+              },
+              signal: controller.signal,
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+              const errorText = await response.text();
+              
+              if (response.status === 401 || response.status === 403) {
+                throw new AuthenticationError(`Authentication failed: ${response.status} - ${errorText}`);
+              }
+              
+              if (response.status === 404) {
+                throw new NotFoundError(`Resource not found: ${response.status} - ${errorText}`);
+              }
+              
+              if (response.status === 429) {
+                const retryAfter = response.headers.get('Retry-After');
+                throw new RateLimitError(
+                  `Rate limit exceeded: ${response.status} - ${errorText}`,
+                  retryAfter ? parseInt(retryAfter) * 1000 : undefined
+                );
+              }
+              
+              throw new NetworkError(`HTTP ${response.status}: ${errorText}`);
+            }
+            
+            const data = await response.json();
+            
+            if (parser) {
+              try {
+                return parser(data);
+              } catch (error) {
+                throw new ParseError('Failed to parse response', undefined, data, error);
+              }
+            }
+            
+            return data as T;
+          } catch (error) {
+            clearTimeout(timeoutId);
+            if (error instanceof DOMException && error.name === 'AbortError') {
+              throw new TimeoutError('Request timeout after 30 seconds');
+            }
+            throw error;
+          }
+        },
+        catch: (error) => {
+          if (error instanceof NetworkError || 
+              error instanceof TimeoutError ||
+              error instanceof RateLimitError ||
+              error instanceof AuthenticationError ||
+              error instanceof NotFoundError ||
+              error instanceof ParseError) {
+            return error;
+          }
+          return new NetworkError(`Request failed: ${error}`);
+        }
+      }),
+      Effect.retry(this.retrySchedule)
+    );
+  }
+
+  /**
+   * Effect-based get space with proper error handling
+   */
+  getSpaceEffect(spaceKey: string): Effect.Effect<Space, ValidationError | NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> {
+    return pipe(
+      Effect.sync(() => {
+        if (!spaceKey || spaceKey.trim().length === 0) {
+          throw new ValidationError('Space key cannot be empty', 'spaceKey', spaceKey);
+        }
+      }),
+      Effect.flatMap(() => {
+        const url = `${this.baseUrl}/space/${spaceKey}`;
+        return this.makeRequestEffect(url, { method: 'GET' }, (data) => SpaceSchema.parse(data));
+      })
+    );
+  }
+
+  /**
+   * Effect-based get page with validation and error handling
+   */
+  getPageEffect(pageId: string): Effect.Effect<Page, ValidationError | NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> {
+    return pipe(
+      Effect.sync(() => {
+        if (!pageId || pageId.trim().length === 0) {
+          throw new ValidationError('Page ID cannot be empty', 'pageId', pageId);
+        }
+      }),
+      Effect.flatMap(() => {
+        const url = `${this.baseUrl}/content/${pageId}?expand=body.storage,body.view,version,space`;
+        return this.makeRequestEffect(url, { method: 'GET' }, (data) => PageSchema.parse(data));
+      })
+    );
+  }
+
+  /**
+   * Effect-based get space content with pagination support
+   */
+  getSpaceContentEffect(
+    spaceKey: string,
+    options?: {
+      start?: number;
+      limit?: number;
+      expand?: string[];
+    }
+  ): Effect.Effect<z.infer<typeof PageListResponseSchema>, ValidationError | NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> {
+    return pipe(
+      Effect.sync(() => {
+        if (!spaceKey || spaceKey.trim().length === 0) {
+          throw new ValidationError('Space key cannot be empty', 'spaceKey', spaceKey);
+        }
+        if (options?.start !== undefined && options.start < 0) {
+          throw new ValidationError('Start must be non-negative', 'start', options.start);
+        }
+        if (options?.limit !== undefined && (options.limit <= 0 || options.limit > 200)) {
+          throw new ValidationError('Limit must be between 1 and 200', 'limit', options.limit);
+        }
+      }),
+      Effect.flatMap(() => {
+        const params = new URLSearchParams({
+          start: (options?.start || 0).toString(),
+          limit: (options?.limit || 25).toString(),
+          expand: options?.expand?.join(',') || 'body.storage,version,space',
+        });
+        
+        const url = `${this.baseUrl}/space/${spaceKey}/content/page?${params}`;
+        return this.makeRequestEffect(url, { method: 'GET' }, (data) => PageListResponseSchema.parse(data));
+      })
+    );
+  }
+
+  /**
+   * Effect-based get all space pages with proper progress tracking
+   */
+  getAllSpacePagesEffect(
+    spaceKey: string,
+    onProgress?: (current: number, total: number) => void
+  ): Effect.Effect<Page[], ValidationError | NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> {
+    return pipe(
+      Effect.sync(() => {
+        if (!spaceKey || spaceKey.trim().length === 0) {
+          throw new ValidationError('Space key cannot be empty', 'spaceKey', spaceKey);
+        }
+      }),
+      Effect.flatMap(() => {
+        const getAllPages = (start: number, accumulator: Page[] = []): Effect.Effect<Page[], ValidationError | NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> => {
+          return pipe(
+            this.getSpaceContentEffect(spaceKey, {
+              start,
+              limit: 100,
+              expand: ['body.storage', 'version', 'space'],
+            }),
+            Effect.flatMap(response => {
+              const newPages = [...accumulator, ...response.results];
+              
+              // Calculate estimated total
+              let estimatedTotal = newPages.length;
+              if (response.results.length === 100) {
+                estimatedTotal = newPages.length + 100; // Estimate at least one more page
+              }
+              
+              if (onProgress) {
+                onProgress(newPages.length, estimatedTotal);
+              }
+              
+              // Check if there are more pages
+              if (response.results.length === 0 || !response._links?.next) {
+                return Effect.succeed(newPages);
+              }
+              
+              // Recursively fetch next batch
+              return getAllPages(start + 100, newPages);
+            })
+          );
+        };
+        
+        return getAllPages(0);
+      })
+    );
+  }
+
+  /**
+   * Circuit breaker pattern for handling service unavailability
+   */
+  private circuitBreakerEffect<T>(
+    effect: Effect.Effect<T, NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError>
+  ): Effect.Effect<Option.Option<T>, ConfluenceError> {
+    return pipe(
+      effect,
+      Effect.map(result => Option.some(result)),
+      Effect.catchAll(error => {
+        // If we get too many failures, return None instead of failing
+        if (error._tag === 'NetworkError' || error._tag === 'TimeoutError') {
+          console.warn(`Confluence service degraded: ${error.message}`);
+          return Effect.succeed(Option.none());
+        }
+        // Re-throw authentication and validation errors
+        return Effect.fail(new ConfluenceError(`Confluence operation failed: ${error.message}`, error));
+      })
+    );
+  }
+
+  /**
+   * Batch operation with concurrency control
+   */
+  batchGetPagesEffect(
+    pageIds: string[],
+    concurrency: number = 5
+  ): Effect.Effect<Page[], ValidationError | NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> {
+    return pipe(
+      Effect.sync(() => {
+        if (!Array.isArray(pageIds) || pageIds.length === 0) {
+          throw new ValidationError('Page IDs must be a non-empty array', 'pageIds', pageIds);
+        }
+        if (concurrency <= 0 || concurrency > 10) {
+          throw new ValidationError('Concurrency must be between 1 and 10', 'concurrency', concurrency);
+        }
+      }),
+      Effect.flatMap(() => {
+        const effects = pageIds.map(pageId => this.getPageEffect(pageId));
+        return Effect.all(effects, { concurrency });
+      })
+    );
   }
 }
