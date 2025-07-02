@@ -121,6 +121,21 @@ export class ConfluenceError extends JiError {
   readonly module = 'confluence';
 }
 
+export class SpaceNotFoundError extends JiError {
+  readonly _tag = 'SpaceNotFoundError';
+  readonly module = 'confluence';
+}
+
+export class PageNotFoundError extends JiError {
+  readonly _tag = 'PageNotFoundError';
+  readonly module = 'confluence';
+}
+
+export class AuthenticationError extends JiError {
+  readonly _tag = 'AuthenticationError';
+  readonly module = 'auth';
+}
+
 export class OllamaError extends JiError {
   readonly _tag = 'OllamaError';
   readonly module = 'ollama';
