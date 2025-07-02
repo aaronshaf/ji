@@ -1056,7 +1056,7 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
                     metadata: {
                       spaceKey: page.space.key,
                       spaceName: page.space.name,
-                      version: page.version.number,
+                      version: String(page.version.number),
                       lastModified: page.version.when,
                       webUrl: page._links.webui
                     },
@@ -1774,7 +1774,7 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
         const metadata = {
           spaceKey: page.space.key,
           spaceName: page.space.name,
-          version: page.version.number,
+          version: String(page.version.number),
           lastModified: page.version.when,
           webUrl: page._links.webui
         };
