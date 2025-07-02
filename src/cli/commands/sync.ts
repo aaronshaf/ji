@@ -1,5 +1,3 @@
-import { stdin as input, stdout as output } from 'node:process';
-import * as readline from 'node:readline/promises';
 import chalk from 'chalk';
 import { Console, Effect, pipe } from 'effect';
 import { CacheManager } from '../../lib/cache.js';
@@ -262,29 +260,9 @@ const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
           return Effect.all(effects, { concurrency: 1 });
         }),
         Effect.flatMap(() => {
-          const rl = readline.createInterface({ input, output });
+          // Auto-sync without prompting
           return pipe(
-            Effect.tryPromise({
-              try: async () => {
-                const defaultText = 'Y/n';
-                const answer = await rl.question(
-                  `\nWould you like to sync all Jira projects now? ${chalk.dim(`[${defaultText}]`)}: `,
-                );
-                const normalized = answer.trim().toLowerCase();
-                return !normalized ? true : normalized === 'y' || normalized === 'yes';
-              },
-              catch: (error) => new Error(`Failed to get user input: ${error}`),
-            }),
-            Effect.tap(() => Effect.sync(() => rl.close())),
-          );
-        }),
-        Effect.flatMap((shouldSync) => {
-          if (!shouldSync) {
-            return Console.log(chalk.dim('Skipping sync'));
-          }
-
-          return pipe(
-            Console.log(chalk.cyan('\nSyncing Jira projects...')),
+            Console.log(chalk.cyan('\nSyncing all Jira projects...')),
             Effect.flatMap(() =>
               Effect.all(
                 jiraProjects.map((project, index) =>
