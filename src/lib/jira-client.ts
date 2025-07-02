@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Config } from './config.js';
+import { Effect, pipe } from 'effect';
 
 const IssueSchema = z.object({
   key: z.string(),
@@ -75,6 +76,27 @@ const SprintsResponseSchema = z.object({
 export type Issue = z.infer<typeof IssueSchema>;
 export type Board = z.infer<typeof BoardSchema>;
 export type Sprint = z.infer<typeof SprintSchema>;
+
+// Error types for Jira operations
+export class JiraError extends Error {
+  readonly _tag = 'JiraError';
+}
+
+export class NetworkError extends Error {
+  readonly _tag = 'NetworkError';
+}
+
+export class AuthenticationError extends Error {
+  readonly _tag = 'AuthenticationError';
+}
+
+export class NotFoundError extends Error {
+  readonly _tag = 'NotFoundError';
+}
+
+export class ValidationError extends Error {
+  readonly _tag = 'ValidationError';
+}
 
 // Standard fields to fetch for issues including sprint information
 export const ISSUE_FIELDS = [
@@ -200,6 +222,49 @@ export class JiraClient {
     return allIssues;
   }
 
+  // Effect-based get current user
+  getCurrentUserEffect(): Effect.Effect<{ accountId: string; displayName: string; emailAddress?: string }, NetworkError | AuthenticationError> {
+    const url = `${this.config.jiraUrl}/rest/api/3/myself`;
+    
+    return Effect.tryPromise({
+      try: async () => {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: this.getHeaders(),
+          signal: AbortSignal.timeout(10000) // 10 second timeout
+        });
+
+        if (response.status === 401 || response.status === 403) {
+          const errorText = await response.text();
+          throw new AuthenticationError(`Authentication failed: ${response.status} - ${errorText}`);
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new NetworkError(`Failed to get current user: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json() as {
+          accountId: string;
+          displayName: string;
+          emailAddress?: string;
+        };
+        
+        return {
+          accountId: data.accountId,
+          displayName: data.displayName,
+          emailAddress: data.emailAddress,
+        };
+      },
+      catch: (error) => {
+        if (error instanceof AuthenticationError) return error;
+        if (error instanceof NetworkError) return error;
+        return new NetworkError(`Network error while fetching current user: ${error}`);
+      }
+    });
+  }
+
+  // Backward compatible version
   async getCurrentUser(): Promise<{ accountId: string; displayName: string; emailAddress?: string }> {
     const url = `${this.config.jiraUrl}/rest/api/3/myself`;
     
@@ -225,6 +290,58 @@ export class JiraClient {
     };
   }
 
+  // Effect-based assign issue
+  assignIssueEffect(issueKey: string, accountId: string): Effect.Effect<void, ValidationError | NotFoundError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate inputs
+      Effect.sync(() => {
+        if (!issueKey || !issueKey.match(/^[A-Z]+-\d+$/)) {
+          throw new ValidationError('Invalid issue key format. Expected format: PROJECT-123');
+        }
+        if (!accountId || accountId.trim().length === 0) {
+          throw new ValidationError('Account ID cannot be empty');
+        }
+      }),
+      Effect.flatMap(() => {
+        const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}/assignee`;
+        
+        return Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(url, {
+              method: 'PUT',
+              headers: this.getHeaders(),
+              body: JSON.stringify({ accountId }),
+              signal: AbortSignal.timeout(10000) // 10 second timeout
+            });
+
+            if (response.status === 404) {
+              const errorText = await response.text();
+              throw new NotFoundError(`Issue ${issueKey} not found: ${errorText}`);
+            }
+
+            if (response.status === 401 || response.status === 403) {
+              const errorText = await response.text();
+              throw new AuthenticationError(`Not authorized to assign issue: ${response.status} - ${errorText}`);
+            }
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new NetworkError(`Failed to assign issue: ${response.status} - ${errorText}`);
+            }
+          },
+          catch: (error) => {
+            if (error instanceof ValidationError) return error;
+            if (error instanceof NotFoundError) return error;
+            if (error instanceof AuthenticationError) return error;
+            if (error instanceof NetworkError) return error;
+            return new NetworkError(`Network error while assigning issue: ${error}`);
+          }
+        });
+      })
+    );
+  }
+
+  // Backward compatible version
   async assignIssue(issueKey: string, accountId: string): Promise<void> {
     const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}/assignee`;
     

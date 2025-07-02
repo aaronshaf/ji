@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { join } from 'path';
 import { OllamaClient } from './ollama.js';
+import { Effect, pipe } from 'effect';
 
 export interface MemoryEntry {
   id: string;
@@ -12,6 +13,23 @@ export interface MemoryEntry {
   createdAt: number;
   lastAccessed: number;
   accessCount: number;
+}
+
+// Error types for memory operations
+export class MemoryError extends Error {
+  readonly _tag = 'MemoryError';
+}
+
+export class MemoryNotFoundError extends Error {
+  readonly _tag = 'MemoryNotFoundError';
+}
+
+export class DatabaseError extends Error {
+  readonly _tag = 'DatabaseError';
+}
+
+export class ValidationError extends Error {
+  readonly _tag = 'ValidationError';
 }
 
 export class MemoryManager {
@@ -213,7 +231,50 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
     }));
   }
 
-  // Delete a specific memory by ID
+  // Effect-based delete memory
+  deleteMemoryEffect(memoryId: string): Effect.Effect<boolean, MemoryNotFoundError | DatabaseError | ValidationError> {
+    return pipe(
+      // Validate input
+      Effect.sync(() => {
+        if (!memoryId || memoryId.trim().length === 0) {
+          throw new ValidationError('Memory ID cannot be empty');
+        }
+      }),
+      Effect.flatMap(() =>
+        Effect.try(() => {
+          // Check if the memory exists
+          const checkStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
+          const exists = checkStmt.get(memoryId);
+          
+          if (!exists) {
+            throw new MemoryNotFoundError(`Memory with ID ${memoryId} not found`);
+          }
+          
+          // Delete the memory
+          const stmt = this.db.prepare('DELETE FROM ask_memory WHERE id = ?');
+          stmt.run(memoryId);
+          
+          // Verify deletion
+          const verifyStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
+          const stillExists = verifyStmt.get(memoryId);
+          
+          if (stillExists) {
+            throw new DatabaseError('Failed to delete memory - verification failed');
+          }
+          
+          return true;
+        }).pipe(
+          Effect.mapError(error => {
+            if (error instanceof MemoryNotFoundError) return error;
+            if (error instanceof DatabaseError) return error;
+            return new DatabaseError(`Database error while deleting memory: ${error}`);
+          })
+        )
+      )
+    );
+  }
+
+  // Delete a specific memory by ID (backward compatible)
   deleteMemory(memoryId: string): boolean {
     try {
       // First check if the memory exists
@@ -237,7 +298,56 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
     }
   }
 
-  // Update/correct a memory's facts
+  // Effect-based update memory facts
+  updateMemoryFactsEffect(memoryId: string, newFacts: string): Effect.Effect<boolean, MemoryNotFoundError | DatabaseError | ValidationError> {
+    return pipe(
+      // Validate inputs
+      Effect.sync(() => {
+        if (!memoryId || memoryId.trim().length === 0) {
+          throw new ValidationError('Memory ID cannot be empty');
+        }
+        if (!newFacts || newFacts.trim().length === 0) {
+          throw new ValidationError('New facts cannot be empty');
+        }
+        if (newFacts.length > 1000) {
+          throw new ValidationError('Facts too long (max 1000 characters)');
+        }
+      }),
+      Effect.flatMap(() =>
+        Effect.try(() => {
+          // Check if memory exists
+          const checkStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
+          const exists = checkStmt.get(memoryId);
+          
+          if (!exists) {
+            throw new MemoryNotFoundError(`Memory with ID ${memoryId} not found`);
+          }
+          
+          // Update the memory
+          const stmt = this.db.prepare(`
+            UPDATE ask_memory 
+            SET key_facts = ?, last_accessed = ? 
+            WHERE id = ?
+          `);
+          const result = stmt.run(newFacts, Date.now(), memoryId);
+          
+          if (result.changes === 0) {
+            throw new DatabaseError('Failed to update memory - no changes made');
+          }
+          
+          return true;
+        }).pipe(
+          Effect.mapError(error => {
+            if (error instanceof MemoryNotFoundError) return error;
+            if (error instanceof DatabaseError) return error;
+            return new DatabaseError(`Database error while updating memory: ${error}`);
+          })
+        )
+      )
+    );
+  }
+
+  // Update/correct a memory's facts (backward compatible)
   updateMemoryFacts(memoryId: string, newFacts: string): boolean {
     try {
       const stmt = this.db.prepare(`
