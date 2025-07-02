@@ -292,8 +292,15 @@ export class ConfigManager {
   private runMigrations() {
     try {
       // Add content_hash columns if they don't exist
-      const contentTableInfo = this.db.prepare(`PRAGMA table_info(searchable_content)`).all() as any[];
-      const hasContentHash = contentTableInfo.some((col: any) => col.name === 'content_hash');
+      const contentTableInfo = this.db.prepare(`PRAGMA table_info(searchable_content)`).all() as Array<{
+        cid: number;
+        name: string;
+        type: string;
+        notnull: number;
+        dflt_value: string | null;
+        pk: number;
+      }>;
+      const hasContentHash = contentTableInfo.some(col => col.name === 'content_hash');
       
       if (!hasContentHash) {
         console.log('Migrating database: Adding content hash tracking...');
@@ -302,8 +309,15 @@ export class ConfigManager {
       
       
       // Add sprint fields to issues table if they don't exist
-      const issuesTableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as any[];
-      const hasSprintId = issuesTableInfo.some((col: any) => col.name === 'sprint_id');
+      const issuesTableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as Array<{
+        cid: number;
+        name: string;
+        type: string;
+        notnull: number;
+        dflt_value: string | null;
+        pk: number;
+      }>;
+      const hasSprintId = issuesTableInfo.some(col => col.name === 'sprint_id');
       
       if (!hasSprintId) {
         console.log('Migrating database: Adding sprint fields to issues...');
@@ -331,8 +345,15 @@ export class ConfigManager {
       `);
       
       // Check if reporter_email has NOT NULL constraint
-      const tableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as any[];
-      const reporterEmailCol = tableInfo.find((col: any) => col.name === 'reporter_email');
+      const tableInfo = this.db.prepare(`PRAGMA table_info(issues)`).all() as Array<{
+        cid: number;
+        name: string;
+        type: string;
+        notnull: number;
+        dflt_value: string | null;
+        pk: number;
+      }>;
+      const reporterEmailCol = tableInfo.find(col => col.name === 'reporter_email');
       
       if (reporterEmailCol && reporterEmailCol.notnull === 1) {
         console.log('Migrating database: Making reporter_email nullable...');
