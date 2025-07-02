@@ -78,7 +78,6 @@ function convertTablesToMarkdown(html: string): string {
   
   return html.replace(tableRegex, (match, tableContent) => {
     const rows: string[][] = [];
-    const _isHeaderRow = true;
     
     // Extract rows
     const rowRegex = /<tr[^>]*>(.*?)<\/tr>/gis;
