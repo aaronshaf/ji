@@ -4,6 +4,15 @@ import { join } from 'path';
 import type { Issue } from './jira-client.js';
 import { MeilisearchAdapter } from './meilisearch-adapter.js';
 import { OllamaClient } from './ollama.js';
+import { Effect, pipe } from 'effect';
+import {
+  DatabaseError,
+  QueryError,
+  ParseError,
+  ValidationError,
+  ContentError,
+  ContentTooLargeError
+} from './effects/errors.js';
 
 export interface SearchableContent {
   id: string;
@@ -35,6 +44,104 @@ export class ContentManager {
     this.db = new Database(dbPath);
   }
 
+  /**
+   * Effect-based save Jira issue with validation and transaction support
+   */
+  saveJiraIssueEffect(issue: Issue): Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError> {
+    return pipe(
+      // Validate issue
+      Effect.sync(() => {
+        if (!issue || typeof issue !== 'object') {
+          throw new ValidationError('Issue must be an object', 'issue', issue);
+        }
+        if (!issue.key || !issue.key.match(/^[A-Z]+-\d+$/)) {
+          throw new ValidationError('Invalid issue key format', 'issue.key', issue.key);
+        }
+        if (!issue.fields) {
+          throw new ValidationError('Issue must have fields', 'issue.fields', undefined);
+        }
+        if (!issue.fields.summary) {
+          throw new ValidationError('Issue must have a summary', 'issue.fields.summary', undefined);
+        }
+        if (!issue.fields.status?.name) {
+          throw new ValidationError('Issue must have a status', 'issue.fields.status', issue.fields.status);
+        }
+        if (!issue.fields.reporter?.displayName) {
+          throw new ValidationError('Issue must have a reporter', 'issue.fields.reporter', issue.fields.reporter);
+        }
+      }),
+      Effect.flatMap(() => {
+        const projectKey = issue.key.split('-')[0];
+        const sprintInfo = this.extractSprintInfo(issue);
+        
+        return Effect.try(() => {
+          // Use transaction for atomicity
+          this.db.transaction(() => {
+            // Save project
+            const projectStmt = this.db.prepare('INSERT OR IGNORE INTO projects (key, name) VALUES (?, ?)');
+            projectStmt.run(projectKey, projectKey);
+            
+            // Save issue
+            const issueStmt = this.db.prepare(`
+              INSERT OR REPLACE INTO issues (
+                key, project_key, summary, status, priority,
+                assignee_name, assignee_email, reporter_name, reporter_email,
+                created, updated, description, raw_data, synced_at,
+                sprint_id, sprint_name
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            
+            issueStmt.run(
+              issue.key,
+              projectKey,
+              issue.fields.summary,
+              issue.fields.status.name,
+              issue.fields.priority?.name || null,
+              issue.fields.assignee?.displayName || null,
+              issue.fields.assignee?.emailAddress || null,
+              issue.fields.reporter.displayName,
+              issue.fields.reporter.emailAddress || null,
+              new Date(issue.fields.created).getTime(),
+              new Date(issue.fields.updated).getTime(),
+              this.extractDescription(issue.fields.description),
+              JSON.stringify(issue),
+              Date.now(),
+              sprintInfo?.id || null,
+              sprintInfo?.name || null
+            );
+          })();
+        }).pipe(
+          Effect.mapError(error => new QueryError(`Failed to save issue to database: ${error}`))
+        );
+      }),
+      // Save to searchable content
+      Effect.flatMap(() => {
+        const projectKey = issue.key.split('-')[0];
+        const content = this.buildJiraContent(issue);
+        
+        return this.saveContentEffect({
+          id: `jira:${issue.key}`,
+          source: 'jira',
+          type: 'issue',
+          title: `${issue.key}: ${issue.fields.summary}`,
+          content: content,
+          url: `/browse/${issue.key}`,
+          projectKey: projectKey,
+          metadata: {
+            status: issue.fields.status.name,
+            priority: issue.fields.priority?.name,
+            assignee: issue.fields.assignee?.displayName,
+            reporter: issue.fields.reporter.displayName
+          },
+          createdAt: new Date(issue.fields.created).getTime(),
+          updatedAt: new Date(issue.fields.updated).getTime(),
+          syncedAt: Date.now()
+        });
+      })
+    );
+  }
+
+  // Backward compatible version
   async saveJiraIssue(issue: Issue): Promise<void> {
     const projectKey = issue.key.split('-')[0];
     
@@ -95,6 +202,103 @@ export class ContentManager {
     });
   }
 
+  /**
+   * Effect-based save content with validation
+   */
+  saveContentEffect(content: SearchableContent): Effect.Effect<void, ValidationError | ContentTooLargeError | QueryError | ContentError> {
+    return pipe(
+      // Validate content
+      Effect.sync(() => {
+        if (!content || typeof content !== 'object') {
+          throw new ValidationError('Content must be an object', 'content', content);
+        }
+        if (!content.id || content.id.length === 0) {
+          throw new ValidationError('Content must have an ID', 'content.id', content.id);
+        }
+        if (!content.title || content.title.length === 0) {
+          throw new ValidationError('Content must have a title', 'content.title', content.title);
+        }
+        if (!content.content || content.content.length === 0) {
+          throw new ValidationError('Content must have content', 'content.content', undefined);
+        }
+        if (content.content.length > 10_000_000) { // 10MB limit
+          throw new ContentTooLargeError(
+            'Content too large', 
+            content.content.length, 
+            10_000_000
+          );
+        }
+      }),
+      Effect.flatMap(() => {
+        // Calculate content hash using Effect
+        return pipe(
+          OllamaClient.contentHashEffect(content.content),
+          Effect.mapError(error => new ContentError(`Failed to hash content: ${error}`))
+        );
+      }),
+      Effect.flatMap(contentHash => {
+        return Effect.try(() => {
+          // Use transaction for atomicity
+          this.db.transaction(() => {
+            // Save to searchable_content
+            const stmt = this.db.prepare(`
+              INSERT OR REPLACE INTO searchable_content (
+                id, source, type, title, content, url,
+                space_key, project_key, metadata,
+                created_at, updated_at, synced_at, content_hash
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            stmt.run(
+              content.id,
+              content.source,
+              content.type,
+              content.title,
+              content.content,
+              content.url,
+              content.spaceKey || null,
+              content.projectKey || null,
+              JSON.stringify(content.metadata || {}),
+              content.createdAt || null,
+              content.updatedAt || null,
+              content.syncedAt,
+              contentHash
+            );
+
+            // Update FTS table
+            const deleteFtsStmt = this.db.prepare('DELETE FROM content_fts WHERE id = ?');
+            deleteFtsStmt.run(content.id);
+            
+            const ftsStmt = this.db.prepare(`
+              INSERT INTO content_fts (id, title, content)
+              VALUES (?, ?, ?)
+            `);
+            
+            ftsStmt.run(content.id, content.title, content.content);
+          })();
+        }).pipe(
+          Effect.mapError(error => new QueryError(`Failed to save content: ${error}`))
+        );
+      }),
+      // Try to index to Meilisearch but don't fail if unavailable
+      Effect.tap(() =>
+        Effect.tryPromise({
+          try: async () => {
+            const meilisearch = new MeilisearchAdapter();
+            await meilisearch.indexContent(content);
+          },
+          catch: error => {
+            console.error('Failed to index to Meilisearch:', error);
+            return undefined; // Don't fail the operation
+          }
+        }).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined))
+        )
+      )
+    );
+  }
+
+  // Backward compatible version
   async saveContent(content: SearchableContent): Promise<void> {
     // Calculate content hash
     const contentHash = OllamaClient.contentHash(content.content);
