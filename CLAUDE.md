@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a Jira & Confluence CLI tool built with:
+This is a **local-first, fast CLI** for Jira & Confluence built with:
 - Bun (runtime, package manager, and SQLite provider)
 - TypeScript
 - zod (schema validation)
@@ -11,14 +11,18 @@ This is a Jira & Confluence CLI tool built with:
 
 Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 
+**Core Philosophy**: This app is meant to be a local-first fast CLI for Jira and Confluence. All searches and data access should prioritize local SQLite database over API calls for instant response times.
+
 ## Key Design Decisions
 
-1. **Bun-first**: This project uses Bun as the primary runtime and build tool
-2. **Local SQLite storage**: Cached data stored in `~/.ji/data.db`
-3. **Separate auth storage**: Credentials in `~/.ji/auth.json` (600 permissions)
-4. **Background refresh**: Auto-refresh data in background for instant access
-5. **Security**: API keys stored securely, never in git or environment variables
-6. **Full-text search**: SQLite FTS5 for searching across all content
+1. **Local-first architecture**: All operations prioritize local SQLite database for instant response
+2. **Bun-first**: This project uses Bun as the primary runtime and build tool
+3. **Local SQLite storage**: Cached data stored in `~/.ji/data.db`
+4. **Separate auth storage**: Credentials in `~/.ji/auth.json` (600 permissions)
+5. **Background refresh**: Auto-refresh data in background for instant access
+6. **Security**: API keys stored securely, never in git or environment variables
+7. **Full-text search**: SQLite FTS5 for searching across all content
+8. **No external search dependencies**: Removed Meilisearch dependency to ensure instant local search
 
 ## Development Guidelines
 
