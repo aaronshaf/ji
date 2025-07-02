@@ -784,7 +784,7 @@ async function showMyBoards(projectFilter?: string) {
     } else {
       // Display normal board list
       const projectEntries = Object.entries(boardsByProject);
-      projectEntries.forEach(([projectKey, projectBoards], index) => {
+      projectEntries.forEach(([projectKey, projectBoards], _index) => {
         if (projectBoards.length === 1) {
           // Single board - put it on the same line as project
           const board = projectBoards[0];
@@ -1185,129 +1185,18 @@ async function takeIssue(issueKey: string) {
   }
 }
 
-// Technical synonyms for query expansion
-const TECHNICAL_SYNONYMS: Record<string, string[]> = {
-  'auth': ['authentication', 'authorization', 'SSO', 'SAML', 'OAuth', 'login', 'token', 'credentials'],
-  'deploy': ['deployment', 'release', 'ship', 'publish', 'CI/CD', 'pipeline', 'rollout'],
-  'error': ['exception', 'failure', 'bug', 'issue', 'problem', 'troubleshoot', 'debug'],
-  'API': ['endpoint', 'REST', 'GraphQL', 'service', 'integration', 'webhook', 'microservice'],
-  'db': ['database', 'SQL', 'NoSQL', 'schema', 'migration', 'query'],
-  'k8s': ['kubernetes', 'container', 'pod', 'cluster', 'helm', 'kubectl'],
-  'config': ['configuration', 'settings', 'environment', 'variables', 'properties'],
-  'test': ['testing', 'spec', 'unit test', 'integration test', 'e2e', 'TDD']
-};
+// Removed unused search enhancement constants:
+// - TECHNICAL_SYNONYMS
+// - TECHNICAL_ABBREVIATIONS
+// These were intended for query expansion but are not currently used
 
-const TECHNICAL_ABBREVIATIONS: Record<string, string> = {
-  'k8s': 'kubernetes',
-  'db': 'database',
-  'env': 'environment',
-  'config': 'configuration',
-  'auth': 'authentication',
-  'creds': 'credentials',
-  'repo': 'repository',
-  'docs': 'documentation'
-};
-
-function _expandQueryWithSynonyms(query: string): string {
-  let expandedQuery = query;
-  
-  // Expand abbreviations
-  Object.entries(TECHNICAL_ABBREVIATIONS).forEach(([abbrev, full]) => {
-    const regex = new RegExp(`\\b${abbrev}\\b`, 'gi');
-    expandedQuery = expandedQuery.replace(regex, `${abbrev} ${full}`);
-  });
-  
-  // Add synonyms for known technical terms
-  Object.entries(TECHNICAL_SYNONYMS).forEach(([term, synonyms]) => {
-    if (query.toLowerCase().includes(term.toLowerCase())) {
-      expandedQuery += ' ' + synonyms.slice(0, 3).join(' '); // Add top 3 synonyms
-    }
-  });
-  
-  return expandedQuery;
-}
-
-function _detectSearchIntent(query: string): 'troubleshooting' | 'howto' | 'conceptual' | 'general' {
-  const lowerQuery = query.toLowerCase();
-  
-  if (lowerQuery.includes('error') || lowerQuery.includes('broken') || lowerQuery.includes('issue') || 
-      lowerQuery.includes('problem') || lowerQuery.includes('fix') || lowerQuery.includes('debug')) {
-    return 'troubleshooting';
-  }
-  
-  if (lowerQuery.includes('how to') || lowerQuery.includes('tutorial') || lowerQuery.includes('guide') ||
-      lowerQuery.includes('setup') || lowerQuery.includes('install') || lowerQuery.includes('configure')) {
-    return 'howto';
-  }
-  
-  if (lowerQuery.includes('what is') || lowerQuery.includes('explain') || lowerQuery.includes('overview') ||
-      lowerQuery.includes('introduction') || lowerQuery.includes('concept')) {
-    return 'conceptual';
-  }
-  
-  return 'general';
-}
-
-function _assessContentQuality(content: { content: string; updatedAt?: number }): number {
-  let qualityScore = 1.0;
-  const text = content.content.toLowerCase();
-  
-  // Positive quality signals
-  if (text.includes('```') || text.includes('code>') || text.includes('curl ') || text.includes('npm ') || text.includes('kubectl ')) {
-    qualityScore += 0.2; // Has code examples
-  }
-  
-  if (text.match(/^\s*\d+\.\s/m) || text.includes('step 1') || text.includes('first,') || text.includes('then,')) {
-    qualityScore += 0.2; // Has step-by-step instructions
-  }
-  
-  if (text.includes('screenshot') || text.includes('image') || text.includes('diagram')) {
-    qualityScore += 0.1; // Has visual aids
-  }
-  
-  if (content.content.length > 500) {
-    qualityScore += 0.1; // Substantial content
-  }
-  
-  // Negative quality signals
-  if (content.content.length < 100) {
-    qualityScore -= 0.3; // Too short/stub
-  }
-  
-  if (text.includes('todo') || text.includes('tbd') || text.includes('coming soon')) {
-    qualityScore -= 0.2; // Incomplete content
-  }
-  
-  if (text.includes('see other') || text.includes('refer to') || text.includes('check elsewhere')) {
-    qualityScore -= 0.1; // Lacks self-contained information
-  }
-  
-  return Math.max(0.1, Math.min(2.0, qualityScore));
-}
-
-function _getFreshnessBoost(updatedAt: number | undefined): number {
-  if (!updatedAt) return 0.8;
-  
-  const daysSinceUpdate = (Date.now() - updatedAt) / (1000 * 60 * 60 * 24);
-  
-  if (daysSinceUpdate < 7) return 1.5;      // Very fresh
-  if (daysSinceUpdate < 30) return 1.2;     // Recent
-  if (daysSinceUpdate < 90) return 1.0;     // Acceptable
-  if (daysSinceUpdate < 365) return 0.9;    // Getting old
-  return 0.7;                               // Stale
-}
-
-function _highlightQueryInText(text: string, query: string): string {
-  const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-  let highlightedText = text;
-  
-  words.forEach(word => {
-    const regex = new RegExp(`(${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    highlightedText = highlightedText.replace(regex, chalk.cyan('$1'));
-  });
-  
-  return highlightedText;
-}
+// Removed unused utility functions:
+// - _expandQueryWithSynonyms
+// - _detectSearchIntent
+// - _assessContentQuality
+// - _getFreshnessBoost
+// - _highlightQueryInText
+// These can be re-added when needed for enhanced search functionality
 
 function formatTimeAgo(timestamp: number | undefined): string {
   if (!timestamp) return 'unknown';
@@ -1862,7 +1751,6 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       batches.push(pagesToSync.slice(i, i + BATCH_SIZE));
     }
     
-    let _processedCount = 0;
     
     // Process each batch
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
@@ -1908,7 +1796,6 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       
       // Wait for all pages in this batch to complete
       await Promise.all(batchPromises);
-      _processedCount += batch.length;
     }
 
     console.log(''); // New line after progress
@@ -2444,9 +2331,6 @@ Return only the queries, one per line:`;
     }
     
     if (options.verbose) {
-      const _byRound = [1, 2, 3].map(round => 
-        deduplicatedContexts.filter(c => c.searchRound === round).length
-      );
       spinner.stop();
       console.log(chalk.dim(`📊 Found ${allContexts.length} documents, ${deduplicatedContexts.length} after deduplication`));
       const totalSearchTime = Date.now() - round1StartTime;
@@ -2892,7 +2776,7 @@ async function searchWithoutAI(question: string, options: {
     console.log(chalk.bold(`\nSearch Results for "${question}":\n`));
 
     results.forEach((result, index) => {
-      const { content, score: _score, snippet } = result;
+      const { content, snippet } = result;
       
       if (content.source === 'jira') {
         const issueKey = content.id.replace('jira:', '');
