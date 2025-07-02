@@ -1,5 +1,4 @@
 import { MeiliSearch, Index } from 'meilisearch';
-import type { SearchableContent } from './content-manager.js';
 import type { SearchResult } from './content-manager.js';
 
 // Singleton instance for fast access
@@ -45,7 +44,7 @@ export class MeilisearchFast {
     };
 
     // Handle search based on source
-    let results: any[] = [];
+    const results: any[] = [];
     
     if (!options.source || options.source === 'jira') {
       // Search Jira with status filters
@@ -184,7 +183,7 @@ export class MeilisearchFast {
     }
 
     // Handle search based on source
-    let results: any[] = [];
+    const results: any[] = [];
     
     if (!options.source || options.source === 'jira') {
       // Search Jira with status filters
@@ -209,7 +208,7 @@ export class MeilisearchFast {
         results.push(jiraResult);
       } catch (error) {
         // Hybrid search failed (likely Ollama not available), fall back to regular search
-        const { hybrid, ...fallbackParams } = jiraParams;
+        const { hybrid: _hybrid, ...fallbackParams } = jiraParams;
         const jiraResult = await this.jiraIndex.search(query, fallbackParams);
         results.push(jiraResult);
       }
@@ -228,7 +227,7 @@ export class MeilisearchFast {
         results.push(confluenceResult);
       } catch (error) {
         // Hybrid search failed (likely Ollama not available), fall back to regular search
-        const { hybrid, ...fallbackParams } = confluenceParams;
+        const { hybrid: _hybrid, ...fallbackParams } = confluenceParams;
         const confluenceResult = await this.confluenceIndex.search(query, fallbackParams);
         results.push(confluenceResult);
       }

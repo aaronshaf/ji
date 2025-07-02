@@ -78,7 +78,7 @@ function convertTablesToMarkdown(html: string): string {
   
   return html.replace(tableRegex, (match, tableContent) => {
     const rows: string[][] = [];
-    let isHeaderRow = true;
+    const _isHeaderRow = true;
     
     // Extract rows
     const rowRegex = /<tr[^>]*>(.*?)<\/tr>/gis;
@@ -94,7 +94,7 @@ function convertTablesToMarkdown(html: string): string {
       
       while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
         // Clean cell content
-        let cellText = cellMatch[1]
+        const cellText = cellMatch[1]
           .replace(/<[^>]+>/g, '') // Remove any remaining HTML
           .replace(/\n/g, ' ')     // Replace newlines with spaces
           .trim();

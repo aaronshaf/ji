@@ -2,10 +2,9 @@ import { MeiliSearch, Index } from 'meilisearch';
 import type { SearchableContent } from './content-manager.js';
 import type { SearchResult } from './content-manager.js';
 import { ConfigManager } from './config.js';
-import { Effect, Schedule, pipe, Option } from 'effect';
+import { Effect, Schedule, pipe } from 'effect';
 import {
   NetworkError,
-  TimeoutError,
   ValidationError,
   ParseError,
   ContentError,
@@ -245,7 +244,7 @@ export class MeilisearchAdapter {
     };
 
     // Handle search based on source
-    let results: any[] = [];
+    const results: any[] = [];
     
     if (!options.source || options.source === 'jira') {
       // Search Jira with status filters
@@ -577,7 +576,7 @@ export class MeilisearchAdapter {
                 showRankingScore: true
               };
 
-              let results: any[] = [];
+              const results: any[] = [];
               
               if (!options.source || options.source === 'jira') {
                 const jiraParams = { ...baseSearchParams };
