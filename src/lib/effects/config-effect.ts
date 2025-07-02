@@ -1,6 +1,6 @@
 import { Effect, Option, pipe } from 'effect';
-import { DatabaseError, ValidationError, ConfigError } from './errors';
-import type { ConfigManager, Config } from '../config';
+import type { Config, ConfigManager } from '../config';
+import { ConfigError, DatabaseError, ValidationError } from './errors';
 
 /**
  * Effect-based wrapper for ConfigManager operations
@@ -19,7 +19,7 @@ export class ConfigEffect {
         const value = await this.configManager.getSetting(key);
         return Option.fromNullable(value);
       },
-      catch: (error) => new DatabaseError(`Failed to get setting '${key}'`, error)
+      catch: (error) => new DatabaseError(`Failed to get setting '${key}'`, error),
     });
   }
 
@@ -29,10 +29,12 @@ export class ConfigEffect {
   getRequiredSetting(key: string): Effect.Effect<string, DatabaseError | ConfigError> {
     return pipe(
       this.getSetting(key),
-      Effect.flatMap(Option.match({
-        onNone: () => Effect.fail(new ConfigError(`Required setting '${key}' not found`)),
-        onSome: (value) => Effect.succeed(value)
-      }))
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.fail(new ConfigError(`Required setting '${key}' not found`)),
+          onSome: (value) => Effect.succeed(value),
+        }),
+      ),
     );
   }
 
@@ -59,9 +61,9 @@ export class ConfigEffect {
           try: async () => {
             await this.configManager.setSetting(key, value);
           },
-          catch: (error) => new DatabaseError(`Failed to set setting '${key}'`, error)
-        })
-      )
+          catch: (error) => new DatabaseError(`Failed to set setting '${key}'`, error),
+        }),
+      ),
     );
   }
 
@@ -71,14 +73,15 @@ export class ConfigEffect {
   getSettings(keys: string[]): Effect.Effect<Map<string, Option.Option<string>>, DatabaseError> {
     return pipe(
       keys,
-      Effect.forEach(key =>
-        pipe(
-          this.getSetting(key),
-          Effect.map(value => [key, value] as const)
-        ),
-        { concurrency: 5 }
+      Effect.forEach(
+        (key) =>
+          pipe(
+            this.getSetting(key),
+            Effect.map((value) => [key, value] as const),
+          ),
+        { concurrency: 5 },
       ),
-      Effect.map(entries => new Map(entries))
+      Effect.map((entries) => new Map(entries)),
     );
   }
 
@@ -94,7 +97,7 @@ export class ConfigEffect {
         }
         return config;
       },
-      catch: (error) => new ConfigError('Failed to load configuration', error)
+      catch: (error) => new ConfigError('Failed to load configuration', error),
     });
   }
 }
@@ -102,6 +105,6 @@ export class ConfigEffect {
 // Backward compatible wrappers
 export const makeConfigEffect = (configManager: ConfigManager) => {
   const effect = new ConfigEffect(configManager);
-  
+
   return effect;
 };

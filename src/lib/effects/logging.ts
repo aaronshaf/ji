@@ -1,6 +1,6 @@
-import { Effect, Context, Layer, pipe, Duration, Schedule } from 'effect';
-import { Database } from 'bun:sqlite';
-import { ConfigError, ValidationError } from './errors.js';
+import type { Database } from 'bun:sqlite';
+import { Context, Duration, Effect, Layer, pipe, Schedule } from 'effect';
+import { ConfigError, type ValidationError } from './errors.js';
 
 /**
  * Custom log levels for ji CLI
@@ -63,7 +63,7 @@ export class StructuredLogger implements LoggingService {
     private config: LogConfig,
     private module: string = 'default',
     private context: Record<string, unknown> = {},
-    private db?: Database
+    private db?: Database,
   ) {
     // Start background flush
     this.startBackgroundFlush();
@@ -114,15 +114,15 @@ export class StructuredLogger implements LoggingService {
         this.buffer = [];
         return entriesToFlush;
       }),
-      Effect.flatMap(entries => this.flushEntries(entries))
+      Effect.flatMap((entries) => this.flushEntries(entries)),
     );
   }
 
   private log(
-    level: JiLogLevel, 
-    message: string, 
-    error?: Error, 
-    metadata: Record<string, unknown> = {}
+    level: JiLogLevel,
+    message: string,
+    error?: Error,
+    metadata: Record<string, unknown> = {},
   ): Effect.Effect<void, never> {
     return Effect.sync(() => {
       if (!this.shouldLog(level)) {
@@ -137,7 +137,7 @@ export class StructuredLogger implements LoggingService {
         metadata: { ...this.context, ...metadata },
         error,
         userId: this.context.userId as string,
-        sessionId: this.context.sessionId as string
+        sessionId: this.context.sessionId as string,
       };
 
       // Add to buffer for async processing
@@ -162,7 +162,7 @@ export class StructuredLogger implements LoggingService {
       info: 2,
       warn: 3,
       error: 4,
-      fatal: 5
+      fatal: 5,
     };
 
     return levels[level] >= levels[this.config.level];
@@ -172,9 +172,9 @@ export class StructuredLogger implements LoggingService {
     const timestamp = new Date(entry.timestamp).toISOString();
     const level = entry.level.toUpperCase().padEnd(5);
     const module = `[${entry.module}]`.padEnd(12);
-    
+
     let output = `${timestamp} ${level} ${module} ${entry.message}`;
-    
+
     if (entry.metadata && Object.keys(entry.metadata).length > 0) {
       output += ` ${JSON.stringify(entry.metadata)}`;
     }
@@ -210,12 +210,12 @@ export class StructuredLogger implements LoggingService {
     const colors = {
       trace: '\x1b[90m', // gray
       debug: '\x1b[36m', // cyan
-      info: '\x1b[32m',  // green
-      warn: '\x1b[33m',  // yellow
+      info: '\x1b[32m', // green
+      warn: '\x1b[33m', // yellow
       error: '\x1b[31m', // red
-      fatal: '\x1b[35m'  // magenta
+      fatal: '\x1b[35m', // magenta
     };
-    
+
     const reset = '\x1b[0m';
     return `${colors[level]}${output}${reset}`;
   }
@@ -235,40 +235,38 @@ export class StructuredLogger implements LoggingService {
         yield* self.writeToDatabase(entries);
       }
     }).pipe(
-      Effect.catchAll(error => {
+      Effect.catchAll((error) => {
         console.error('Failed to flush log entries:', error);
         return Effect.succeed(undefined);
-      })
+      }),
     );
   }
 
   private writeToFile(entries: LogEntry[]): Effect.Effect<void, never> {
     return Effect.tryPromise({
       try: async () => {
-        const { appendFile, mkdir } = await import('fs/promises');
-        const { dirname } = await import('path');
-        
+        const { appendFile, mkdir } = await import('node:fs/promises');
+        const { dirname } = await import('node:path');
+
         if (!this.config.filePath) return;
 
         // Ensure directory exists
         await mkdir(dirname(this.config.filePath), { recursive: true });
 
-        const lines = entries.map(entry => {
-          const logLine = this.config.enableStructured 
-            ? JSON.stringify(entry)
-            : this.formatPlainEntry(entry);
-          return logLine + '\n';
-        }).join('');
+        const lines = entries
+          .map((entry) => {
+            const logLine = this.config.enableStructured ? JSON.stringify(entry) : this.formatPlainEntry(entry);
+            return `${logLine}\n`;
+          })
+          .join('');
 
         await appendFile(this.config.filePath, lines, 'utf8');
 
         // Check file size and rotate if needed
         await this.rotateLogFileIfNeeded();
       },
-      catch: () => undefined // Ignore file write errors
-    }).pipe(
-      Effect.catchAll(() => Effect.succeed(undefined))
-    );
+      catch: () => undefined, // Ignore file write errors
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
   }
 
   private writeToDatabase(entries: LogEntry[]): Effect.Effect<void, never> {
@@ -290,31 +288,29 @@ export class StructuredLogger implements LoggingService {
             JSON.stringify(entry.metadata || {}),
             entry.error ? entry.error.stack || entry.error.message : '',
             entry.userId || '',
-            entry.sessionId || ''
+            entry.sessionId || '',
           );
         }
       },
-      catch: () => undefined // Ignore database write errors
-    }).pipe(
-      Effect.catchAll(() => Effect.succeed(undefined))
-    );
+      catch: () => undefined, // Ignore database write errors
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
   }
 
   private formatPlainEntry(entry: LogEntry): string {
     const timestamp = new Date(entry.timestamp).toISOString();
     let line = `${timestamp} [${entry.level.toUpperCase()}] [${entry.module}] ${entry.message}`;
-    
+
     if (entry.metadata && Object.keys(entry.metadata).length > 0) {
       line += ` ${JSON.stringify(entry.metadata)}`;
     }
-    
+
     if (entry.error) {
       line += ` ERROR: ${entry.error.message}`;
       if (this.config.includeStackTrace && entry.error.stack) {
         line += `\n${entry.error.stack}`;
       }
     }
-    
+
     return line;
   }
 
@@ -322,9 +318,9 @@ export class StructuredLogger implements LoggingService {
     if (!this.config.filePath) return;
 
     try {
-      const { stat, rename, unlink } = await import('fs/promises');
-      const { dirname, basename, extname } = await import('path');
-      
+      const { stat, rename, unlink } = await import('node:fs/promises');
+      const { dirname, basename, extname } = await import('node:path');
+
       const stats = await stat(this.config.filePath);
       if (stats.size <= this.config.maxFileSize) return;
 
@@ -336,7 +332,7 @@ export class StructuredLogger implements LoggingService {
       for (let i = this.config.maxFiles - 1; i > 0; i--) {
         const oldFile = `${dir}/${name}.${i}${ext}`;
         const newFile = `${dir}/${name}.${i + 1}${ext}`;
-        
+
         try {
           await rename(oldFile, newFile);
         } catch {
@@ -361,12 +357,7 @@ export class StructuredLogger implements LoggingService {
   }
 
   private startBackgroundFlush(): void {
-    pipe(
-      this.flush(),
-      Effect.repeat(this.flushSchedule),
-      Effect.fork,
-      Effect.runPromise
-    ).catch(error => {
+    pipe(this.flush(), Effect.repeat(this.flushSchedule), Effect.fork, Effect.runPromise).catch((error) => {
       console.error('Background log flush failed:', error);
     });
   }
@@ -381,42 +372,39 @@ export class PerformanceLogger {
   /**
    * Time an operation and log the duration
    */
-  timeOperation<T, E>(
-    operationName: string,
-    operation: Effect.Effect<T, E>
-  ): Effect.Effect<T, E> {
+  timeOperation<T, E>(operationName: string, operation: Effect.Effect<T, E>): Effect.Effect<T, E> {
     return pipe(
       Effect.sync(() => Date.now()),
-      Effect.flatMap(startTime =>
+      Effect.flatMap((startTime) =>
         pipe(
           operation,
-          Effect.tap(result => 
+          Effect.tap((result) =>
             pipe(
               Effect.sync(() => Date.now() - startTime),
-              Effect.flatMap(duration =>
+              Effect.flatMap((duration) =>
                 this.logger.info(`Operation completed: ${operationName}`, {
                   operation: operationName,
                   duration,
                   success: true,
-                  result: typeof result === 'object' ? 'object' : result
-                })
-              )
-            )
+                  result: typeof result === 'object' ? 'object' : result,
+                }),
+              ),
+            ),
           ),
-          Effect.tapError(error =>
+          Effect.tapError((error) =>
             pipe(
               Effect.sync(() => Date.now() - startTime),
-              Effect.flatMap(duration =>
+              Effect.flatMap((duration) =>
                 this.logger.error(`Operation failed: ${operationName}`, error as Error, {
                   operation: operationName,
                   duration,
-                  success: false
-                })
-              )
-            )
-          )
-        )
-      )
+                  success: false,
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -426,31 +414,31 @@ export class PerformanceLogger {
   logSlowOperation<T, E>(
     operationName: string,
     thresholdMs: number,
-    operation: Effect.Effect<T, E>
+    operation: Effect.Effect<T, E>,
   ): Effect.Effect<T, E> {
     return pipe(
       Effect.sync(() => Date.now()),
-      Effect.flatMap(startTime =>
+      Effect.flatMap((startTime) =>
         pipe(
           operation,
-          Effect.tap(() => 
+          Effect.tap(() =>
             pipe(
               Effect.sync(() => Date.now() - startTime),
-              Effect.flatMap(duration => {
+              Effect.flatMap((duration) => {
                 if (duration > thresholdMs) {
                   return this.logger.warn(`Slow operation detected: ${operationName}`, {
                     operation: operationName,
                     duration,
                     threshold: thresholdMs,
-                    slowness: duration - thresholdMs
+                    slowness: duration - thresholdMs,
                   });
                 }
                 return Effect.succeed(undefined);
-              })
-            )
-          )
-        )
-      )
+              }),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -466,13 +454,11 @@ export class PerformanceLogger {
           heapUsed: Math.round(memory.heapUsed / 1024 / 1024),
           heapTotal: Math.round(memory.heapTotal / 1024 / 1024),
           external: Math.round(memory.external / 1024 / 1024),
-          rss: Math.round(memory.rss / 1024 / 1024)
+          rss: Math.round(memory.rss / 1024 / 1024),
         });
       }
       return Effect.succeed(undefined);
-    }).pipe(
-      Effect.flatten
-    );
+    }).pipe(Effect.flatten);
   }
 }
 
@@ -488,29 +474,39 @@ export class AuditLogger {
       userId,
       success,
       timestamp: Date.now(),
-      ...metadata
+      ...metadata,
     });
   }
 
-  logDataAccess(userId: string, resource: string, action: string, metadata?: Record<string, unknown>): Effect.Effect<void, never> {
+  logDataAccess(
+    userId: string,
+    resource: string,
+    action: string,
+    metadata?: Record<string, unknown>,
+  ): Effect.Effect<void, never> {
     return this.logger.info(`Data access: ${action} on ${resource}`, {
       event: 'data_access',
       userId,
       resource,
       action,
       timestamp: Date.now(),
-      ...metadata
+      ...metadata,
     });
   }
 
-  logConfigurationChange(userId: string, setting: string, oldValue: unknown, newValue: unknown): Effect.Effect<void, never> {
+  logConfigurationChange(
+    userId: string,
+    setting: string,
+    oldValue: unknown,
+    newValue: unknown,
+  ): Effect.Effect<void, never> {
     return this.logger.info(`Configuration changed: ${setting}`, {
       event: 'configuration_change',
       userId,
       setting,
       oldValue,
       newValue,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   }
 
@@ -519,7 +515,7 @@ export class AuditLogger {
       event: 'error',
       operation,
       timestamp: Date.now(),
-      ...metadata
+      ...metadata,
     });
   }
 }
@@ -532,23 +528,24 @@ export const LoggingServiceContext = Context.GenericTag<LoggingService>('Logging
 /**
  * Create logging layer with configuration
  */
-export const LoggingLayer = (config: LogConfig) => Layer.effect(
-  LoggingServiceContext,
-  Effect.gen(function* () {
-    let db: Database | undefined = undefined;
+export const LoggingLayer = (config: LogConfig) =>
+  Layer.effect(
+    LoggingServiceContext,
+    Effect.gen(function* () {
+      let db: Database | undefined;
 
-    // Initialize database for log storage if enabled
-    if (config.enableFile || config.enableStructured) {
-      try {
-        const { Database } = yield* Effect.promise(() => import('bun:sqlite'));
-        const { homedir: getHomedir } = yield* Effect.promise(() => import('os'));
-        const { join } = yield* Effect.promise(() => import('path'));
-        
-        const dbPath = join(getHomedir(), '.ji', 'logs.db');
-        db = new Database(dbPath);
-        
-        // Create logs table
-        db.exec(`
+      // Initialize database for log storage if enabled
+      if (config.enableFile || config.enableStructured) {
+        try {
+          const { Database } = yield* Effect.promise(() => import('bun:sqlite'));
+          const { homedir: getHomedir } = yield* Effect.promise(() => import('node:os'));
+          const { join } = yield* Effect.promise(() => import('node:path'));
+
+          const dbPath = join(getHomedir(), '.ji', 'logs.db');
+          db = new Database(dbPath);
+
+          // Create logs table
+          db.exec(`
           CREATE TABLE IF NOT EXISTS logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp INTEGER NOT NULL,
@@ -562,22 +559,22 @@ export const LoggingLayer = (config: LogConfig) => Layer.effect(
             created_at INTEGER DEFAULT (unixepoch() * 1000)
           )
         `);
-        
-        // Create indexes for performance
-        db.exec(`
+
+          // Create indexes for performance
+          db.exec(`
           CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp);
           CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
           CREATE INDEX IF NOT EXISTS idx_logs_module ON logs(module);
           CREATE INDEX IF NOT EXISTS idx_logs_user ON logs(user_id);
         `);
-      } catch (error) {
-        console.warn('Failed to initialize log database:', error);
+        } catch (error) {
+          console.warn('Failed to initialize log database:', error);
+        }
       }
-    }
 
-    return new StructuredLogger(config, 'default', {}, db);
-  })
-);
+      return new StructuredLogger(config, 'default', {}, db);
+    }),
+  );
 
 /**
  * Default logging configuration
@@ -591,7 +588,7 @@ export const defaultLogConfig: LogConfig = {
   maxFileSize: 10 * 1024 * 1024, // 10MB
   maxFiles: 5,
   enableColors: true,
-  includeStackTrace: true
+  includeStackTrace: true,
 };
 
 /**
@@ -602,10 +599,8 @@ export function createLogger(config: LogConfig = defaultLogConfig): Effect.Effec
     LoggingLayer(config),
     Layer.build,
     Effect.scoped,
-    Effect.map(context => Context.get(context, LoggingServiceContext)),
-    Effect.mapError(error => 
-      new ConfigError(`Failed to create logger: ${error}`, error)
-    )
+    Effect.map((context) => Context.get(context, LoggingServiceContext)),
+    Effect.mapError((error) => new ConfigError(`Failed to create logger: ${error}`, error)),
   );
 }
 
@@ -619,20 +614,19 @@ export const LoggerUtils = {
   wrapOperation: <T, E>(
     logger: LoggingService,
     operationName: string,
-    operation: Effect.Effect<T, E>
+    operation: Effect.Effect<T, E>,
   ): Effect.Effect<T, E> =>
     pipe(
       logger.info(`Starting operation: ${operationName}`),
       Effect.flatMap(() => operation),
       Effect.tap(() => logger.info(`Completed operation: ${operationName}`)),
-      Effect.tapError(error => logger.error(`Failed operation: ${operationName}`, error as Error))
+      Effect.tapError((error) => logger.error(`Failed operation: ${operationName}`, error as Error)),
     ),
 
   /**
    * Create a module-specific logger
    */
-  forModule: (logger: LoggingService, module: string): LoggingService =>
-    logger.withModule(module),
+  forModule: (logger: LoggingService, module: string): LoggingService => logger.withModule(module),
 
   /**
    * Create a user-scoped logger
@@ -647,11 +641,11 @@ export const LoggerUtils = {
     logger: LoggingService,
     field: string,
     value: unknown,
-    error: ValidationError
+    error: ValidationError,
   ): Effect.Effect<void, never> =>
     logger.error(`Validation failed for ${field}`, error, {
       field,
       value: typeof value === 'object' ? 'object' : value,
-      validationError: error.message
-    })
+      validationError: error.message,
+    }),
 };

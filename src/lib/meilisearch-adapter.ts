@@ -1,15 +1,8 @@
-import { MeiliSearch, Index } from 'meilisearch';
-import type { SearchableContent } from './content-manager.js';
-import type { SearchResult } from './content-manager.js';
+import { Effect, pipe, Schedule } from 'effect';
+import { type Index, MeiliSearch } from 'meilisearch';
 import { ConfigManager } from './config.js';
-import { Effect, Schedule, pipe } from 'effect';
-import {
-  NetworkError,
-  ValidationError,
-  ParseError,
-  ContentError,
-  DatabaseError
-} from './effects/errors.js';
+import type { SearchableContent, SearchResult } from './content-manager.js';
+import { ContentError, DatabaseError, NetworkError, ParseError, ValidationError } from './effects/errors.js';
 
 interface MeilisearchDocument {
   id: string;
@@ -39,9 +32,7 @@ export class MeilisearchAdapter {
   private confluenceIndex!: Index;
   private initialized = false;
   // Connection pool with retry strategy
-  private retrySchedule = Schedule.exponential('200 millis').pipe(
-    Schedule.intersect(Schedule.recurs(3))
-  );
+  private retrySchedule = Schedule.exponential('200 millis').pipe(Schedule.intersect(Schedule.recurs(3)));
   // Circuit breaker state
   private isCircuitOpen = false;
   private lastFailureTime = 0;
@@ -58,18 +49,18 @@ export class MeilisearchAdapter {
       if (response.ok) {
         // Ollama is available, use hybrid search
         return {
-          'hybrid': {
+          hybrid: {
             source: 'ollama' as const,
             model: embeddingModel,
             url: 'http://localhost:11434/api/embeddings',
-            documentTemplate: '{{doc.title}} {{doc.content}}'
-          }
+            documentTemplate: '{{doc.title}} {{doc.content}}',
+          },
         };
       }
     } catch {
       // Ollama not available
     }
-    
+
     // Return undefined - will use keyword search only
     return undefined;
   }
@@ -86,7 +77,7 @@ export class MeilisearchAdapter {
     // Get or create indexes
     this.jiraIndex = this.client.index('jira-issues');
     this.confluenceIndex = this.client.index('confluence-pages');
-    
+
     // Create indexes if they don't exist
     try {
       await this.jiraIndex.getStats();
@@ -101,40 +92,32 @@ export class MeilisearchAdapter {
     }
 
     // Wait for indexes to be created
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Configure Jira index
     await this.jiraIndex.updateSettings({
       searchableAttributes: ['key', 'title', 'content', 'summary', 'description'],
       filterableAttributes: ['status', 'priority', 'assignee', 'projectKey', 'source', 'reporter', 'originalId'],
       sortableAttributes: ['updatedAt', 'createdAt'],
-      rankingRules: [
-        'words',
-        'typo',
-        'proximity',
-        'attribute',
-        'sort',
-        'exactness',
-        'updatedAt:desc'
-      ],
+      rankingRules: ['words', 'typo', 'proximity', 'attribute', 'sort', 'exactness', 'updatedAt:desc'],
       typoTolerance: {
         enabled: true,
         minWordSizeForTypos: {
           oneTypo: 3,
-          twoTypos: 6
-        }
+          twoTypos: 6,
+        },
       },
       synonyms: {
-        'k8s': ['kubernetes'],
-        'auth': ['authentication', 'authorization'],
-        'db': ['database'],
-        'config': ['configuration'],
-        'deploy': ['deployment', 'release'],
-        'api': ['endpoint', 'service'],
-        'error': ['exception', 'failure', 'issue'],
-        'setup': ['configuration', 'install']
+        k8s: ['kubernetes'],
+        auth: ['authentication', 'authorization'],
+        db: ['database'],
+        config: ['configuration'],
+        deploy: ['deployment', 'release'],
+        api: ['endpoint', 'service'],
+        error: ['exception', 'failure', 'issue'],
+        setup: ['configuration', 'install'],
       },
-      embedders: (await this.getEmbedderConfig(embeddingModel)) as never
+      embedders: (await this.getEmbedderConfig(embeddingModel)) as never,
     });
 
     // Configure Confluence index
@@ -142,26 +125,18 @@ export class MeilisearchAdapter {
       searchableAttributes: ['title', 'content', 'spaceKey'],
       filterableAttributes: ['spaceKey', 'source', 'type', 'originalId'],
       sortableAttributes: ['updatedAt', 'createdAt'],
-      rankingRules: [
-        'words',
-        'typo',
-        'proximity',
-        'attribute',
-        'sort',
-        'exactness',
-        'updatedAt:desc'
-      ],
+      rankingRules: ['words', 'typo', 'proximity', 'attribute', 'sort', 'exactness', 'updatedAt:desc'],
       typoTolerance: {
         enabled: true,
         minWordSizeForTypos: {
           oneTypo: 3,
-          twoTypos: 6
-        }
+          twoTypos: 6,
+        },
       },
-      embedders: (await this.getEmbedderConfig(embeddingModel)) as never
+      embedders: (await this.getEmbedderConfig(embeddingModel)) as never,
     });
 
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     this.initialized = true;
   }
 
@@ -189,7 +164,7 @@ export class MeilisearchAdapter {
       type: content.type,
       // Add description and summary for Jira issues
       description: content.type === 'issue' ? content.content.split('\n')[0] : undefined,
-      summary: content.title.includes(':') ? content.title.split(': ')[1] : content.title
+      summary: content.title.includes(':') ? content.title.split(': ')[1] : content.title,
     };
 
     if (content.source === 'jira') {
@@ -225,7 +200,7 @@ export class MeilisearchAdapter {
         reporter: content.metadata?.reporter,
         type: content.type,
         description: content.type === 'issue' ? content.content.split('\n')[0] : undefined,
-        summary: content.title.includes(':') ? content.title.split(': ')[1] : content.title
+        summary: content.title.includes(':') ? content.title.split(': ')[1] : content.title,
       };
 
       if (content.source === 'jira') {
@@ -247,12 +222,15 @@ export class MeilisearchAdapter {
     // Removed unnecessary 1-second delay - Meilisearch handles queuing internally
   }
 
-  async search(query: string, options: {
-    source?: 'jira' | 'confluence';
-    filters?: string[];
-    limit?: number;
-    includeAll?: boolean;
-  } = {}): Promise<SearchResult[]> {
+  async search(
+    query: string,
+    options: {
+      source?: 'jira' | 'confluence';
+      filters?: string[];
+      limit?: number;
+      includeAll?: boolean;
+    } = {},
+  ): Promise<SearchResult[]> {
     await this.initialize();
 
     const baseSearchParams = {
@@ -263,7 +241,7 @@ export class MeilisearchAdapter {
       attributesToCrop: ['content'],
       cropLength: 200,
       showRankingScore: true,
-      filter: undefined as string | undefined
+      filter: undefined as string | undefined,
     };
 
     // Handle search based on source
@@ -275,53 +253,55 @@ export class MeilisearchAdapter {
         [key: string]: unknown;
       }>;
     }> = [];
-    
+
     if (!options.source || options.source === 'jira') {
       // Search Jira with status filters
       const jiraParams = { ...baseSearchParams };
       const jiraFilters: string[] = [];
-      
+
       if (!options.includeAll) {
         // Exclude closed/done issues by default for Jira
-        jiraFilters.push('(status != "Closed" AND status != "Done" AND status != "Resolved" AND status != "Cancelled" AND status != "Rejected" AND status != "Won\'t Do")');
+        jiraFilters.push(
+          '(status != "Closed" AND status != "Done" AND status != "Resolved" AND status != "Cancelled" AND status != "Rejected" AND status != "Won\'t Do")',
+        );
       }
-      
+
       if (options.filters?.length) {
         jiraFilters.push(...options.filters);
       }
-      
+
       if (jiraFilters.length > 0) {
         jiraParams.filter = jiraFilters.join(' AND ');
       }
-      
+
       const jiraResult = await this.jiraIndex.search(query, jiraParams);
       results.push(jiraResult);
     }
-    
+
     if (!options.source || options.source === 'confluence') {
       // Search Confluence without status filters
       const confluenceParams = { ...baseSearchParams };
-      
+
       if (options.filters?.length) {
         confluenceParams.filter = options.filters.join(' AND ');
       }
-      
+
       const confluenceResult = await this.confluenceIndex.search(query, confluenceParams);
       results.push(confluenceResult);
     }
 
     // Merge and sort results by ranking score
-    const allHits = results.flatMap(r => r.hits);
+    const allHits = results.flatMap((r) => r.hits);
     const sortedHits = allHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
 
     // Convert to SearchResult format
-    return sortedHits.map(hit => {
+    return sortedHits.map((hit) => {
       const hitData = hit as unknown as MeilisearchDocument & {
         _rankingScore?: number;
         _formatted?: { content?: string };
         _cropLength?: { content?: string };
       };
-      
+
       return {
         content: {
           id: hitData.originalId || (typeof hitData.id === 'string' ? hitData.id.replace('_', ':') : hitData.id),
@@ -336,24 +316,24 @@ export class MeilisearchAdapter {
             status: hitData.status,
             priority: hitData.priority,
             assignee: hitData.assignee,
-            reporter: hitData.reporter
+            reporter: hitData.reporter,
           },
           createdAt: hitData.createdAt,
           updatedAt: hitData.updatedAt,
-          syncedAt: hitData.syncedAt
+          syncedAt: hitData.syncedAt,
         },
         score: hitData._rankingScore || 0,
-        snippet: hitData._formatted?.content || hitData._cropLength?.content || ''
+        snippet: hitData._formatted?.content || hitData._cropLength?.content || '',
       };
     });
   }
 
   async deleteContent(contentId: string) {
     await this.initialize();
-    
+
     // Convert ID to Meilisearch format
     const meilisearchId = contentId.replace(':', '_');
-    
+
     if (contentId.startsWith('jira:')) {
       await this.jiraIndex.deleteDocument(meilisearchId);
     } else if (contentId.startsWith('confluence:')) {
@@ -363,38 +343,38 @@ export class MeilisearchAdapter {
 
   async clearIndex(source: 'jira' | 'confluence') {
     await this.initialize();
-    
+
     if (source === 'jira') {
       await this.jiraIndex.deleteAllDocuments();
     } else {
       await this.confluenceIndex.deleteAllDocuments();
     }
-    
-    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   async getStats() {
     await this.initialize();
-    
+
     const [jiraStats, confluenceStats] = await Promise.all([
       this.jiraIndex.getStats(),
-      this.confluenceIndex.getStats()
+      this.confluenceIndex.getStats(),
     ]);
 
     return {
       jira: {
         numberOfDocuments: jiraStats.numberOfDocuments,
-        isIndexing: jiraStats.isIndexing
+        isIndexing: jiraStats.isIndexing,
       },
       confluence: {
         numberOfDocuments: confluenceStats.numberOfDocuments,
-        isIndexing: confluenceStats.isIndexing
-      }
+        isIndexing: confluenceStats.isIndexing,
+      },
     };
   }
 
   async waitForIndexing() {
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   /**
@@ -417,7 +397,7 @@ export class MeilisearchAdapter {
           // Get or create indexes
           this.jiraIndex = this.client.index('jira-issues');
           this.confluenceIndex = this.client.index('confluence-pages');
-          
+
           // Create indexes if they don't exist
           try {
             await this.jiraIndex.getStats();
@@ -432,17 +412,14 @@ export class MeilisearchAdapter {
           }
 
           // Wait for indexes to be created
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
 
           // Configure indexes
           const embedderConfig = await this.getEmbedderConfig(embeddingModel);
-          
-          await Promise.all([
-            this.configureJiraIndex(embedderConfig),
-            this.configureConfluenceIndex(embedderConfig)
-          ]);
 
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await Promise.all([this.configureJiraIndex(embedderConfig), this.configureConfluenceIndex(embedderConfig)]);
+
+          await new Promise((resolve) => setTimeout(resolve, 1000));
           this.initialized = true;
         },
         catch: (error) => {
@@ -453,16 +430,18 @@ export class MeilisearchAdapter {
             return new DatabaseError(`Meilisearch initialization failed: ${error.message}`, error);
           }
           return new DatabaseError('Unknown initialization error', error);
-        }
+        },
       }),
-      Effect.retry(this.retrySchedule)
+      Effect.retry(this.retrySchedule),
     );
   }
 
   /**
    * Effect-based content indexing with circuit breaker pattern
    */
-  indexContentEffect(content: SearchableContent): Effect.Effect<void, NetworkError | ValidationError | ContentError | DatabaseError> {
+  indexContentEffect(
+    content: SearchableContent,
+  ): Effect.Effect<void, NetworkError | ValidationError | ContentError | DatabaseError> {
     return pipe(
       Effect.sync(() => {
         if (!content || typeof content !== 'object') {
@@ -478,32 +457,36 @@ export class MeilisearchAdapter {
           throw new ValidationError('Content must have content', 'content.content', undefined);
         }
       }),
-      Effect.flatMap(() => this.circuitBreakerEffect(
-        pipe(
-          this.initializeEffect(),
-          Effect.flatMap(() => Effect.tryPromise({
-            try: async () => {
-              const doc = this.prepareDocument(content);
-              
-              if (content.source === 'jira') {
-                await this.jiraIndex.addDocuments([doc], { primaryKey: 'id' });
-              } else {
-                await this.confluenceIndex.addDocuments([doc], { primaryKey: 'id' });
-              }
-            },
-            catch: (error) => {
-              if (error instanceof Error) {
-                if (error.message.includes('timeout')) {
-                  throw new NetworkError(`Index timeout: ${error.message}`);
-                }
-                throw new ContentError(`Failed to index content: ${error.message}`, error);
-              }
-              throw new ContentError('Unknown indexing error', error);
-            }
-          }))
-        )
-      )),
-      Effect.retry(this.retrySchedule)
+      Effect.flatMap(() =>
+        this.circuitBreakerEffect(
+          pipe(
+            this.initializeEffect(),
+            Effect.flatMap(() =>
+              Effect.tryPromise({
+                try: async () => {
+                  const doc = this.prepareDocument(content);
+
+                  if (content.source === 'jira') {
+                    await this.jiraIndex.addDocuments([doc], { primaryKey: 'id' });
+                  } else {
+                    await this.confluenceIndex.addDocuments([doc], { primaryKey: 'id' });
+                  }
+                },
+                catch: (error) => {
+                  if (error instanceof Error) {
+                    if (error.message.includes('timeout')) {
+                      throw new NetworkError(`Index timeout: ${error.message}`);
+                    }
+                    throw new ContentError(`Failed to index content: ${error.message}`, error);
+                  }
+                  throw new ContentError('Unknown indexing error', error);
+                },
+              }),
+            ),
+          ),
+        ),
+      ),
+      Effect.retry(this.retrySchedule),
     );
   }
 
@@ -512,7 +495,7 @@ export class MeilisearchAdapter {
    */
   indexBatchEffect(
     contents: SearchableContent[],
-    batchSize: number = 100
+    batchSize: number = 100,
   ): Effect.Effect<void, NetworkError | ValidationError | ContentError | DatabaseError> {
     return pipe(
       Effect.sync(() => {
@@ -523,58 +506,58 @@ export class MeilisearchAdapter {
           throw new ValidationError('Batch size must be between 1 and 1000', 'batchSize', batchSize);
         }
       }),
-      Effect.flatMap(() => this.circuitBreakerEffect(
-        pipe(
-          this.initializeEffect(),
-          Effect.flatMap(() => {
-            // Split into batches
-            const batches = [];
-            for (let i = 0; i < contents.length; i += batchSize) {
-              batches.push(contents.slice(i, i + batchSize));
-            }
-            
-            // Process batches sequentially to avoid overwhelming Meilisearch
-            const batchEffects = batches.map(batch => 
-              Effect.tryPromise({
-                try: async () => {
-                  const jiraDocs: MeilisearchDocument[] = [];
-                  const confluenceDocs: MeilisearchDocument[] = [];
+      Effect.flatMap(() =>
+        this.circuitBreakerEffect(
+          pipe(
+            this.initializeEffect(),
+            Effect.flatMap(() => {
+              // Split into batches
+              const batches = [];
+              for (let i = 0; i < contents.length; i += batchSize) {
+                batches.push(contents.slice(i, i + batchSize));
+              }
 
-                  for (const content of batch) {
-                    const doc = this.prepareDocument(content);
-                    if (content.source === 'jira') {
-                      jiraDocs.push(doc);
-                    } else {
-                      confluenceDocs.push(doc);
+              // Process batches sequentially to avoid overwhelming Meilisearch
+              const batchEffects = batches.map((batch) =>
+                Effect.tryPromise({
+                  try: async () => {
+                    const jiraDocs: MeilisearchDocument[] = [];
+                    const confluenceDocs: MeilisearchDocument[] = [];
+
+                    for (const content of batch) {
+                      const doc = this.prepareDocument(content);
+                      if (content.source === 'jira') {
+                        jiraDocs.push(doc);
+                      } else {
+                        confluenceDocs.push(doc);
+                      }
                     }
-                  }
 
-                  const tasks = [];
-                  if (jiraDocs.length > 0) {
-                    tasks.push(this.jiraIndex.addDocuments(jiraDocs, { primaryKey: 'id' }));
-                  }
-                  if (confluenceDocs.length > 0) {
-                    tasks.push(this.confluenceIndex.addDocuments(confluenceDocs, { primaryKey: 'id' }));
-                  }
+                    const tasks = [];
+                    if (jiraDocs.length > 0) {
+                      tasks.push(this.jiraIndex.addDocuments(jiraDocs, { primaryKey: 'id' }));
+                    }
+                    if (confluenceDocs.length > 0) {
+                      tasks.push(this.confluenceIndex.addDocuments(confluenceDocs, { primaryKey: 'id' }));
+                    }
 
-                  await Promise.all(tasks);
-                },
-                catch: (error) => {
-                  if (error instanceof Error) {
-                    throw new ContentError(`Batch indexing failed: ${error.message}`, error);
-                  }
-                  throw new ContentError('Unknown batch indexing error', error);
-                }
-              })
-            );
-            
-            // Process batches with controlled concurrency
-            return Effect.all(batchEffects, { concurrency: 2 }).pipe(
-              Effect.map(() => undefined)
-            );
-          })
-        )
-      ))
+                    await Promise.all(tasks);
+                  },
+                  catch: (error) => {
+                    if (error instanceof Error) {
+                      throw new ContentError(`Batch indexing failed: ${error.message}`, error);
+                    }
+                    throw new ContentError('Unknown batch indexing error', error);
+                  },
+                }),
+              );
+
+              // Process batches with controlled concurrency
+              return Effect.all(batchEffects, { concurrency: 2 }).pipe(Effect.map(() => undefined));
+            }),
+          ),
+        ),
+      ),
     );
   }
 
@@ -588,7 +571,7 @@ export class MeilisearchAdapter {
       filters?: string[];
       limit?: number;
       includeAll?: boolean;
-    } = {}
+    } = {},
   ): Effect.Effect<SearchResult[], NetworkError | ValidationError | ParseError | DatabaseError> {
     return pipe(
       Effect.sync(() => {
@@ -599,116 +582,120 @@ export class MeilisearchAdapter {
           throw new ValidationError('Limit must be between 1 and 1000', 'limit', options.limit);
         }
       }),
-      Effect.flatMap(() => this.circuitBreakerEffect(
-        pipe(
-          this.initializeEffect(),
-          Effect.flatMap(() => Effect.tryPromise({
-            try: async () => {
-              const baseSearchParams = {
-                limit: options.limit || 20,
-                attributesToHighlight: ['title', 'content'],
-                highlightPreTag: '<mark>',
-                highlightPostTag: '</mark>',
-                attributesToCrop: ['content'],
-                cropLength: 200,
-                showRankingScore: true,
-                filter: undefined as string | undefined
-              };
+      Effect.flatMap(() =>
+        this.circuitBreakerEffect(
+          pipe(
+            this.initializeEffect(),
+            Effect.flatMap(() =>
+              Effect.tryPromise({
+                try: async () => {
+                  const baseSearchParams = {
+                    limit: options.limit || 20,
+                    attributesToHighlight: ['title', 'content'],
+                    highlightPreTag: '<mark>',
+                    highlightPostTag: '</mark>',
+                    attributesToCrop: ['content'],
+                    cropLength: 200,
+                    showRankingScore: true,
+                    filter: undefined as string | undefined,
+                  };
 
-              const results: Array<{
-                hits: Array<{
-                  _rankingScore?: number;
-                  _formatted?: { content?: string };
-                  _cropLength?: { content?: string };
-                  [key: string]: unknown;
-                }>;
-              }> = [];
-              
-              if (!options.source || options.source === 'jira') {
-                const jiraParams = { ...baseSearchParams };
-                const jiraFilters: string[] = [];
-                
-                if (!options.includeAll) {
-                  jiraFilters.push('(status != "Closed" AND status != "Done" AND status != "Resolved" AND status != "Cancelled" AND status != "Rejected" AND status != "Won\'t Do")');
-                }
-                
-                if (options.filters?.length) {
-                  jiraFilters.push(...options.filters);
-                }
-                
-                if (jiraFilters.length > 0) {
-                  jiraParams.filter = jiraFilters.join(' AND ');
-                }
-                
-                const jiraResult = await this.jiraIndex.search(query, jiraParams);
-                results.push(jiraResult);
-              }
-              
-              if (!options.source || options.source === 'confluence') {
-                const confluenceParams = { ...baseSearchParams };
-                
-                if (options.filters?.length) {
-                  confluenceParams.filter = options.filters.join(' AND ');
-                }
-                
-                const confluenceResult = await this.confluenceIndex.search(query, confluenceParams);
-                results.push(confluenceResult);
-              }
+                  const results: Array<{
+                    hits: Array<{
+                      _rankingScore?: number;
+                      _formatted?: { content?: string };
+                      _cropLength?: { content?: string };
+                      [key: string]: unknown;
+                    }>;
+                  }> = [];
 
-              // Merge and sort results
-              const allHits = results.flatMap(r => r.hits);
-              const sortedHits = allHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
+                  if (!options.source || options.source === 'jira') {
+                    const jiraParams = { ...baseSearchParams };
+                    const jiraFilters: string[] = [];
 
-              // Cast hits to the expected type structure
-              const typedHits = sortedHits as Array<{
-                _rankingScore?: number;
-                _formatted?: { content?: string };
-                _cropLength?: { content?: string };
-                id: string;
-                originalId?: string;
-                source: string;
-                type?: string;
-                title: string;
-                content: string;
-                url?: string;
-                spaceKey?: string;
-                projectKey?: string;
-                status?: string;
-                priority?: string;
-                assignee?: string;
-                reporter?: string;
-                createdAt?: number;
-                updatedAt?: number;
-                syncedAt?: number;
-              }>;
-              return this.convertToSearchResults(typedHits);
-            },
-            catch: (error) => {
-              if (error instanceof Error) {
-                if (error.message.includes('timeout')) {
-                  throw new NetworkError(`Search timeout: ${error.message}`);
-                }
-                throw new ParseError(`Search failed: ${error.message}`, undefined, undefined, error);
-              }
-              throw new ParseError('Unknown search error', undefined, undefined, error);
-            }
-          }))
-        )
-      )),
+                    if (!options.includeAll) {
+                      jiraFilters.push(
+                        '(status != "Closed" AND status != "Done" AND status != "Resolved" AND status != "Cancelled" AND status != "Rejected" AND status != "Won\'t Do")',
+                      );
+                    }
+
+                    if (options.filters?.length) {
+                      jiraFilters.push(...options.filters);
+                    }
+
+                    if (jiraFilters.length > 0) {
+                      jiraParams.filter = jiraFilters.join(' AND ');
+                    }
+
+                    const jiraResult = await this.jiraIndex.search(query, jiraParams);
+                    results.push(jiraResult);
+                  }
+
+                  if (!options.source || options.source === 'confluence') {
+                    const confluenceParams = { ...baseSearchParams };
+
+                    if (options.filters?.length) {
+                      confluenceParams.filter = options.filters.join(' AND ');
+                    }
+
+                    const confluenceResult = await this.confluenceIndex.search(query, confluenceParams);
+                    results.push(confluenceResult);
+                  }
+
+                  // Merge and sort results
+                  const allHits = results.flatMap((r) => r.hits);
+                  const sortedHits = allHits.sort((a, b) => (b._rankingScore || 0) - (a._rankingScore || 0));
+
+                  // Cast hits to the expected type structure
+                  const typedHits = sortedHits as Array<{
+                    _rankingScore?: number;
+                    _formatted?: { content?: string };
+                    _cropLength?: { content?: string };
+                    id: string;
+                    originalId?: string;
+                    source: string;
+                    type?: string;
+                    title: string;
+                    content: string;
+                    url?: string;
+                    spaceKey?: string;
+                    projectKey?: string;
+                    status?: string;
+                    priority?: string;
+                    assignee?: string;
+                    reporter?: string;
+                    createdAt?: number;
+                    updatedAt?: number;
+                    syncedAt?: number;
+                  }>;
+                  return this.convertToSearchResults(typedHits);
+                },
+                catch: (error) => {
+                  if (error instanceof Error) {
+                    if (error.message.includes('timeout')) {
+                      throw new NetworkError(`Search timeout: ${error.message}`);
+                    }
+                    throw new ParseError(`Search failed: ${error.message}`, undefined, undefined, error);
+                  }
+                  throw new ParseError('Unknown search error', undefined, undefined, error);
+                },
+              }),
+            ),
+          ),
+        ),
+      ),
       // Fallback to empty results if circuit breaker is open
-      Effect.catchAll(error => {
+      Effect.catchAll((error) => {
         console.warn(`Meilisearch search failed: ${error.message}`);
         return Effect.succeed([]);
-      })
+      }),
     );
   }
 
   /**
    * Circuit breaker pattern implementation
    */
-  private circuitBreakerEffect<T, E>(
-    effect: Effect.Effect<T, E>
-  ): Effect.Effect<T, E | NetworkError> {
+  private circuitBreakerEffect<T, E>(effect: Effect.Effect<T, E>): Effect.Effect<T, E | NetworkError> {
     return pipe(
       Effect.sync(() => {
         // Check if circuit is open
@@ -722,7 +709,7 @@ export class MeilisearchAdapter {
         }
       }),
       Effect.flatMap(() => effect),
-      Effect.tapError(error => {
+      Effect.tapError((error) => {
         // Open circuit on repeated failures
         if (error && typeof error === 'object' && '_tag' in error) {
           const taggedError = error as { _tag: string };
@@ -732,7 +719,7 @@ export class MeilisearchAdapter {
           }
         }
         return Effect.succeed(undefined);
-      })
+      }),
     );
   }
 
@@ -759,7 +746,7 @@ export class MeilisearchAdapter {
       reporter: content.metadata?.reporter,
       type: content.type,
       description: content.type === 'issue' ? content.content.split('\n')[0] : undefined,
-      summary: content.title.includes(':') ? content.title.split(': ')[1] : content.title
+      summary: content.title.includes(':') ? content.title.split(': ')[1] : content.title,
     };
   }
 
@@ -771,33 +758,25 @@ export class MeilisearchAdapter {
       searchableAttributes: ['key', 'title', 'content', 'summary', 'description'],
       filterableAttributes: ['status', 'priority', 'assignee', 'projectKey', 'source', 'reporter', 'originalId'],
       sortableAttributes: ['updatedAt', 'createdAt'],
-      rankingRules: [
-        'words',
-        'typo',
-        'proximity',
-        'attribute',
-        'sort',
-        'exactness',
-        'updatedAt:desc'
-      ],
+      rankingRules: ['words', 'typo', 'proximity', 'attribute', 'sort', 'exactness', 'updatedAt:desc'],
       typoTolerance: {
         enabled: true,
         minWordSizeForTypos: {
           oneTypo: 3,
-          twoTypos: 6
-        }
+          twoTypos: 6,
+        },
       },
       synonyms: {
-        'k8s': ['kubernetes'],
-        'auth': ['authentication', 'authorization'],
-        'db': ['database'],
-        'config': ['configuration'],
-        'deploy': ['deployment', 'release'],
-        'api': ['endpoint', 'service'],
-        'error': ['exception', 'failure', 'issue'],
-        'setup': ['configuration', 'install']
+        k8s: ['kubernetes'],
+        auth: ['authentication', 'authorization'],
+        db: ['database'],
+        config: ['configuration'],
+        deploy: ['deployment', 'release'],
+        api: ['endpoint', 'service'],
+        error: ['exception', 'failure', 'issue'],
+        setup: ['configuration', 'install'],
       },
-      embedders: embedderConfig as never
+      embedders: embedderConfig as never,
     });
   }
 
@@ -809,51 +788,45 @@ export class MeilisearchAdapter {
       searchableAttributes: ['title', 'content', 'spaceKey'],
       filterableAttributes: ['spaceKey', 'source', 'type', 'originalId'],
       sortableAttributes: ['updatedAt', 'createdAt'],
-      rankingRules: [
-        'words',
-        'typo',
-        'proximity',
-        'attribute',
-        'sort',
-        'exactness',
-        'updatedAt:desc'
-      ],
+      rankingRules: ['words', 'typo', 'proximity', 'attribute', 'sort', 'exactness', 'updatedAt:desc'],
       typoTolerance: {
         enabled: true,
         minWordSizeForTypos: {
           oneTypo: 3,
-          twoTypos: 6
-        }
+          twoTypos: 6,
+        },
       },
-      embedders: embedderConfig as never
+      embedders: embedderConfig as never,
     });
   }
 
   /**
    * Helper method to convert hits to SearchResult format
    */
-  private convertToSearchResults(hits: Array<{
-    _rankingScore?: number;
-    _formatted?: { content?: string };
-    _cropLength?: { content?: string };
-    id: string;
-    originalId?: string;
-    source: string;
-    type?: string;
-    title: string;
-    content: string;
-    url?: string;
-    spaceKey?: string;
-    projectKey?: string;
-    status?: string;
-    priority?: string;
-    assignee?: string;
-    reporter?: string;
-    createdAt?: number;
-    updatedAt?: number;
-    syncedAt?: number;
-  }>): SearchResult[] {
-    return hits.map(hit => ({
+  private convertToSearchResults(
+    hits: Array<{
+      _rankingScore?: number;
+      _formatted?: { content?: string };
+      _cropLength?: { content?: string };
+      id: string;
+      originalId?: string;
+      source: string;
+      type?: string;
+      title: string;
+      content: string;
+      url?: string;
+      spaceKey?: string;
+      projectKey?: string;
+      status?: string;
+      priority?: string;
+      assignee?: string;
+      reporter?: string;
+      createdAt?: number;
+      updatedAt?: number;
+      syncedAt?: number;
+    }>,
+  ): SearchResult[] {
+    return hits.map((hit) => ({
       content: {
         id: hit.originalId || hit.id.replace('_', ':'),
         source: hit.source as 'jira' | 'confluence',
@@ -867,14 +840,14 @@ export class MeilisearchAdapter {
           status: hit.status,
           priority: hit.priority,
           assignee: hit.assignee,
-          reporter: hit.reporter
+          reporter: hit.reporter,
         },
         createdAt: hit.createdAt || Date.now(),
         updatedAt: hit.updatedAt || Date.now(),
-        syncedAt: hit.syncedAt || Date.now()
+        syncedAt: hit.syncedAt || Date.now(),
       },
       score: hit._rankingScore || 0,
-      snippet: hit._formatted?.content || hit._cropLength?.content || ''
+      snippet: hit._formatted?.content || hit._cropLength?.content || '',
     }));
   }
 }

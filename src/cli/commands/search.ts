@@ -1,17 +1,20 @@
 import chalk from 'chalk';
-import { MeilisearchAdapter } from '../../lib/meilisearch-adapter.js';
-import { ContentManager } from '../../lib/content-manager.js';
-import { OllamaClient } from '../../lib/ollama.js';
-import { ConfigManager } from '../../lib/config.js';
 import { formatDistanceToNow } from 'date-fns';
+import { ConfigManager } from '../../lib/config.js';
+import { ContentManager } from '../../lib/content-manager.js';
+import { MeilisearchAdapter } from '../../lib/meilisearch-adapter.js';
+import { OllamaClient } from '../../lib/ollama.js';
 
-export async function search(query: string, options: { 
-  source?: 'jira' | 'confluence',
-  limit?: number,
-  includeAll?: boolean
-} = {}) {
+export async function search(
+  query: string,
+  options: {
+    source?: 'jira' | 'confluence';
+    limit?: number;
+    includeAll?: boolean;
+  } = {},
+) {
   const limit = options.limit || 10;
-  
+
   try {
     // Try Meilisearch first (if available)
     try {
@@ -19,7 +22,7 @@ export async function search(query: string, options: {
       const results = await meilisearch.search(query, {
         source: options.source,
         limit,
-        includeAll: options.includeAll
+        includeAll: options.includeAll,
       });
 
       if (results.length === 0) {
@@ -27,62 +30,30 @@ export async function search(query: string, options: {
         return;
       }
 
-      console.log(chalk.bold(`Found ${results.length} results:\n`));
-
-      for (const result of results) {
-        const { content, snippet } = result;
-        const type = content.source === 'jira' ? chalk.blue('[JIRA]') : chalk.green('[CONFLUENCE]');
-        const key = content.id.replace(/^(jira|confluence):/, '');
-        const title = content.title || '';
-        const updated = content.updatedAt ? chalk.gray(formatDistanceToNow(new Date(content.updatedAt), { addSuffix: true })) : '';
-        
-        console.log(`${type} ${chalk.bold(key)} ${title}`);
-        if (updated) console.log(`  ${updated}`);
-        
-        if (snippet) {
-          const preview = snippet
-            .replace(/<mark>/g, chalk.yellow(''))
-            .replace(/<\/mark>/g, '')
-            .slice(0, 200)
-            .trim();
-          console.log(chalk.gray(`  ${preview}...`));
-        }
-        console.log();
-      }
-    } catch (meilisearchError) {
+      displaySearchResults(results, results.length);
+    } catch (_meilisearchError) {
       // Fallback to SQLite FTS5 search
       console.log(chalk.gray('Using local search (Meilisearch not available)\n'));
-      
+
       const contentManager = new ContentManager();
       const results = await contentManager.searchContent(query, {
         source: options.source,
-        limit: options.limit
+        limit,
       });
-      
+
       if (results.length === 0) {
         console.log(chalk.yellow('No results found'));
         return;
       }
 
-      console.log(chalk.bold(`Found ${results.length} results:\n`));
+      // Convert ContentManager results to match Meilisearch format
+      const formattedResults = results.map((result) => ({
+        content: result,
+        snippet: result.content ? `${result.content.slice(0, 200).trim()}...` : undefined,
+      }));
 
-      for (const result of results.slice(0, limit)) {
-        const type = result.source === 'jira' ? chalk.blue('[JIRA]') : chalk.green('[CONFLUENCE]');
-        const key = result.id.replace(/^(jira|confluence):/, '');
-        const title = result.title || '';
-        const updated = result.updatedAt ? chalk.gray(formatDistanceToNow(new Date(result.updatedAt), { addSuffix: true })) : '';
-        
-        console.log(`${type} ${chalk.bold(key)} ${title}`);
-        if (updated) console.log(`  ${updated}`);
-        
-        // For SQLite results, show a preview of the content
-        if (result.content) {
-          const preview = result.content.slice(0, 200).trim();
-          console.log(chalk.gray(`  ${preview}...`));
-        }
-        console.log();
-      }
-      
+      displaySearchResults(formattedResults, results.length);
+
       contentManager.close();
     }
   } catch (error) {
@@ -91,12 +62,59 @@ export async function search(query: string, options: {
   }
 }
 
+function displaySearchResults(
+  results: Array<{
+    content: { id: string; title?: string; source: string; updatedAt?: string | number };
+    snippet?: string;
+  }>,
+  totalCount: number,
+) {
+  const displayCount = Math.min(results.length, 10);
+  console.log(chalk.bold(`Found ${totalCount} results (showing top ${displayCount}):\n`));
+  console.log(chalk.gray('---'));
+
+  results.slice(0, 10).forEach((result, index) => {
+    const { content, snippet } = result;
+    const type = content.source === 'jira' ? 'JIRA' : 'CONFLUENCE';
+    const key = content.id.replace(/^(jira|confluence):/, '');
+    const title = content.title || 'Untitled';
+    const updated = content.updatedAt
+      ? formatDistanceToNow(
+          new Date(typeof content.updatedAt === 'string' ? content.updatedAt : content.updatedAt * 1000),
+          { addSuffix: true },
+        )
+      : 'unknown';
+
+    console.log(chalk.cyan(`- result: ${index + 1}`));
+    console.log(`  type: ${chalk.blue(type)}`);
+    console.log(`  key: ${chalk.bold(key)}`);
+    console.log(`  title: ${chalk.yellow(title)}`);
+    console.log(`  updated: ${updated}`);
+
+    if (snippet) {
+      const cleanSnippet = snippet
+        .replace(/<mark>/g, '')
+        .replace(/<\/mark>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      console.log(`  preview: |`);
+      console.log(chalk.gray(`    ${cleanSnippet}`));
+    }
+
+    if (index < displayCount - 1) {
+      console.log();
+    }
+  });
+
+  console.log(chalk.gray('---'));
+}
+
 export async function ask(question: string) {
   try {
     const configManager = new ConfigManager();
     const config = await configManager.getConfig();
     const settings = await configManager.getSettings();
-    
+
     if (!config) {
       console.error(chalk.red('Configuration not found. Run "ji auth" first.'));
       process.exit(1);
@@ -107,17 +125,20 @@ export async function ask(question: string) {
     // Search for relevant content
     const contentManager = new ContentManager();
     const searchResults = await contentManager.searchContent(question);
-    
+
     if (searchResults.length === 0) {
       console.log(chalk.yellow('No relevant content found in your workspace.'));
       return;
     }
 
     // Prepare context from search results
-    const context = searchResults.slice(0, 5).map(result => {
-      const type = result.source === 'jira' ? 'Jira Issue' : 'Confluence Page';
-      return `${type}: ${result.title}\n${result.content}`;
-    }).join('\n\n---\n\n');
+    const context = searchResults
+      .slice(0, 5)
+      .map((result) => {
+        const type = result.source === 'jira' ? 'Jira Issue' : 'Confluence Page';
+        return `${type}: ${result.title}\n${result.content}`;
+      })
+      .join('\n\n---\n\n');
 
     // Generate answer using Ollama
     const ollama = new OllamaClient();
@@ -131,12 +152,12 @@ Please provide a clear and concise answer based on the information provided. If 
     console.log(chalk.gray('Generating answer...\n'));
 
     const response = await ollama.generate(prompt, {
-      model: settings.askModel || 'gemma2:2b'
+      model: settings.askModel || 'gemma2:2b',
     });
 
     console.log(chalk.bold('Answer:\n'));
     console.log(response);
-    
+
     // Show sources
     console.log(chalk.gray('\nSources:'));
     for (const result of searchResults.slice(0, 5)) {
@@ -144,7 +165,7 @@ Please provide a clear and concise answer based on the information provided. If 
       const key = result.id.replace(/^(jira|confluence):/, '');
       console.log(chalk.gray(`- ${type}: ${key} - ${result.title}`));
     }
-    
+
     configManager.close();
   } catch (error) {
     console.error(chalk.red('Failed to generate answer:'), error instanceof Error ? error.message : 'Unknown error');

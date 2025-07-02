@@ -1,16 +1,16 @@
-import { Effect } from 'effect';
+import Bun from 'bun';
 import chalk from 'chalk';
+import { Effect } from 'effect';
+import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
 import { JiraClient } from '../../lib/jira-client.js';
-import { CacheManager } from '../../lib/cache.js';
 import { getJiraStatusIcon } from '../formatters/issue.js';
 import { createProgressBar } from '../formatters/progress.js';
-import Bun from 'bun';
 
 export async function showSprint(projectFilter?: string, options: { unassigned?: boolean } = {}) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
-  
+
   if (!config) {
     console.error('No configuration found. Please run "ji auth" first.');
     process.exit(1);
@@ -18,7 +18,7 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
 
   const cacheManager = new CacheManager();
   const jiraClient = new JiraClient(config);
-  
+
   const program = Effect.tryPromise({
     try: async () => {
       // First, detect user's active sprints
@@ -64,10 +64,7 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
                 });
               }
             }
-          } catch (error) {
-            // Skip projects without boards
-            continue;
-          }
+          } catch (_error) {}
         }
       } else {
         activeSprints = cachedSprints;
@@ -75,9 +72,7 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
 
       // Filter by project if specified
       if (projectFilter) {
-        activeSprints = activeSprints.filter(
-          (s) => s.projectKey.toLowerCase() === projectFilter.toLowerCase()
-        );
+        activeSprints = activeSprints.filter((s) => s.projectKey.toLowerCase() === projectFilter.toLowerCase());
       }
 
       if (activeSprints.length === 0) {
@@ -174,7 +169,9 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
           if (unassignedIssues.length === 0) {
             console.log(chalk.dim('  No unassigned issues'));
           } else {
-            console.log(chalk.dim(`  ${unassignedIssues.length} unassigned issue${unassignedIssues.length !== 1 ? 's' : ''}:`));
+            console.log(
+              chalk.dim(`  ${unassignedIssues.length} unassigned issue${unassignedIssues.length !== 1 ? 's' : ''}:`),
+            );
 
             unassignedIssues.forEach((issue) => {
               const priorityName = issue.fields.priority?.name || 'None';
@@ -182,17 +179,21 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
                 priorityName === 'High' || priorityName === 'Highest'
                   ? chalk.red
                   : priorityName === 'Medium'
-                  ? chalk.yellow
-                  : chalk.dim;
+                    ? chalk.yellow
+                    : chalk.dim;
 
               console.log(`  ${chalk.cyan(issue.key)}: ${issue.fields.summary}`);
-              console.log(`    ${priorityColor(`Priority: ${priorityName}`)} ${chalk.dim('|')} ${chalk.dim(`Type: ${issue.fields.status.name}`)}`);
+              console.log(
+                `    ${priorityColor(`Priority: ${priorityName}`)} ${chalk.dim('|')} ${chalk.dim(`Type: ${issue.fields.status.name}`)}`,
+              );
             });
           }
         } else {
           // Show full sprint stats and my issues
           const todoIssues = allIssues.filter((i) => ['To Do', 'Open', 'New'].includes(i.fields.status.name));
-          const inProgressIssues = allIssues.filter((i) => ['In Progress', 'In Development'].includes(i.fields.status.name));
+          const inProgressIssues = allIssues.filter((i) =>
+            ['In Progress', 'In Development'].includes(i.fields.status.name),
+          );
           const doneIssues = allIssues.filter((i) => ['Done', 'Closed', 'Resolved'].includes(i.fields.status.name));
 
           // Progress bar
@@ -201,14 +202,20 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
           console.log(`  ${progressBar} ${doneIssues.length}/${allIssues.length} completed`);
 
           // Sprint stats
-          console.log(chalk.dim(`  Todo: ${todoIssues.length} | In Progress: ${inProgressIssues.length} | Done: ${doneIssues.length}`));
+          console.log(
+            chalk.dim(
+              `  Todo: ${todoIssues.length} | In Progress: ${inProgressIssues.length} | Done: ${doneIssues.length}`,
+            ),
+          );
 
           // Show my issues in the sprint
           const myEmail = config.email;
-          const myIssues = allIssues.filter((i) => i.fields.assignee?.emailAddress === myEmail || i.fields.assignee?.displayName === myEmail);
+          const myIssues = allIssues.filter(
+            (i) => i.fields.assignee?.emailAddress === myEmail || i.fields.assignee?.displayName === myEmail,
+          );
 
           if (myIssues.length > 0) {
-            console.log(`\n  ${chalk.bold(`My issues (${myIssues.length}):`)}`)
+            console.log(`\n  ${chalk.bold(`My issues (${myIssues.length}):`)}`);
             myIssues.forEach((issue) => {
               const statusIcon = getJiraStatusIcon(issue.fields.status.name);
               console.log(`    ${statusIcon} ${chalk.cyan(issue.key)}: ${issue.fields.summary}`);
@@ -217,7 +224,11 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
 
           // Show unassigned count if any
           if (unassignedIssues.length > 0) {
-            console.log(chalk.yellow(`\n  ${unassignedIssues.length} unassigned issue${unassignedIssues.length !== 1 ? 's' : ''}`));
+            console.log(
+              chalk.yellow(
+                `\n  ${unassignedIssues.length} unassigned issue${unassignedIssues.length !== 1 ? 's' : ''}`,
+              ),
+            );
           }
         }
       }

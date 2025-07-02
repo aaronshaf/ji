@@ -1,15 +1,15 @@
-import { Effect, Schedule, pipe, Option } from 'effect';
+import { Effect, Option, pipe, Schedule } from 'effect';
+import type { Config } from '../config.js';
+import type { SearchResult } from '../content-manager.js';
+import type { Issue } from '../jira-client.js';
 import {
-  ValidationError,
-  NetworkError,
   AuthenticationError,
+  type ConfigError,
+  NetworkError,
   NotFoundError,
   QueryError,
-  ConfigError
+  ValidationError,
 } from './errors.js';
-import type { Config } from '../config.js';
-import type { Issue } from '../jira-client.js';
-import type { SearchResult } from '../content-manager.js';
 
 /**
  * Base command interface for Effect-based CLI operations
@@ -24,12 +24,12 @@ export interface Command<T = void> {
 /**
  * Command error union type
  */
-export type CommandError = 
-  | ValidationError 
-  | NetworkError 
-  | AuthenticationError 
-  | NotFoundError 
-  | QueryError 
+export type CommandError =
+  | ValidationError
+  | NetworkError
+  | AuthenticationError
+  | NotFoundError
+  | QueryError
   | ConfigError;
 
 /**
@@ -47,11 +47,9 @@ export interface CommandContext {
 export abstract class BaseCommand<T = void> implements Command<T> {
   abstract readonly name: string;
   abstract readonly description: string;
-  
+
   // Retry schedule for operations that might fail transiently
-  protected retrySchedule = Schedule.exponential('100 millis').pipe(
-    Schedule.intersect(Schedule.recurs(2))
-  );
+  protected retrySchedule = Schedule.exponential('100 millis').pipe(Schedule.intersect(Schedule.recurs(2)));
 
   abstract validate(args: string[]): Effect.Effect<void, ValidationError>;
   abstract execute(args: string[], config: Config): Effect.Effect<T, CommandError>;
@@ -65,12 +63,12 @@ export abstract class BaseCommand<T = void> implements Command<T> {
       Effect.flatMap(() => this.execute(args, config)),
       Effect.retry(this.retrySchedule),
       Effect.timeout('30 seconds'),
-      Effect.mapError(error => {
+      Effect.mapError((error) => {
         if (error && typeof error === 'object' && '_tag' in error) {
           return error as CommandError;
         }
         return new ValidationError('Command execution failed', undefined, undefined, error);
-      })
+      }),
     );
   }
 
@@ -78,16 +76,16 @@ export abstract class BaseCommand<T = void> implements Command<T> {
    * Helper to validate required arguments
    */
   protected validateRequiredArgs(
-    args: string[], 
-    required: number, 
-    commandName: string
+    args: string[],
+    required: number,
+    commandName: string,
   ): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (args.length < required) {
         throw new ValidationError(
           `${commandName} requires at least ${required} argument(s), got ${args.length}`,
           'args',
-          args
+          args,
         );
       }
     });
@@ -96,11 +94,13 @@ export abstract class BaseCommand<T = void> implements Command<T> {
   /**
    * Helper to parse command options
    */
-  protected parseOptions(args: string[]): Effect.Effect<{ args: string[]; options: Record<string, unknown> }, ValidationError> {
+  protected parseOptions(
+    args: string[],
+  ): Effect.Effect<{ args: string[]; options: Record<string, unknown> }, ValidationError> {
     return Effect.sync(() => {
       const options: Record<string, unknown> = {};
       const nonOptionArgs: string[] = [];
-      
+
       for (let i = 0; i < args.length; i++) {
         const arg = args[i];
         if (arg.startsWith('--')) {
@@ -115,7 +115,7 @@ export abstract class BaseCommand<T = void> implements Command<T> {
           nonOptionArgs.push(arg);
         }
       }
-      
+
       return { args: nonOptionArgs, options };
     });
   }
@@ -131,16 +131,14 @@ export class ViewIssueCommand extends BaseCommand<Issue> {
   validate(args: string[]): Effect.Effect<void, ValidationError> {
     return pipe(
       this.validateRequiredArgs(args, 1, 'view'),
-      Effect.flatMap(() => Effect.sync(() => {
-        const issueKey = args[0];
-        if (!issueKey.match(/^[A-Z]+-\d+$/)) {
-          throw new ValidationError(
-            'Invalid issue key format. Expected format: PROJECT-123',
-            'issueKey',
-            issueKey
-          );
-        }
-      }))
+      Effect.flatMap(() =>
+        Effect.sync(() => {
+          const issueKey = args[0];
+          if (!issueKey.match(/^[A-Z]+-\d+$/)) {
+            throw new ValidationError('Invalid issue key format. Expected format: PROJECT-123', 'issueKey', issueKey);
+          }
+        }),
+      ),
     );
   }
 
@@ -149,16 +147,16 @@ export class ViewIssueCommand extends BaseCommand<Issue> {
       this.parseOptions(args),
       Effect.flatMap(({ args: cleanArgs, options }) => {
         const issueKey = cleanArgs[0];
-        
+
         // Import services inside the effect to avoid circular dependencies
         return Effect.tryPromise({
           try: async () => {
             const { JiraClient } = await import('../jira-client.js');
             const { CacheManager } = await import('../cache.js');
-            
+
             const jiraClient = new JiraClient(config);
             const cache = new CacheManager();
-            
+
             // Try cache first if not forcing sync
             if (!options.sync) {
               const cached = await cache.getIssue(issueKey);
@@ -166,16 +164,16 @@ export class ViewIssueCommand extends BaseCommand<Issue> {
                 return cached;
               }
             }
-            
+
             // Fetch from API
             const issue = await jiraClient.getIssue(issueKey);
             if (!issue) {
               throw new Error(`Issue ${issueKey} not found`);
             }
-            
+
             cache.saveIssue(issue);
             cache.close();
-            
+
             return issue;
           },
           catch: (error) => {
@@ -189,9 +187,9 @@ export class ViewIssueCommand extends BaseCommand<Issue> {
               return new NetworkError(`Failed to fetch issue: ${error.message}`);
             }
             return new NetworkError('Unknown error occurred while fetching issue');
-          }
+          },
         });
-      })
+      }),
     );
   }
 }
@@ -206,23 +204,17 @@ export class SearchCommand extends BaseCommand<SearchResult[]> {
   validate(args: string[]): Effect.Effect<void, ValidationError> {
     return pipe(
       this.validateRequiredArgs(args, 1, 'search'),
-      Effect.flatMap(() => Effect.sync(() => {
-        const query = args.join(' ').trim();
-        if (query.length < 2) {
-          throw new ValidationError(
-            'Search query must be at least 2 characters long',
-            'query',
-            query
-          );
-        }
-        if (query.length > 1000) {
-          throw new ValidationError(
-            'Search query too long (max 1000 characters)',
-            'query',
-            query
-          );
-        }
-      }))
+      Effect.flatMap(() =>
+        Effect.sync(() => {
+          const query = args.join(' ').trim();
+          if (query.length < 2) {
+            throw new ValidationError('Search query must be at least 2 characters long', 'query', query);
+          }
+          if (query.length > 1000) {
+            throw new ValidationError('Search query too long (max 1000 characters)', 'query', query);
+          }
+        }),
+      ),
     );
   }
 
@@ -233,24 +225,24 @@ export class SearchCommand extends BaseCommand<SearchResult[]> {
         const query = cleanArgs.join(' ');
         const limit = typeof options.limit === 'string' ? parseInt(options.limit) : 20;
         const source = options.source as 'jira' | 'confluence' | undefined;
-        
+
         return Effect.tryPromise({
           try: async () => {
             const { ContentManager } = await import('../content-manager.js');
             const contentManager = new ContentManager();
-            
+
             const results = await contentManager.searchContent(query, {
               source,
-              limit
+              limit,
             });
-            
+
             // Convert SearchableContent to SearchResult format
-            const searchResults = results.map(content => ({
+            const searchResults = results.map((content) => ({
               content,
               score: 1.0, // Default score since searchContent doesn't return scores
-              snippet: content.content.slice(0, 200) + '...'
+              snippet: `${content.content.slice(0, 200)}...`,
             }));
-            
+
             contentManager.close();
             return searchResults;
           },
@@ -259,9 +251,9 @@ export class SearchCommand extends BaseCommand<SearchResult[]> {
               return new QueryError(`Search failed: ${error.message}`, error);
             }
             return new QueryError('Unknown search error', error);
-          }
+          },
         });
-      })
+      }),
     );
   }
 }
@@ -286,20 +278,20 @@ export class SyncCommand extends BaseCommand<{ synced: number; errors: number }>
       Effect.flatMap(({ options }) => {
         const projectKey = typeof options.project === 'string' ? options.project : undefined;
         const spaceKey = typeof options.space === 'string' ? options.space : undefined;
-        
+
         return Effect.tryPromise({
           try: async () => {
             let totalSynced = 0;
             let totalErrors = 0;
-            
+
             if (projectKey) {
               // Sync specific Jira project
               const { JiraClient } = await import('../jira-client.js');
               const { CacheManager } = await import('../cache.js');
-              
+
               const jiraClient = new JiraClient(config);
               const cache = new CacheManager();
-              
+
               try {
                 const searchResult = await jiraClient.searchIssues(`project = "${projectKey}"`, { maxResults: 1000 });
                 const issues = searchResult.issues;
@@ -316,16 +308,16 @@ export class SyncCommand extends BaseCommand<{ synced: number; errors: number }>
                 console.error(`Failed to sync project ${projectKey}:`, error);
                 totalErrors++;
               }
-              
+
               cache.close();
             } else if (spaceKey) {
               // Sync specific Confluence space
               const { ConfluenceClient } = await import('../confluence-client.js');
               const { ContentManager } = await import('../content-manager.js');
-              
+
               const confluenceClient = new ConfluenceClient(config);
               const contentManager = new ContentManager();
-              
+
               try {
                 const pages = await confluenceClient.getAllSpacePages(spaceKey);
                 for (const page of pages) {
@@ -340,7 +332,7 @@ export class SyncCommand extends BaseCommand<{ synced: number; errors: number }>
                       spaceKey: page.space.key,
                       createdAt: Date.now(),
                       updatedAt: new Date(page.version.when).getTime(),
-                      syncedAt: Date.now()
+                      syncedAt: Date.now(),
                     });
                     totalSynced++;
                   } catch (error) {
@@ -352,7 +344,7 @@ export class SyncCommand extends BaseCommand<{ synced: number; errors: number }>
                 console.error(`Failed to sync space ${spaceKey}:`, error);
                 totalErrors++;
               }
-              
+
               contentManager.close();
             } else {
               // Sync all configured workspaces
@@ -361,7 +353,7 @@ export class SyncCommand extends BaseCommand<{ synced: number; errors: number }>
               // For now, sync all configured projects and spaces
               // This would need to be implemented based on stored configuration
               const workspaces: Array<{ type: 'jira_project' | 'confluence_space' }> = [];
-              
+
               for (const workspace of workspaces) {
                 if (workspace.type === 'jira_project') {
                   // Sync Jira project logic here
@@ -371,10 +363,10 @@ export class SyncCommand extends BaseCommand<{ synced: number; errors: number }>
                   totalSynced++;
                 }
               }
-              
+
               configManager.close();
             }
-            
+
             return { synced: totalSynced, errors: totalErrors };
           },
           catch: (error) => {
@@ -382,9 +374,9 @@ export class SyncCommand extends BaseCommand<{ synced: number; errors: number }>
               return new NetworkError(`Sync failed: ${error.message}`, error);
             }
             return new NetworkError('Unknown sync error', error);
-          }
+          },
         });
-      })
+      }),
     );
   }
 }
@@ -411,31 +403,24 @@ export class CommandRegistry {
   /**
    * Execute a command by name with proper error handling
    */
-  executeCommand<T>(
-    name: string, 
-    args: string[], 
-    config: Config
-  ): Effect.Effect<T, CommandError | ValidationError> {
+  executeCommand<T>(name: string, args: string[], config: Config): Effect.Effect<T, CommandError | ValidationError> {
     return pipe(
       Effect.sync(() => {
         const command = this.commands.get(name);
         if (!command) {
-          throw new ValidationError(
-            `Unknown command: ${name}`,
-            'command',
-            name
-          );
+          throw new ValidationError(`Unknown command: ${name}`, 'command', name);
         }
         return command;
       }),
-      Effect.flatMap(command => 
-        pipe(
-          command.validate(args),
-          Effect.flatMap(() => command.execute(args, config)),
-          Effect.retry(Schedule.exponential('100 millis').pipe(Schedule.intersect(Schedule.recurs(2)))),
-          Effect.timeout('30 seconds')
-        ) as Effect.Effect<T, CommandError>
-      )
+      Effect.flatMap(
+        (command) =>
+          pipe(
+            command.validate(args),
+            Effect.flatMap(() => command.execute(args, config)),
+            Effect.retry(Schedule.exponential('100 millis').pipe(Schedule.intersect(Schedule.recurs(2)))),
+            Effect.timeout('30 seconds'),
+          ) as Effect.Effect<T, CommandError>,
+      ),
     );
   }
 }
@@ -445,11 +430,11 @@ export class CommandRegistry {
  */
 export function createDefaultRegistry(): CommandRegistry {
   const registry = new CommandRegistry();
-  
+
   registry.register(new ViewIssueCommand());
   registry.register(new SearchCommand());
   registry.register(new SyncCommand());
-  
+
   return registry;
 }
 
@@ -465,18 +450,14 @@ export interface ParsedArgs {
 export function parseCliArgs(argv: string[]): Effect.Effect<ParsedArgs, ValidationError> {
   return Effect.sync(() => {
     if (argv.length < 3) {
-      throw new ValidationError(
-        'No command specified',
-        'command',
-        undefined
-      );
+      throw new ValidationError('No command specified', 'command', undefined);
     }
-    
+
     const command = argv[2];
     const rawArgs = argv.slice(3);
     const options: Record<string, unknown> = {};
     const args: string[] = [];
-    
+
     for (let i = 0; i < rawArgs.length; i++) {
       const arg = rawArgs[i];
       if (arg.startsWith('--')) {
@@ -491,7 +472,7 @@ export function parseCliArgs(argv: string[]): Effect.Effect<ParsedArgs, Validati
         args.push(arg);
       }
     }
-    
+
     return { command, args, options };
   });
 }

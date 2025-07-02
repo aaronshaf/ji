@@ -1,8 +1,8 @@
 import { Database } from 'bun:sqlite';
-import { homedir } from 'os';
-import { join } from 'path';
-import { OllamaClient } from './ollama.js';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { Effect, pipe } from 'effect';
+import { OllamaClient } from './ollama.js';
 
 export interface MemoryEntry {
   id: string;
@@ -49,10 +49,10 @@ export class MemoryManager {
       .replace(/[^a-z0-9\s]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    
+
     // Extract key concepts for matching similar questions
     const words = normalized.split(' ');
-    const keyWords = words.filter(w => w.length > 2).sort();
+    const keyWords = words.filter((w) => w.length > 2).sort();
     return keyWords.slice(0, 5).join('_'); // Use top 5 words as hash
   }
 
@@ -60,11 +60,9 @@ export class MemoryManager {
     return pipe(
       Effect.succeed(question),
       Effect.flatMap((q) =>
-        q && q.trim().length > 0
-          ? Effect.succeed(q)
-          : Effect.fail(new ValidationError('Question cannot be empty'))
+        q && q.trim().length > 0 ? Effect.succeed(q) : Effect.fail(new ValidationError('Question cannot be empty')),
       ),
-      Effect.map((q) => this.hashQuestion(q))
+      Effect.map((q) => this.hashQuestion(q)),
     );
   }
 
@@ -72,11 +70,11 @@ export class MemoryManager {
   async extractMemory(question: string, answer: string, sourceDocIds: string[]): Promise<void> {
     try {
       // Check if Ollama is available
-      if (!await this.ollama.isAvailable()) {
+      if (!(await this.ollama.isAvailable())) {
         // Skip memory extraction if Ollama is not available
         return;
       }
-      
+
       // Only extract memory for certain types of questions to reduce false memories
       if (!this.shouldExtractMemory(question, answer)) {
         return;
@@ -105,11 +103,11 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       const facts = response
         .trim()
         .split('\n')
-        .filter(f => f.trim().length > 0)
+        .filter((f) => f.trim().length > 0)
         .slice(0, 2) // Max 2 facts
-        .map(f => f.replace(/^[-•]\s*/, '').trim())
-        .filter(f => f.length > 10 && f.length <= 150) // Quality filter
-        .filter(f => !this.containsUncertainty(f)); // Filter out uncertain statements
+        .map((f) => f.replace(/^[-•]\s*/, '').trim())
+        .filter((f) => f.length > 10 && f.length <= 150) // Quality filter
+        .filter((f) => !this.containsUncertainty(f)); // Filter out uncertain statements
 
       if (facts.length === 0) return;
 
@@ -125,15 +123,14 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
           (id, question_hash, key_facts, relevant_doc_ids, confidence, created_at, last_accessed, access_count)
           VALUES (?, ?, ?, ?, 0.8, ?, ?, 1)
         `);
-        
+
         const now = Date.now();
         const id = `mem_${questionHash}_${now}`;
         stmt.run(id, questionHash, keyFacts, docIds, now, now);
       } finally {
         asyncDb.close();
       }
-      
-    } catch (error) {
+    } catch (_error) {
       // Silent fail - memory extraction is optional
     }
   }
@@ -141,33 +138,36 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
   // Retrieve relevant memories for a question
   getRelevantMemories(question: string, limit: number = 3): MemoryEntry[] {
     const questionHash = this.hashQuestion(question);
-    
+
     // Find memories with similar question hashes or containing key terms
-    const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const words = question
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
     const searchTerms = words.slice(0, 3); // Top 3 words
-    
+
     let sql = `
       SELECT * FROM ask_memory 
       WHERE question_hash = ? 
       OR key_facts LIKE '%' || ? || '%'
     `;
-    
+
     const params: (string | number)[] = [questionHash, words[0] || ''];
-    
+
     // Add more search terms if available
     if (searchTerms.length > 1) {
       sql += ` OR key_facts LIKE '%' || ? || '%'`;
       params.push(searchTerms[1]);
     }
-    
+
     sql += ` ORDER BY 
       CASE WHEN question_hash = ? THEN 1 ELSE 2 END,
       confidence DESC, 
       last_accessed DESC 
       LIMIT ?`;
-    
+
     params.push(questionHash, limit);
-    
+
     const stmt = this.db.prepare(sql);
     const rows = stmt.all(...params) as Array<{
       id: string;
@@ -180,15 +180,15 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       access_count: number;
       source: string;
     }>;
-    
+
     // Update access tracking
     const updateStmt = this.db.prepare(`
       UPDATE ask_memory 
       SET last_accessed = ?, access_count = access_count + 1 
       WHERE id = ?
     `);
-    
-    return rows.map(row => {
+
+    return rows.map((row) => {
       updateStmt.run(Date.now(), row.id);
       return {
         id: row.id,
@@ -198,21 +198,21 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
         confidence: row.confidence,
         createdAt: row.created_at,
         lastAccessed: row.last_accessed,
-        accessCount: row.access_count
+        accessCount: row.access_count,
       };
     });
   }
 
   // Clean up old/unused memories
   cleanupMemories(): void {
-    const oneMonthAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-    
+    const oneMonthAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
     // Remove memories older than 1 month with low access count
     const stmt = this.db.prepare(`
       DELETE FROM ask_memory 
       WHERE last_accessed < ? AND access_count < 3
     `);
-    
+
     stmt.run(oneMonthAgo);
   }
 
@@ -223,12 +223,12 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       SELECT COUNT(*) as count FROM ask_memory 
       WHERE last_accessed > ?
     `);
-    
-    const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    
+
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
     const total = (totalStmt.get() as { count: number }).count;
     const recent = (recentStmt.get(weekAgo) as { count: number }).count;
-    
+
     return { total, recent };
   }
 
@@ -239,7 +239,7 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       ORDER BY last_accessed DESC, created_at DESC 
       LIMIT ?
     `);
-    
+
     const rows = stmt.all(limit) as Array<{
       id: string;
       question_hash: string;
@@ -251,7 +251,7 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       access_count: number;
       source: string;
     }>;
-    return rows.map(row => ({
+    return rows.map((row) => ({
       id: row.id,
       questionHash: row.question_hash,
       keyFacts: row.key_facts,
@@ -259,7 +259,7 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       confidence: row.confidence,
       createdAt: row.created_at,
       lastAccessed: row.last_accessed,
-      accessCount: row.access_count
+      accessCount: row.access_count,
     }));
   }
 
@@ -277,32 +277,32 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
           // Check if the memory exists
           const checkStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
           const exists = checkStmt.get(memoryId);
-          
+
           if (!exists) {
             throw new MemoryNotFoundError(`Memory with ID ${memoryId} not found`);
           }
-          
+
           // Delete the memory
           const stmt = this.db.prepare('DELETE FROM ask_memory WHERE id = ?');
           stmt.run(memoryId);
-          
+
           // Verify deletion
           const verifyStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
           const stillExists = verifyStmt.get(memoryId);
-          
+
           if (stillExists) {
             throw new DatabaseError('Failed to delete memory - verification failed');
           }
-          
+
           return true;
         }).pipe(
-          Effect.mapError(error => {
+          Effect.mapError((error) => {
             if (error instanceof MemoryNotFoundError) return error;
             if (error instanceof DatabaseError) return error;
             return new DatabaseError(`Database error while deleting memory: ${error}`);
-          })
-        )
-      )
+          }),
+        ),
+      ),
     );
   }
 
@@ -312,26 +312,29 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       // First check if the memory exists
       const checkStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
       const exists = checkStmt.get(memoryId);
-      
+
       if (!exists) {
         return false;
       }
-      
+
       const stmt = this.db.prepare('DELETE FROM ask_memory WHERE id = ?');
       stmt.run(memoryId);
-      
+
       // Verify deletion by checking if the memory still exists
       const verifyStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
       const stillExists = verifyStmt.get(memoryId);
-      
+
       return !stillExists;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }
 
   // Effect-based update memory facts
-  updateMemoryFactsEffect(memoryId: string, newFacts: string): Effect.Effect<boolean, MemoryNotFoundError | DatabaseError | ValidationError> {
+  updateMemoryFactsEffect(
+    memoryId: string,
+    newFacts: string,
+  ): Effect.Effect<boolean, MemoryNotFoundError | DatabaseError | ValidationError> {
     return pipe(
       // Validate inputs
       Effect.sync(() => {
@@ -350,11 +353,11 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
           // Check if memory exists
           const checkStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
           const exists = checkStmt.get(memoryId);
-          
+
           if (!exists) {
             throw new MemoryNotFoundError(`Memory with ID ${memoryId} not found`);
           }
-          
+
           // Update the memory
           const stmt = this.db.prepare(`
             UPDATE ask_memory 
@@ -362,20 +365,20 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
             WHERE id = ?
           `);
           const result = stmt.run(newFacts, Date.now(), memoryId);
-          
+
           if (result.changes === 0) {
             throw new DatabaseError('Failed to update memory - no changes made');
           }
-          
+
           return true;
         }).pipe(
-          Effect.mapError(error => {
+          Effect.mapError((error) => {
             if (error instanceof MemoryNotFoundError) return error;
             if (error instanceof DatabaseError) return error;
             return new DatabaseError(`Database error while updating memory: ${error}`);
-          })
-        )
-      )
+          }),
+        ),
+      ),
     );
   }
 
@@ -403,7 +406,7 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
         ORDER BY last_accessed DESC, access_count DESC
         LIMIT 20
       `);
-      
+
       const rows = stmt.all(`%${searchTerm}%`) as Array<{
         id: string;
         question_hash: string;
@@ -415,7 +418,7 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
         access_count: number;
         source: string;
       }>;
-      return rows.map(row => ({
+      return rows.map((row) => ({
         id: row.id,
         questionHash: row.question_hash,
         keyFacts: row.key_facts,
@@ -423,7 +426,7 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
         confidence: row.confidence,
         createdAt: row.created_at,
         lastAccessed: row.last_accessed,
-        accessCount: row.access_count
+        accessCount: row.access_count,
       }));
     } catch {
       return [];
@@ -452,34 +455,34 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       const factHash = this.hashQuestion(fact);
       const now = Date.now();
       const id = `manual_${factHash}_${now}`;
-      
+
       // Check if similar fact already exists (exact hash match only for manual memories)
       const existingStmt = this.db.prepare(`
         SELECT id FROM ask_memory 
         WHERE question_hash = ? AND id LIKE 'manual_%'
       `);
       const existing = existingStmt.get(factHash);
-      
+
       if (existing) {
         // Update existing fact instead of creating duplicate
         return this.updateMemoryFacts((existing as { id: string }).id, fact);
       }
-      
+
       const stmt = this.db.prepare(`
         INSERT INTO ask_memory 
         (id, question_hash, key_facts, relevant_doc_ids, confidence, created_at, last_accessed, access_count)
         VALUES (?, ?, ?, ?, 1.0, ?, ?, 1)
       `);
-      
+
       const relatedTermsStr = relatedTerms.join(',');
       stmt.run(id, factHash, fact, relatedTermsStr, now, now);
-      
+
       // Verify insertion
       const verifyStmt = this.db.prepare('SELECT id FROM ask_memory WHERE id = ?');
       const inserted = verifyStmt.get(id);
-      
+
       return !!inserted;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }
@@ -488,25 +491,32 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
   private shouldExtractMemory(question: string, answer: string): boolean {
     const lowerQuestion = question.toLowerCase();
     const lowerAnswer = answer.toLowerCase();
-    
+
     // Extract memory for specific types of questions
     const extractionPatterns = [
       /who is|what is.*team|team.*owns|owned by/i,
       /how.*works|what.*does|process.*for/i,
       /rate limit|configuration|setting/i,
-      /api.*endpoint|service.*location/i
+      /api.*endpoint|service.*location/i,
     ];
-    
-    const shouldExtract = extractionPatterns.some(pattern => pattern.test(lowerQuestion));
-    
+
+    const shouldExtract = extractionPatterns.some((pattern) => pattern.test(lowerQuestion));
+
     // Don't extract if answer is uncertain
     const uncertaintyMarkers = [
-      'not sure', 'might be', 'probably', 'i think', 'maybe', 
-      'unclear', 'uncertain', 'not certain', 'depends on'
+      'not sure',
+      'might be',
+      'probably',
+      'i think',
+      'maybe',
+      'unclear',
+      'uncertain',
+      'not certain',
+      'depends on',
     ];
-    
-    const isUncertain = uncertaintyMarkers.some(marker => lowerAnswer.includes(marker));
-    
+
+    const isUncertain = uncertaintyMarkers.some((marker) => lowerAnswer.includes(marker));
+
     return shouldExtract && !isUncertain;
   }
 
@@ -516,10 +526,10 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       /might|maybe|probably|possibly|perhaps/i,
       /not sure|unclear|uncertain/i,
       /i think|seems like|appears to/i,
-      /\?|\.\.\./
+      /\?|\.\.\./,
     ];
-    
-    return uncertaintyPatterns.some(pattern => pattern.test(fact));
+
+    return uncertaintyPatterns.some((pattern) => pattern.test(fact));
   }
 
   containsUncertaintyEffect(fact: string): Effect.Effect<string, ValidationError> {
@@ -527,8 +537,8 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       Effect.succeed(fact),
       Effect.filterOrFail(
         (f) => !this.containsUncertainty(f),
-        () => new ValidationError('Fact contains uncertainty')
-      )
+        () => new ValidationError('Fact contains uncertainty'),
+      ),
     );
   }
 
@@ -537,13 +547,13 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
     try {
       // Count before deletion
       const countStmt = this.db.prepare("SELECT COUNT(*) as count FROM ask_memory WHERE id LIKE 'manual_%'");
-      const beforeCount = (countStmt.get() as {count: number}).count;
-      
+      const beforeCount = (countStmt.get() as { count: number }).count;
+
       const stmt = this.db.prepare("DELETE FROM ask_memory WHERE id LIKE 'manual_%'");
       stmt.run();
-      
+
       return beforeCount;
-    } catch (error) {
+    } catch (_error) {
       return -1; // Error indicator
     }
   }
@@ -551,14 +561,14 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
   // Clear ALL memories (including auto-extracted ones) - dangerous operation
   clearAllMemories(): number {
     try {
-      const countStmt = this.db.prepare("SELECT COUNT(*) as count FROM ask_memory");
-      const beforeCount = (countStmt.get() as {count: number}).count;
-      
-      const stmt = this.db.prepare("DELETE FROM ask_memory");
+      const countStmt = this.db.prepare('SELECT COUNT(*) as count FROM ask_memory');
+      const beforeCount = (countStmt.get() as { count: number }).count;
+
+      const stmt = this.db.prepare('DELETE FROM ask_memory');
       stmt.run();
-      
+
       return beforeCount;
-    } catch (error) {
+    } catch (_error) {
       return -1; // Error indicator
     }
   }

@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
-import { homedir } from 'os';
-import { join } from 'path';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { Effect, pipe } from 'effect';
 
 export interface SearchInteraction {
@@ -76,19 +76,17 @@ export class SearchAnalytics {
             (query, result_id, result_title, result_score, interaction_type, timestamp)
             VALUES (?, ?, ?, ?, ?, ?)
           `);
-          
+
           stmt.run(
             interaction.query,
             interaction.resultId,
             interaction.resultTitle,
             interaction.resultScore,
             interaction.interactionType,
-            interaction.timestamp
+            interaction.timestamp,
           );
-        }).pipe(
-          Effect.mapError(error => new DatabaseError(`Failed to record interaction: ${error}`))
-        )
-      )
+        }).pipe(Effect.mapError((error) => new DatabaseError(`Failed to record interaction: ${error}`))),
+      ),
     );
   }
 
@@ -100,16 +98,16 @@ export class SearchAnalytics {
         (query, result_id, result_title, result_score, interaction_type, timestamp)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
-      
+
       stmt.run(
         interaction.query,
         interaction.resultId,
         interaction.resultTitle,
         interaction.resultScore,
         interaction.interactionType,
-        interaction.timestamp
+        interaction.timestamp,
       );
-    } catch (error) {
+    } catch (_error) {
       // Silent fail - analytics shouldn't break search
     }
   }
@@ -135,15 +133,13 @@ export class SearchAnalytics {
             FROM search_analytics 
             WHERE result_id = ? AND query = ? AND interaction_type IN ('view', 'click')
           `);
-          
+
           const result = stmt.get(resultId, query) as { total_views: number; clicks: number } | undefined;
-          
+
           if (!result || result.total_views === 0) return 0;
           return result.clicks / result.total_views;
-        }).pipe(
-          Effect.mapError(error => new DatabaseError(`Failed to calculate click-through rate: ${error}`))
-        )
-      )
+        }).pipe(Effect.mapError((error) => new DatabaseError(`Failed to calculate click-through rate: ${error}`))),
+      ),
     );
   }
 
@@ -157,9 +153,9 @@ export class SearchAnalytics {
         FROM search_analytics 
         WHERE result_id = ? AND query = ? AND interaction_type IN ('view', 'click')
       `);
-      
+
       const result = stmt.get(resultId, query) as { total_views: number; clicks: number } | undefined;
-      
+
       if (!result || result.total_views === 0) return 0;
       return result.clicks / result.total_views;
     } catch {
@@ -186,25 +182,25 @@ export class SearchAnalytics {
             FROM search_analytics 
             WHERE result_id = ? AND timestamp > ?
           `);
-          
-          const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-          const result = stmt.get(resultId, thirtyDaysAgo) as { 
-            total_interactions: number; 
-            helpful_votes: number; 
-            unhelpful_votes: number; 
-          } | undefined;
-          
+
+          const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+          const result = stmt.get(resultId, thirtyDaysAgo) as
+            | {
+                total_interactions: number;
+                helpful_votes: number;
+                unhelpful_votes: number;
+              }
+            | undefined;
+
           if (!result || result.total_interactions === 0) return 1.0;
-          
+
           // Calculate a score based on helpful vs unhelpful votes
           const helpfulness = (result.helpful_votes - result.unhelpful_votes) / result.total_interactions;
           const popularity = Math.log(result.total_interactions + 1) / 10; // Log scale for popularity
-          
+
           return Math.max(0.5, Math.min(2.0, 1.0 + helpfulness + popularity));
-        }).pipe(
-          Effect.mapError(error => new DatabaseError(`Failed to calculate popularity score: ${error}`))
-        )
-      )
+        }).pipe(Effect.mapError((error) => new DatabaseError(`Failed to calculate popularity score: ${error}`))),
+      ),
     );
   }
 
@@ -219,20 +215,22 @@ export class SearchAnalytics {
         FROM search_analytics 
         WHERE result_id = ? AND timestamp > ?
       `);
-      
-      const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-      const result = stmt.get(resultId, thirtyDaysAgo) as { 
-        total_interactions: number; 
-        helpful_votes: number; 
-        unhelpful_votes: number; 
-      } | undefined;
-      
+
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const result = stmt.get(resultId, thirtyDaysAgo) as
+        | {
+            total_interactions: number;
+            helpful_votes: number;
+            unhelpful_votes: number;
+          }
+        | undefined;
+
       if (!result || result.total_interactions === 0) return 1.0;
-      
+
       // Calculate a score based on helpful vs unhelpful votes
       const helpfulness = (result.helpful_votes - result.unhelpful_votes) / result.total_interactions;
       const popularity = Math.log(result.total_interactions + 1) / 10; // Log scale for popularity
-      
+
       return Math.max(0.5, Math.min(2.0, 1.0 + helpfulness + popularity));
     } catch {
       return 1.0;
@@ -242,14 +240,17 @@ export class SearchAnalytics {
   // Get similar queries that led to successful interactions
   getSimilarSuccessfulQueries(query: string, limit: number = 5): string[] {
     try {
-      const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const words = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => w.length > 2);
       if (words.length === 0) return [];
-      
+
       const wordConditions = words.map(() => 'LOWER(query) LIKE ?').join(' AND ');
-      const params: (string | number)[] = words.map(w => `%${w}%`);
+      const params: (string | number)[] = words.map((w) => `%${w}%`);
       params.push(query); // Add original query
       params.push(limit); // Add limit as number
-      
+
       const stmt = this.db.prepare(`
         SELECT DISTINCT query, COUNT(*) as success_count
         FROM search_analytics 
@@ -261,10 +262,10 @@ export class SearchAnalytics {
         ORDER BY success_count DESC
         LIMIT ?
       `);
-      
+
       const results = stmt.all(...params) as { query: string; success_count: number }[];
-      
-      return results.map(r => r.query);
+
+      return results.map((r) => r.query);
     } catch {
       return [];
     }
@@ -273,7 +274,7 @@ export class SearchAnalytics {
   // Clean up old analytics data
   cleanup(): void {
     try {
-      const sixMonthsAgo = Date.now() - (6 * 30 * 24 * 60 * 60 * 1000);
+      const sixMonthsAgo = Date.now() - 6 * 30 * 24 * 60 * 60 * 1000;
       const stmt = this.db.prepare('DELETE FROM search_analytics WHERE timestamp < ?');
       stmt.run(sixMonthsAgo);
     } catch {

@@ -4,18 +4,18 @@
  * Handles unified content storage for Jira issues and Confluence pages
  */
 
-import { Effect, Layer, Context, Option, pipe, Stream } from 'effect';
+import { Context, Effect, Layer, Option, pipe, Stream } from 'effect';
 import type { Issue } from '../jira-client.js';
-import { DatabaseService, DatabaseServiceTag, LoggerService, LoggerServiceTag } from './layers.js';
-import { 
-  QueryError, 
-  ParseError, 
-  ValidationError,
-  DatabaseError,
+import {
   ContentError,
   ContentTooLargeError,
-  DataIntegrityError
+  type DatabaseError,
+  type DataIntegrityError,
+  ParseError,
+  type QueryError,
+  ValidationError,
 } from './errors.js';
+import { type DatabaseService, DatabaseServiceTag, type LoggerService, LoggerServiceTag } from './layers.js';
 
 // ============= Content Service Types =============
 export interface SearchableContentMetadata {
@@ -83,38 +83,77 @@ interface ADFNode {
 // ============= Content Service Interface =============
 export interface ContentService {
   // Core content operations
-  readonly saveContent: (content: SearchableContent) => Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError>;
-  readonly getContent: (id: string) => Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError>;
+  readonly saveContent: (
+    content: SearchableContent,
+  ) => Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError>;
+  readonly getContent: (
+    id: string,
+  ) => Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError>;
   readonly deleteContent: (id: string) => Effect.Effect<void, ValidationError | QueryError>;
   readonly contentExists: (id: string) => Effect.Effect<boolean, ValidationError | QueryError>;
-  
+
   // Jira-specific operations
-  readonly saveJiraIssue: (issue: Issue) => Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError>;
-  readonly getJiraIssue: (issueKey: string) => Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError>;
+  readonly saveJiraIssue: (
+    issue: Issue,
+  ) => Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError>;
+  readonly getJiraIssue: (
+    issueKey: string,
+  ) => Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError>;
   readonly deleteProjectContent: (projectKey: string) => Effect.Effect<void, ValidationError | QueryError>;
-  
+
   // Confluence-specific operations
-  readonly saveConfluencePage: (pageData: ConfluencePageData) => Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError>;
-  readonly getConfluencePage: (pageId: string) => Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError>;
+  readonly saveConfluencePage: (
+    pageData: ConfluencePageData,
+  ) => Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError>;
+  readonly getConfluencePage: (
+    pageId: string,
+  ) => Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError>;
   readonly deleteSpaceContent: (spaceKey: string) => Effect.Effect<void, ValidationError | QueryError>;
-  readonly getSpacePageVersions: (spaceKey: string) => Effect.Effect<Map<string, PageVersionInfo>, QueryError | ParseError | ValidationError | DatabaseError>;
-  readonly hasContentChanged: (id: string, newContentHash: string) => Effect.Effect<boolean, ValidationError | QueryError>;
-  
+  readonly getSpacePageVersions: (
+    spaceKey: string,
+  ) => Effect.Effect<Map<string, PageVersionInfo>, QueryError | ParseError | ValidationError | DatabaseError>;
+  readonly hasContentChanged: (
+    id: string,
+    newContentHash: string,
+  ) => Effect.Effect<boolean, ValidationError | QueryError>;
+
   // Search and indexing
-  readonly searchContent: (query: string, options?: SearchOptions) => Effect.Effect<SearchResult[], ValidationError | QueryError | ParseError>;
-  readonly indexToFTS: (content: SearchableContent) => Effect.Effect<void, ValidationError | QueryError | ContentTooLargeError | DatabaseError>;
-  readonly updateContentHash: (id: string, newHash: string) => Effect.Effect<void, ValidationError | QueryError | ContentTooLargeError | DatabaseError>;
-  
+  readonly searchContent: (
+    query: string,
+    options?: SearchOptions,
+  ) => Effect.Effect<SearchResult[], ValidationError | QueryError | ParseError>;
+  readonly indexToFTS: (
+    content: SearchableContent,
+  ) => Effect.Effect<void, ValidationError | QueryError | ContentTooLargeError | DatabaseError>;
+  readonly updateContentHash: (
+    id: string,
+    newHash: string,
+  ) => Effect.Effect<void, ValidationError | QueryError | ContentTooLargeError | DatabaseError>;
+
   // Streaming operations for large datasets
-  readonly streamContentBySource: (source: 'jira' | 'confluence') => Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError>;
-  readonly streamContentByProject: (projectKey: string) => Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError>;
-  readonly streamContentBySpace: (spaceKey: string) => Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError>;
-  readonly batchSaveContent: (content: SearchableContent[]) => Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError>;
-  
+  readonly streamContentBySource: (
+    source: 'jira' | 'confluence',
+  ) => Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError>;
+  readonly streamContentByProject: (
+    projectKey: string,
+  ) => Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError>;
+  readonly streamContentBySpace: (
+    spaceKey: string,
+  ) => Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError>;
+  readonly batchSaveContent: (
+    content: SearchableContent[],
+  ) => Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError>;
+
   // Analytics and management
   readonly getContentStats: () => Effect.Effect<ContentStats, QueryError | ParseError>;
-  readonly getLastSyncTime: (source: 'jira' | 'confluence', keyOrSpace: string) => Effect.Effect<Option.Option<Date>, ValidationError | QueryError>;
-  readonly updateSyncTime: (source: 'jira' | 'confluence', keyOrSpace: string) => Effect.Effect<void, ValidationError | QueryError>;
+  readonly getLastSyncTime: (
+    source: 'jira' | 'confluence',
+    keyOrSpace: string,
+  ) => Effect.Effect<Option.Option<Date>, ValidationError | QueryError>;
+  readonly updateSyncTime: (
+    source: 'jira' | 'confluence',
+    keyOrSpace: string,
+  ) => Effect.Effect<void, ValidationError | QueryError>;
   readonly cleanupOldContent: (olderThanDays: number) => Effect.Effect<number, QueryError>;
 }
 
@@ -135,20 +174,19 @@ export interface PageVersionInfo {
   syncedAt: number;
 }
 
-export class ContentServiceTag extends Context.Tag('ContentService')<
-  ContentServiceTag,
-  ContentService
->() {}
+export class ContentServiceTag extends Context.Tag('ContentService')<ContentServiceTag, ContentService>() {}
 
 // ============= Content Service Implementation =============
 class ContentServiceImpl implements ContentService {
   constructor(
     private db: DatabaseService,
-    private logger: LoggerService
+    private logger: LoggerService,
   ) {}
-  
+
   // ============= Core Content Operations =============
-  saveContent(content: SearchableContent): Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError> {
+  saveContent(
+    content: SearchableContent,
+  ): Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError> {
     return pipe(
       this.validateContent(content),
       Effect.flatMap(() => this.calculateContentHash(content.content)),
@@ -176,18 +214,18 @@ class ContentServiceImpl implements ContentService {
                   content.createdAt || null,
                   content.updatedAt || null,
                   content.syncedAt,
-                  contentHash
-                ]
-              )
+                  contentHash,
+                ],
+              ),
             ),
             Effect.flatMap(() => this.indexToFTS({ ...content, contentHash })),
-            Effect.tap(() => this.logger.debug('Content saved successfully', { id: content.id }))
-          )
-        )
-      )
+            Effect.tap(() => this.logger.debug('Content saved successfully', { id: content.id })),
+          ),
+        ),
+      ),
     );
   }
-  
+
   getContent(id: string): Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError> {
     return pipe(
       this.validateContentId(id),
@@ -206,20 +244,17 @@ class ContentServiceImpl implements ContentService {
           updated_at?: number;
           synced_at: number;
           content_hash?: string;
-        }>('SELECT * FROM searchable_content WHERE id = ?', [id])
+        }>('SELECT * FROM searchable_content WHERE id = ?', [id]),
       ),
       Effect.flatMap((rows) => {
         if (rows.length === 0) {
           return Effect.succeed(Option.none());
         }
-        return pipe(
-          this.parseContentRow(rows[0]),
-          Effect.map(Option.some)
-        );
-      })
+        return pipe(this.parseContentRow(rows[0]), Effect.map(Option.some));
+      }),
     );
   }
-  
+
   deleteContent(id: string): Effect.Effect<void, ValidationError | QueryError> {
     return pipe(
       this.validateContentId(id),
@@ -227,45 +262,43 @@ class ContentServiceImpl implements ContentService {
         this.db.transaction(
           pipe(
             this.logger.debug('Deleting content', { id }),
-            Effect.flatMap(() =>
-              this.db.execute('DELETE FROM searchable_content WHERE id = ?', [id])
-            ),
-            Effect.flatMap(() =>
-              this.db.execute('DELETE FROM content_fts WHERE id = ?', [id])
-            ),
-            Effect.tap(() => this.logger.debug('Content deleted successfully', { id }))
-          )
-        )
+            Effect.flatMap(() => this.db.execute('DELETE FROM searchable_content WHERE id = ?', [id])),
+            Effect.flatMap(() => this.db.execute('DELETE FROM content_fts WHERE id = ?', [id])),
+            Effect.tap(() => this.logger.debug('Content deleted successfully', { id })),
+          ),
+        ),
       ),
-      Effect.asVoid
+      Effect.asVoid,
     );
   }
-  
+
   contentExists(id: string): Effect.Effect<boolean, ValidationError | QueryError> {
     return pipe(
       this.validateContentId(id),
       Effect.flatMap(() =>
-        this.db.query<{ count: number }>('SELECT COUNT(*) as count FROM searchable_content WHERE id = ?', [id])
+        this.db.query<{ count: number }>('SELECT COUNT(*) as count FROM searchable_content WHERE id = ?', [id]),
       ),
-      Effect.map((rows) => (rows[0]?.count || 0) > 0)
+      Effect.map((rows) => (rows[0]?.count || 0) > 0),
     );
   }
-  
+
   // ============= Jira-specific Operations =============
-  saveJiraIssue(issue: Issue): Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError> {
+  saveJiraIssue(
+    issue: Issue,
+  ): Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError> {
     return pipe(
       this.validateIssue(issue),
       Effect.flatMap(() => {
         const projectKey = issue.key.split('-')[0];
         const sprintInfo = this.extractSprintInfo(issue);
         const content = this.buildJiraContent(issue);
-        
+
         return this.db.transaction(
           pipe(
             this.logger.debug('Saving Jira issue', { key: issue.key, projectKey }),
             // Save project
             Effect.flatMap(() =>
-              this.db.execute('INSERT OR IGNORE INTO projects (key, name) VALUES (?, ?)', [projectKey, projectKey])
+              this.db.execute('INSERT OR IGNORE INTO projects (key, name) VALUES (?, ?)', [projectKey, projectKey]),
             ),
             // Save issue to issues table
             Effect.flatMap(() =>
@@ -288,13 +321,15 @@ class ContentServiceImpl implements ContentService {
                   issue.fields.reporter.emailAddress || null,
                   new Date(issue.fields.created).getTime(),
                   new Date(issue.fields.updated).getTime(),
-                  this.extractDescription(issue.fields.description as string | { content?: ADFNode[] } | null | undefined),
+                  this.extractDescription(
+                    issue.fields.description as string | { content?: ADFNode[] } | null | undefined,
+                  ),
                   JSON.stringify(issue),
                   Date.now(),
                   sprintInfo?.id || null,
-                  sprintInfo?.name || null
-                ]
-              )
+                  sprintInfo?.name || null,
+                ],
+              ),
             ),
             // Save to searchable content
             Effect.flatMap(() =>
@@ -310,27 +345,29 @@ class ContentServiceImpl implements ContentService {
                   status: issue.fields.status.name,
                   priority: issue.fields.priority?.name,
                   assignee: issue.fields.assignee?.displayName,
-                  reporter: issue.fields.reporter.displayName
+                  reporter: issue.fields.reporter.displayName,
                 },
                 createdAt: new Date(issue.fields.created).getTime(),
                 updatedAt: new Date(issue.fields.updated).getTime(),
-                syncedAt: Date.now()
-              })
+                syncedAt: Date.now(),
+              }),
             ),
-            Effect.tap(() => this.logger.debug('Jira issue saved successfully', { key: issue.key }))
-          )
+            Effect.tap(() => this.logger.debug('Jira issue saved successfully', { key: issue.key })),
+          ),
         );
-      })
+      }),
     );
   }
-  
-  getJiraIssue(issueKey: string): Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError> {
+
+  getJiraIssue(
+    issueKey: string,
+  ): Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError> {
     return pipe(
       this.validateIssueKey(issueKey),
-      Effect.flatMap(() => this.getContent(`jira:${issueKey}`))
+      Effect.flatMap(() => this.getContent(`jira:${issueKey}`)),
     );
   }
-  
+
   deleteProjectContent(projectKey: string): Effect.Effect<void, ValidationError | QueryError> {
     return pipe(
       this.validateProjectKey(projectKey),
@@ -338,28 +375,31 @@ class ContentServiceImpl implements ContentService {
         this.db.transaction(
           pipe(
             this.logger.debug('Deleting project content', { projectKey }),
+            Effect.flatMap(() => this.db.execute('DELETE FROM issues WHERE project_key = ?', [projectKey])),
             Effect.flatMap(() =>
-              this.db.execute('DELETE FROM issues WHERE project_key = ?', [projectKey])
-            ),
-            Effect.flatMap(() =>
-              this.db.execute('DELETE FROM searchable_content WHERE project_key = ? AND source = ?', [projectKey, 'jira'])
+              this.db.execute('DELETE FROM searchable_content WHERE project_key = ? AND source = ?', [
+                projectKey,
+                'jira',
+              ]),
             ),
             Effect.flatMap(() =>
               this.db.execute(
                 'DELETE FROM content_fts WHERE id IN (SELECT id FROM searchable_content WHERE project_key = ? AND source = ?)',
-                [projectKey, 'jira']
-              )
+                [projectKey, 'jira'],
+              ),
             ),
-            Effect.tap(() => this.logger.debug('Project content deleted successfully', { projectKey }))
-          )
-        )
+            Effect.tap(() => this.logger.debug('Project content deleted successfully', { projectKey })),
+          ),
+        ),
       ),
-      Effect.asVoid
+      Effect.asVoid,
     );
   }
-  
+
   // ============= Confluence-specific Operations =============
-  saveConfluencePage(pageData: ConfluencePageData): Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError> {
+  saveConfluencePage(
+    pageData: ConfluencePageData,
+  ): Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError> {
     return pipe(
       this.validateConfluencePage(pageData),
       Effect.flatMap(() =>
@@ -372,23 +412,25 @@ class ContentServiceImpl implements ContentService {
           url: pageData.url,
           spaceKey: pageData.spaceKey,
           metadata: {
-            version: pageData.version
+            version: pageData.version,
           },
           createdAt: pageData.createdAt,
           updatedAt: pageData.updatedAt,
-          syncedAt: Date.now()
-        })
-      )
+          syncedAt: Date.now(),
+        }),
+      ),
     );
   }
-  
-  getConfluencePage(pageId: string): Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError> {
+
+  getConfluencePage(
+    pageId: string,
+  ): Effect.Effect<Option.Option<SearchableContent>, ValidationError | QueryError | ParseError> {
     return pipe(
       this.validatePageId(pageId),
-      Effect.flatMap(() => this.getContent(`confluence:${pageId}`))
+      Effect.flatMap(() => this.getContent(`confluence:${pageId}`)),
     );
   }
-  
+
   deleteSpaceContent(spaceKey: string): Effect.Effect<void, ValidationError | QueryError> {
     return pipe(
       this.validateSpaceKey(spaceKey),
@@ -397,23 +439,28 @@ class ContentServiceImpl implements ContentService {
           pipe(
             this.logger.debug('Deleting space content', { spaceKey }),
             Effect.flatMap(() =>
-              this.db.execute('DELETE FROM searchable_content WHERE space_key = ? AND source = ?', [spaceKey, 'confluence'])
+              this.db.execute('DELETE FROM searchable_content WHERE space_key = ? AND source = ?', [
+                spaceKey,
+                'confluence',
+              ]),
             ),
             Effect.flatMap(() =>
               this.db.execute(
                 'DELETE FROM content_fts WHERE id IN (SELECT id FROM searchable_content WHERE space_key = ? AND source = ?)',
-                [spaceKey, 'confluence']
-              )
+                [spaceKey, 'confluence'],
+              ),
             ),
-            Effect.tap(() => this.logger.debug('Space content deleted successfully', { spaceKey }))
-          )
-        )
+            Effect.tap(() => this.logger.debug('Space content deleted successfully', { spaceKey })),
+          ),
+        ),
       ),
-      Effect.asVoid
+      Effect.asVoid,
     );
   }
-  
-  getSpacePageVersions(spaceKey: string): Effect.Effect<Map<string, PageVersionInfo>, QueryError | ParseError | ValidationError | DatabaseError> {
+
+  getSpacePageVersions(
+    spaceKey: string,
+  ): Effect.Effect<Map<string, PageVersionInfo>, QueryError | ParseError | ValidationError | DatabaseError> {
     return pipe(
       this.validateSpaceKey(spaceKey),
       Effect.flatMap(() =>
@@ -422,51 +469,55 @@ class ContentServiceImpl implements ContentService {
           updated_at: number;
           synced_at: number;
           metadata: string;
-        }>(
-          'SELECT id, updated_at, synced_at, metadata FROM searchable_content WHERE space_key = ? AND source = ?',
-          [spaceKey, 'confluence']
-        )
+        }>('SELECT id, updated_at, synced_at, metadata FROM searchable_content WHERE space_key = ? AND source = ?', [
+          spaceKey,
+          'confluence',
+        ]),
       ),
       Effect.flatMap((rows) =>
         Effect.try({
           try: () => {
             const versionMap = new Map<string, PageVersionInfo>();
-            
+
             for (const row of rows) {
               const pageId = row.id.replace('confluence:', '');
               const metadata = JSON.parse(row.metadata || '{}');
               const version = metadata.version?.number || 1;
-              
+
               versionMap.set(pageId, {
                 version,
                 updatedAt: row.updated_at,
-                syncedAt: row.synced_at
+                syncedAt: row.synced_at,
               });
             }
-            
+
             return versionMap;
           },
-          catch: (error) => new ParseError('Failed to parse page version data', 'metadata', JSON.stringify(rows), error)
-        })
-      )
+          catch: (error) =>
+            new ParseError('Failed to parse page version data', 'metadata', JSON.stringify(rows), error),
+        }),
+      ),
     );
   }
-  
+
   hasContentChanged(id: string, newContentHash: string): Effect.Effect<boolean, ValidationError | QueryError> {
     return pipe(
       this.validateContentId(id),
       Effect.flatMap(() =>
-        this.db.query<{ content_hash?: string }>('SELECT content_hash FROM searchable_content WHERE id = ?', [id])
+        this.db.query<{ content_hash?: string }>('SELECT content_hash FROM searchable_content WHERE id = ?', [id]),
       ),
       Effect.map((rows) => {
         if (rows.length === 0) return true; // Content doesn't exist, so it's "changed"
         return rows[0].content_hash !== newContentHash;
-      })
+      }),
     );
   }
-  
+
   // ============= Search and Indexing =============
-  searchContent(query: string, options: SearchOptions = {}): Effect.Effect<SearchResult[], ValidationError | QueryError | ParseError> {
+  searchContent(
+    query: string,
+    options: SearchOptions = {},
+  ): Effect.Effect<SearchResult[], ValidationError | QueryError | ParseError> {
     return pipe(
       this.validateSearchQuery(query),
       Effect.flatMap(() => {
@@ -478,22 +529,26 @@ class ContentServiceImpl implements ContentService {
             Effect.map((optContent) =>
               Option.match(optContent, {
                 onNone: () => [],
-                onSome: (content) => [{
-                  content,
-                  score: 1.0,
-                  snippet: content.title
-                }]
-              })
-            )
+                onSome: (content) => [
+                  {
+                    content,
+                    score: 1.0,
+                    snippet: content.title,
+                  },
+                ],
+              }),
+            ),
           );
         }
-        
+
         return this.performFTSSearch(query, options);
-      })
+      }),
     );
   }
-  
-  indexToFTS(content: SearchableContent): Effect.Effect<void, ValidationError | QueryError | ContentTooLargeError | DatabaseError> {
+
+  indexToFTS(
+    content: SearchableContent,
+  ): Effect.Effect<void, ValidationError | QueryError | ContentTooLargeError | DatabaseError> {
     return pipe(
       this.validateContent(content),
       Effect.flatMap(() =>
@@ -501,30 +556,36 @@ class ContentServiceImpl implements ContentService {
           pipe(
             this.db.execute('DELETE FROM content_fts WHERE id = ?', [content.id]),
             Effect.flatMap(() =>
-              this.db.execute(
-                'INSERT INTO content_fts (id, title, content) VALUES (?, ?, ?)',
-                [content.id, content.title, content.content]
-              )
-            )
-          )
-        )
+              this.db.execute('INSERT INTO content_fts (id, title, content) VALUES (?, ?, ?)', [
+                content.id,
+                content.title,
+                content.content,
+              ]),
+            ),
+          ),
+        ),
       ),
-      Effect.asVoid
+      Effect.asVoid,
     );
   }
-  
-  updateContentHash(id: string, newHash: string): Effect.Effect<void, ValidationError | QueryError | ContentTooLargeError | DatabaseError> {
+
+  updateContentHash(
+    id: string,
+    newHash: string,
+  ): Effect.Effect<void, ValidationError | QueryError | ContentTooLargeError | DatabaseError> {
     return pipe(
       this.validateContentId(id),
       Effect.flatMap(() =>
-        this.db.execute('UPDATE searchable_content SET content_hash = ? WHERE id = ?', [newHash, id])
+        this.db.execute('UPDATE searchable_content SET content_hash = ? WHERE id = ?', [newHash, id]),
       ),
-      Effect.asVoid
+      Effect.asVoid,
     );
   }
-  
+
   // ============= Streaming Operations =============
-  streamContentBySource(source: 'jira' | 'confluence'): Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError> {
+  streamContentBySource(
+    source: 'jira' | 'confluence',
+  ): Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError> {
     return pipe(
       Stream.fromEffect(
         this.db.query<{
@@ -541,15 +602,17 @@ class ContentServiceImpl implements ContentService {
           updated_at?: number;
           synced_at: number;
           content_hash?: string;
-        }>('SELECT * FROM searchable_content WHERE source = ? ORDER BY synced_at DESC', [source])
+        }>('SELECT * FROM searchable_content WHERE source = ? ORDER BY synced_at DESC', [source]),
       ),
       Stream.flatMap(Stream.fromIterable),
       Stream.mapEffect((row) => this.parseContentRow(row)),
-      Stream.rechunk(100) // Process in chunks
+      Stream.rechunk(100), // Process in chunks
     );
   }
-  
-  streamContentByProject(projectKey: string): Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError> {
+
+  streamContentByProject(
+    projectKey: string,
+  ): Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError> {
     return pipe(
       Stream.fromEffect(this.validateProjectKey(projectKey)),
       Stream.flatMap(() =>
@@ -568,15 +631,15 @@ class ContentServiceImpl implements ContentService {
             updated_at?: number;
             synced_at: number;
             content_hash?: string;
-          }>('SELECT * FROM searchable_content WHERE project_key = ? ORDER BY synced_at DESC', [projectKey])
-        )
+          }>('SELECT * FROM searchable_content WHERE project_key = ? ORDER BY synced_at DESC', [projectKey]),
+        ),
       ),
       Stream.flatMap(Stream.fromIterable),
       Stream.mapEffect((row) => this.parseContentRow(row)),
-      Stream.rechunk(50)
+      Stream.rechunk(50),
     );
   }
-  
+
   streamContentBySpace(spaceKey: string): Stream.Stream<SearchableContent, ValidationError | QueryError | ParseError> {
     return pipe(
       Stream.fromEffect(this.validateSpaceKey(spaceKey)),
@@ -596,16 +659,18 @@ class ContentServiceImpl implements ContentService {
             updated_at?: number;
             synced_at: number;
             content_hash?: string;
-          }>('SELECT * FROM searchable_content WHERE space_key = ? ORDER BY synced_at DESC', [spaceKey])
-        )
+          }>('SELECT * FROM searchable_content WHERE space_key = ? ORDER BY synced_at DESC', [spaceKey]),
+        ),
       ),
       Stream.flatMap(Stream.fromIterable),
       Stream.mapEffect((row) => this.parseContentRow(row)),
-      Stream.rechunk(50)
+      Stream.rechunk(50),
     );
   }
-  
-  batchSaveContent(content: SearchableContent[]): Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError> {
+
+  batchSaveContent(
+    content: SearchableContent[],
+  ): Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError | DataIntegrityError> {
     return pipe(
       Effect.forEach(content, (item) => this.validateContent(item)),
       Effect.flatMap(() =>
@@ -613,63 +678,74 @@ class ContentServiceImpl implements ContentService {
           pipe(
             Stream.fromIterable(content),
             Stream.mapEffect((item) => this.saveContent(item)),
-            Stream.runDrain
-          )
-        )
-      )
+            Stream.runDrain,
+          ),
+        ),
+      ),
     );
   }
-  
+
   // ============= Analytics and Management =============
   getContentStats(): Effect.Effect<ContentStats, QueryError | ParseError> {
     return Effect.all({
       totalContent: pipe(
         this.db.query<{ count: number }>('SELECT COUNT(*) as count FROM searchable_content'),
-        Effect.map((rows) => rows[0]?.count || 0)
+        Effect.map((rows) => rows[0]?.count || 0),
       ),
       jiraIssues: pipe(
         this.db.query<{ count: number }>('SELECT COUNT(*) as count FROM searchable_content WHERE source = ?', ['jira']),
-        Effect.map((rows) => rows[0]?.count || 0)
+        Effect.map((rows) => rows[0]?.count || 0),
       ),
       confluencePages: pipe(
-        this.db.query<{ count: number }>('SELECT COUNT(*) as count FROM searchable_content WHERE source = ?', ['confluence']),
-        Effect.map((rows) => rows[0]?.count || 0)
+        this.db.query<{ count: number }>('SELECT COUNT(*) as count FROM searchable_content WHERE source = ?', [
+          'confluence',
+        ]),
+        Effect.map((rows) => rows[0]?.count || 0),
       ),
       spaceStats: pipe(
         this.db.query<{ space_key: string; count: number }>(
           'SELECT space_key, COUNT(*) as count FROM searchable_content WHERE source = ? AND space_key IS NOT NULL GROUP BY space_key',
-          ['confluence']
+          ['confluence'],
         ),
         Effect.map((rows) =>
-          rows.reduce((acc, row) => {
-            acc[row.space_key] = row.count;
-            return acc;
-          }, {} as Record<string, number>)
-        )
+          rows.reduce(
+            (acc, row) => {
+              acc[row.space_key] = row.count;
+              return acc;
+            },
+            {} as Record<string, number>,
+          ),
+        ),
       ),
       projectStats: pipe(
         this.db.query<{ project_key: string; count: number }>(
           'SELECT project_key, COUNT(*) as count FROM searchable_content WHERE source = ? AND project_key IS NOT NULL GROUP BY project_key',
-          ['jira']
+          ['jira'],
         ),
         Effect.map((rows) =>
-          rows.reduce((acc, row) => {
-            acc[row.project_key] = row.count;
-            return acc;
-          }, {} as Record<string, number>)
-        )
+          rows.reduce(
+            (acc, row) => {
+              acc[row.project_key] = row.count;
+              return acc;
+            },
+            {} as Record<string, number>,
+          ),
+        ),
       ),
       lastSync: pipe(
         this.db.query<{ max_sync: number | null }>('SELECT MAX(synced_at) as max_sync FROM searchable_content'),
         Effect.map((rows) => {
           const maxSync = rows[0]?.max_sync;
           return maxSync ? new Date(maxSync) : null;
-        })
-      )
+        }),
+      ),
     });
   }
-  
-  getLastSyncTime(source: 'jira' | 'confluence', keyOrSpace: string): Effect.Effect<Option.Option<Date>, ValidationError | QueryError> {
+
+  getLastSyncTime(
+    source: 'jira' | 'confluence',
+    keyOrSpace: string,
+  ): Effect.Effect<Option.Option<Date>, ValidationError | QueryError> {
     return pipe(
       Effect.sync(() => {
         if (!keyOrSpace || keyOrSpace.length === 0) {
@@ -680,16 +756,16 @@ class ContentServiceImpl implements ContentService {
         const column = source === 'jira' ? 'project_key' : 'space_key';
         return this.db.query<{ max_sync: number | null }>(
           `SELECT MAX(synced_at) as max_sync FROM searchable_content WHERE source = ? AND ${column} = ?`,
-          [source, keyOrSpace]
+          [source, keyOrSpace],
         );
       }),
       Effect.map((rows) => {
         const maxSync = rows[0]?.max_sync;
         return maxSync ? Option.some(new Date(maxSync)) : Option.none();
-      })
+      }),
     );
   }
-  
+
   updateSyncTime(source: 'jira' | 'confluence', keyOrSpace: string): Effect.Effect<void, ValidationError | QueryError> {
     return pipe(
       Effect.sync(() => {
@@ -699,19 +775,20 @@ class ContentServiceImpl implements ContentService {
       }),
       Effect.flatMap(() => {
         const column = source === 'jira' ? 'project_key' : 'space_key';
-        return this.db.execute(
-          `UPDATE searchable_content SET synced_at = ? WHERE source = ? AND ${column} = ?`,
-          [Date.now(), source, keyOrSpace]
-        );
+        return this.db.execute(`UPDATE searchable_content SET synced_at = ? WHERE source = ? AND ${column} = ?`, [
+          Date.now(),
+          source,
+          keyOrSpace,
+        ]);
       }),
-      Effect.asVoid
+      Effect.asVoid,
     );
   }
-  
+
   cleanupOldContent(olderThanDays: number): Effect.Effect<number, QueryError> {
     return pipe(
       Effect.sync(() => {
-        const cutoffTime = Date.now() - (olderThanDays * 24 * 60 * 60 * 1000);
+        const cutoffTime = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
         return cutoffTime;
       }),
       Effect.flatMap((cutoffTime) =>
@@ -719,10 +796,9 @@ class ContentServiceImpl implements ContentService {
           pipe(
             this.logger.info('Cleaning up old content', { olderThanDays, cutoffTime }),
             Effect.flatMap(() =>
-              this.db.query<{ count: number }>(
-                'SELECT COUNT(*) as count FROM searchable_content WHERE synced_at < ?',
-                [cutoffTime]
-              )
+              this.db.query<{ count: number }>('SELECT COUNT(*) as count FROM searchable_content WHERE synced_at < ?', [
+                cutoffTime,
+              ]),
             ),
             Effect.tap((rows) => {
               const count = rows[0]?.count || 0;
@@ -733,20 +809,18 @@ class ContentServiceImpl implements ContentService {
               return pipe(
                 this.db.execute('DELETE FROM searchable_content WHERE synced_at < ?', [cutoffTime]),
                 Effect.flatMap(() =>
-                  this.db.execute('DELETE FROM content_fts WHERE id NOT IN (SELECT id FROM searchable_content)')
+                  this.db.execute('DELETE FROM content_fts WHERE id NOT IN (SELECT id FROM searchable_content)'),
                 ),
-                Effect.map(() => count)
+                Effect.map(() => count),
               );
             }),
-            Effect.tap((count) =>
-              this.logger.info('Cleaned up old content', { deletedCount: count })
-            )
-          )
-        )
-      )
+            Effect.tap((count) => this.logger.info('Cleaned up old content', { deletedCount: count })),
+          ),
+        ),
+      ),
     );
   }
-  
+
   // ============= Private Helper Methods =============
   private validateContent(content: SearchableContent): Effect.Effect<void, ValidationError | ContentTooLargeError> {
     return Effect.sync(() => {
@@ -762,19 +836,16 @@ class ContentServiceImpl implements ContentService {
       if (!content.content || content.content.length === 0) {
         throw new ValidationError('Content must have content', 'content.content', undefined);
       }
-      if (content.content.length > 10_000_000) { // 10MB limit
-        throw new ContentTooLargeError(
-          'Content too large', 
-          content.content.length, 
-          10_000_000
-        );
+      if (content.content.length > 10_000_000) {
+        // 10MB limit
+        throw new ContentTooLargeError('Content too large', content.content.length, 10_000_000);
       }
       if (!['jira', 'confluence'].includes(content.source)) {
         throw new ValidationError('Invalid content source', 'content.source', content.source);
       }
     });
   }
-  
+
   private validateContentId(id: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!id || id.length === 0) {
@@ -782,7 +853,7 @@ class ContentServiceImpl implements ContentService {
       }
     });
   }
-  
+
   private validateIssue(issue: Issue): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!issue || typeof issue !== 'object') {
@@ -805,7 +876,7 @@ class ContentServiceImpl implements ContentService {
       }
     });
   }
-  
+
   private validateIssueKey(issueKey: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!issueKey || !issueKey.match(/^[A-Z]+-\d+$/)) {
@@ -813,7 +884,7 @@ class ContentServiceImpl implements ContentService {
       }
     });
   }
-  
+
   private validateProjectKey(projectKey: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!projectKey || projectKey.length === 0) {
@@ -821,7 +892,7 @@ class ContentServiceImpl implements ContentService {
       }
     });
   }
-  
+
   private validateConfluencePage(pageData: ConfluencePageData): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!pageData || typeof pageData !== 'object') {
@@ -838,7 +909,7 @@ class ContentServiceImpl implements ContentService {
       }
     });
   }
-  
+
   private validatePageId(pageId: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!pageId || pageId.length === 0) {
@@ -846,7 +917,7 @@ class ContentServiceImpl implements ContentService {
       }
     });
   }
-  
+
   private validateSpaceKey(spaceKey: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!spaceKey || spaceKey.length === 0) {
@@ -854,7 +925,7 @@ class ContentServiceImpl implements ContentService {
       }
     });
   }
-  
+
   private validateSearchQuery(query: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!query || query.length === 0) {
@@ -865,7 +936,7 @@ class ContentServiceImpl implements ContentService {
       }
     });
   }
-  
+
   private calculateContentHash(content: string): Effect.Effect<string, ContentError> {
     return Effect.try({
       try: () => {
@@ -873,15 +944,15 @@ class ContentServiceImpl implements ContentService {
         let hash = 0;
         for (let i = 0; i < content.length; i++) {
           const char = content.charCodeAt(i);
-          hash = ((hash << 5) - hash) + char;
+          hash = (hash << 5) - hash + char;
           hash = hash & hash; // Convert to 32-bit integer
         }
         return Math.abs(hash).toString(36);
       },
-      catch: (error) => new ContentError(`Failed to calculate content hash: ${error}`)
+      catch: (error) => new ContentError(`Failed to calculate content hash: ${error}`),
     });
   }
-  
+
   private parseContentRow(row: {
     id: string;
     source: string;
@@ -911,13 +982,16 @@ class ContentServiceImpl implements ContentService {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         syncedAt: row.synced_at,
-        contentHash: row.content_hash
+        contentHash: row.content_hash,
       }),
-      catch: (error) => new ParseError('Failed to parse content row', 'metadata', row.metadata || '', error)
+      catch: (error) => new ParseError('Failed to parse content row', 'metadata', row.metadata || '', error),
     });
   }
-  
-  private performFTSSearch(query: string, options: SearchOptions): Effect.Effect<SearchResult[], QueryError | ParseError> {
+
+  private performFTSSearch(
+    query: string,
+    options: SearchOptions,
+  ): Effect.Effect<SearchResult[], QueryError | ParseError> {
     return pipe(
       Effect.sync(() => {
         let sql = `
@@ -927,41 +1001,41 @@ class ContentServiceImpl implements ContentService {
           JOIN content_fts ON content_fts.id = sc.id
           WHERE content_fts MATCH ?
         `;
-        
+
         const params: (string | number)[] = [query];
-        
+
         if (options.source) {
           sql += ' AND sc.source = ?';
           params.push(options.source);
         }
-        
+
         if (options.type) {
           sql += ' AND sc.type = ?';
           params.push(options.type);
         }
-        
+
         if (options.spaceKey) {
           sql += ' AND sc.space_key = ?';
           params.push(options.spaceKey);
         }
-        
+
         if (options.projectKey) {
           sql += ' AND sc.project_key = ?';
           params.push(options.projectKey);
         }
-        
+
         sql += ' ORDER BY rank';
-        
+
         if (options.limit) {
           sql += ' LIMIT ?';
           params.push(options.limit);
         }
-        
+
         if (options.offset) {
           sql += ' OFFSET ?';
           params.push(options.offset);
         }
-        
+
         return { sql, params };
       }),
       Effect.flatMap(({ sql, params }) =>
@@ -980,23 +1054,25 @@ class ContentServiceImpl implements ContentService {
           synced_at: number;
           content_hash?: string;
           snippet: string;
-        }>(sql, params)
+        }>(sql, params),
       ),
       Effect.flatMap((rows) =>
         Effect.forEach(rows, (row) =>
           pipe(
             this.parseContentRow(row),
-            Effect.map((content): SearchResult => ({
-              content,
-              score: 1.0, // FTS doesn't provide a score, so we use 1.0
-              snippet: row.snippet
-            }))
-          )
-        )
-      )
+            Effect.map(
+              (content): SearchResult => ({
+                content,
+                score: 1.0, // FTS doesn't provide a score, so we use 1.0
+                snippet: row.snippet,
+              }),
+            ),
+          ),
+        ),
+      ),
     );
   }
-  
+
   private buildJiraContent(issue: Issue): string {
     const parts = [
       issue.fields.summary,
@@ -1004,67 +1080,67 @@ class ContentServiceImpl implements ContentService {
       issue.fields.priority ? `Priority: ${issue.fields.priority.name}` : '',
       issue.fields.assignee ? `Assignee: ${issue.fields.assignee.displayName}` : '',
       `Reporter: ${issue.fields.reporter.displayName}`,
-      this.extractDescription(issue.fields.description as string | { content?: ADFNode[] } | null | undefined)
+      this.extractDescription(issue.fields.description as string | { content?: ADFNode[] } | null | undefined),
     ];
-    
+
     return parts.filter(Boolean).join('\n');
   }
-  
+
   private extractDescription(description: string | { content?: ADFNode[] } | null | undefined): string {
     if (typeof description === 'string') {
       return description;
     }
-    
+
     if (description?.content) {
       return this.parseADF(description);
     }
-    
+
     return '';
   }
-  
+
   private parseADF(doc: { content?: ADFNode[] }): string {
     let text = '';
-    
+
     const parseNode = (node: ADFNode): string => {
       if (node.type === 'text') {
         return node.text || '';
       }
-      
+
       if (node.type === 'paragraph' && node.content) {
-        return '\n' + node.content.map(n => parseNode(n)).join('') + '\n';
+        return `\n${node.content.map((n) => parseNode(n)).join('')}\n`;
       }
-      
+
       if (node.content) {
-        return node.content.map(n => parseNode(n)).join('');
+        return node.content.map((n) => parseNode(n)).join('');
       }
-      
+
       return '';
     };
-    
+
     if (doc.content) {
-      text = doc.content.map(node => parseNode(node)).join('');
+      text = doc.content.map((node) => parseNode(node)).join('');
     }
-    
+
     return text.trim();
   }
-  
+
   private extractSprintInfo(issue: Issue): SprintInfo | null {
     // Sprint information is typically stored in customfield_10020 or similar
     const fields = issue.fields as Record<string, unknown>;
-    
+
     // Common sprint field names
     const sprintFieldNames = [
       'customfield_10020', // Most common
       'customfield_10021',
       'customfield_10016',
       'sprint',
-      'sprints'
+      'sprints',
     ];
-    
+
     for (const fieldName of sprintFieldNames) {
       const sprintData = fields[fieldName];
       if (!sprintData) continue;
-      
+
       // Handle array of sprints (take the most recent/active one)
       if (Array.isArray(sprintData) && sprintData.length > 0) {
         const sprintString = sprintData[sprintData.length - 1];
@@ -1072,11 +1148,11 @@ class ContentServiceImpl implements ContentService {
           // Parse sprint string format
           const idMatch = sprintString.match(/\[.*?id=(\d+)/i);
           const nameMatch = sprintString.match(/\[.*?name=([^,\]]+)/i);
-          
+
           if (idMatch && nameMatch) {
             return {
               id: idMatch[1],
-              name: nameMatch[1]
+              name: nameMatch[1],
             };
           }
         } else if (typeof sprintString === 'object' && sprintString !== null) {
@@ -1084,24 +1160,24 @@ class ContentServiceImpl implements ContentService {
           if (sprint.id && sprint.name) {
             return {
               id: String(sprint.id),
-              name: String(sprint.name)
+              name: String(sprint.name),
             };
           }
         }
       }
-      
+
       // Handle single sprint object
       if (typeof sprintData === 'object' && sprintData !== null) {
         const sprint = sprintData as { id?: unknown; name?: unknown };
         if (sprint.id && sprint.name) {
           return {
             id: String(sprint.id),
-            name: String(sprint.name)
+            name: String(sprint.name),
           };
         }
       }
     }
-    
+
     return null;
   }
 }
@@ -1112,10 +1188,10 @@ export const ContentServiceLive = Layer.effect(
   pipe(
     Effect.all({
       db: DatabaseServiceTag,
-      logger: LoggerServiceTag
+      logger: LoggerServiceTag,
     }),
-    Effect.map(({ db, logger }) => new ContentServiceImpl(db, logger))
-  )
+    Effect.map(({ db, logger }) => new ContentServiceImpl(db, logger)),
+  ),
 );
 
 // ============= Helper Functions =============

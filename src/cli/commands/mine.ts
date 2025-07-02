@@ -1,11 +1,11 @@
-import { Effect, Console, pipe } from 'effect';
+import Bun from 'bun';
 import chalk from 'chalk';
+import { Console, Effect, pipe } from 'effect';
 import ora from 'ora';
+import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
 import { JiraClient } from '../../lib/jira-client.js';
-import { CacheManager } from '../../lib/cache.js';
 import { getJiraStatusIcon } from '../formatters/issue.js';
-import Bun from 'bun';
 
 // Effect wrapper for getting configuration
 const getConfigEffect = () =>
@@ -46,7 +46,7 @@ const checkStaleDataEffect = (projectKeys: string[], cacheManager: CacheManager)
   Effect.tryPromise({
     try: async () => {
       if (projectKeys.length === 0) return;
-      
+
       const now = Date.now();
       const staleThreshold = 60 * 60 * 1000; // 1 hour
 
@@ -74,10 +74,12 @@ const showMyIssuesEffect = () =>
             return pipe(
               Console.log('No open issues assigned to you.'),
               Effect.flatMap(() => Console.log(chalk.dim('💡 Run "ji sync" to update your workspaces.'))),
-              Effect.tap(() => Effect.sync(() => {
-                cm.close();
-                configManager.close();
-              }))
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  cm.close();
+                  configManager.close();
+                }),
+              ),
             );
           }
 
@@ -99,7 +101,7 @@ const showMyIssuesEffect = () =>
               });
 
               const issuesDisplay = Effect.all(
-                projectIssues.map(issue => {
+                projectIssues.map((issue) => {
                   return Effect.sync(() => {
                     const statusIcon = getJiraStatusIcon(issue.status);
                     const updated = new Date(issue.updated);
@@ -109,44 +111,45 @@ const showMyIssuesEffect = () =>
                     console.log(`  ${statusIcon} ${chalk.bold(issue.key)}: ${issue.summary}`);
                     console.log(`     ${chalk.dim(`Updated ${timeStr} • Priority: ${issue.priority || 'None'}`)}`);
                   });
-                })
+                }),
               );
 
-              const blankLine = index < projectEntries.length - 1 ?
-                Effect.sync(() => console.log()) :
-                Effect.succeed(undefined);
+              const blankLine =
+                index < projectEntries.length - 1 ? Effect.sync(() => console.log()) : Effect.succeed(undefined);
 
               return pipe(
                 projectHeader,
                 Effect.flatMap(() => issuesDisplay),
-                Effect.flatMap(() => blankLine)
+                Effect.flatMap(() => blankLine),
               );
-            })
+            }),
           );
 
           return pipe(
             displayEffect,
             Effect.flatMap(() => checkStaleDataEffect(Object.keys(byProject), cm)),
-            Effect.tap(() => Effect.sync(() => {
-              cm.close();
-              configManager.close();
-            }))
+            Effect.tap(() =>
+              Effect.sync(() => {
+                cm.close();
+                configManager.close();
+              }),
+            ),
           );
-        })
-      )
+        }),
+      ),
     ),
     Effect.catchAll((error) =>
       pipe(
         Console.error(`Failed to retrieve issues: ${error.message}`),
-        Effect.flatMap(() => Effect.fail(error))
-      )
-    )
+        Effect.flatMap(() => Effect.fail(error)),
+      ),
+    ),
   );
 
 export async function showMyIssues() {
   try {
     await Effect.runPromise(showMyIssuesEffect());
-  } catch (error) {
+  } catch (_error) {
     process.exit(1);
   }
 }
@@ -155,19 +158,13 @@ export async function showMyIssues() {
 function triggerBackgroundSync(projectKey: string) {
   // Use Bun's subprocess to run the sync in background
   // This won't block the current process
-  const subprocess = Bun.spawn([
-    process.execPath,
-    process.argv[1],
-    'issue',
-    'sync',
-    projectKey
-  ], {
+  const subprocess = Bun.spawn([process.execPath, process.argv[1], 'issue', 'sync', projectKey], {
     stdout: 'ignore',
     stderr: 'ignore',
     stdin: 'ignore',
-    env: process.env
+    env: process.env,
   });
-  
+
   // Detach the subprocess so it runs independently
   subprocess.unref();
 }
@@ -217,7 +214,7 @@ const takeIssueEffect = (issueKey: string) =>
     Effect.flatMap(({ config, configManager }) => {
       const jiraClient = new JiraClient(config);
       const spinner = ora(`Taking ownership of ${issueKey}...`).start();
-      
+
       return pipe(
         getCurrentUserEffect(jiraClient),
         Effect.flatMap((currentUser) =>
@@ -229,38 +226,42 @@ const takeIssueEffect = (issueKey: string) =>
                   Effect.sync(() => {
                     spinner.warn(`You already own ${issueKey}`);
                     configManager.close();
-                  })
+                  }),
                 );
               }
-              
+
               return pipe(
                 assignIssueEffect(jiraClient, issueKey, currentUser.accountId),
-                Effect.tap(() => Effect.sync(() => {
-                  spinner.succeed(`Successfully assigned ${issueKey} to ${currentUser.displayName}`);
-                  
-                  console.log(`\n${chalk.bold(issue.key)}: ${issue.fields.summary}`);
-                  console.log(`${chalk.dim('Status:')} ${issue.fields.status.name}`);
-                  if (issue.fields.assignee) {
-                    console.log(`${chalk.dim('Previous assignee:')} ${issue.fields.assignee.displayName}`);
-                  }
-                  console.log(`${chalk.dim('Now assigned to:')} ${chalk.green(currentUser.displayName)}`);
-                  
-                  spinner.start('Updating local cache...');
-                })),
+                Effect.tap(() =>
+                  Effect.sync(() => {
+                    spinner.succeed(`Successfully assigned ${issueKey} to ${currentUser.displayName}`);
+
+                    console.log(`\n${chalk.bold(issue.key)}: ${issue.fields.summary}`);
+                    console.log(`${chalk.dim('Status:')} ${issue.fields.status.name}`);
+                    if (issue.fields.assignee) {
+                      console.log(`${chalk.dim('Previous assignee:')} ${issue.fields.assignee.displayName}`);
+                    }
+                    console.log(`${chalk.dim('Now assigned to:')} ${chalk.green(currentUser.displayName)}`);
+
+                    spinner.start('Updating local cache...');
+                  }),
+                ),
                 Effect.flatMap(() => updateCacheEffect(jiraClient, issueKey)),
-                Effect.tap((cacheManager) => Effect.sync(() => {
-                  cacheManager.close();
-                  spinner.succeed('Local cache, search index, and embeddings updated');
-                })),
-                Effect.catchAll(() => 
+                Effect.tap((cacheManager) =>
+                  Effect.sync(() => {
+                    cacheManager.close();
+                    spinner.succeed('Local cache, search index, and embeddings updated');
+                  }),
+                ),
+                Effect.catchAll(() =>
                   Effect.sync(() => {
                     spinner.warn('Failed to update local cache (will sync on next view)');
-                  })
+                  }),
                 ),
-                Effect.tap(() => Effect.sync(() => configManager.close()))
+                Effect.tap(() => Effect.sync(() => configManager.close())),
               );
-            })
-          )
+            }),
+          ),
         ),
         Effect.catchAll((error) =>
           pipe(
@@ -268,17 +269,17 @@ const takeIssueEffect = (issueKey: string) =>
               spinner.fail(`Failed to take issue: ${error.message}`);
               configManager.close();
             }),
-            Effect.flatMap(() => Effect.fail(error))
-          )
-        )
+            Effect.flatMap(() => Effect.fail(error)),
+          ),
+        ),
       );
-    })
+    }),
   );
 
 export async function takeIssue(issueKey: string) {
   try {
     await Effect.runPromise(takeIssueEffect(issueKey));
-  } catch (error) {
+  } catch (_error) {
     process.exit(1);
   }
 }

@@ -1,16 +1,12 @@
-import { Effect, Schedule, Layer, Context, pipe, Duration, Option } from 'effect';
-import { Database } from 'bun:sqlite';
-import {
-  DatabaseError,
-  ValidationError,
-  ConfigError
-} from './errors.js';
+import type { Database } from 'bun:sqlite';
+import { Context, Duration, Effect, Layer, Option, pipe, Schedule } from 'effect';
 import type { Config } from '../config.js';
+import { type ConfigError, DatabaseError, ValidationError } from './errors.js';
 
 /**
  * Job types for the background job system
  */
-export type JobType = 
+export type JobType =
   | 'sync-jira-project'
   | 'sync-confluence-space'
   | 'refresh-issue'
@@ -80,14 +76,14 @@ export class SqliteJobQueue implements JobQueueService {
       try: async () => {
         const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const now = Date.now();
-        
+
         const stmt = this.db.prepare(`
           INSERT INTO job_queue (
             id, type, priority, payload, created_at, 
             scheduled_for, retry_count, max_retries, status
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        
+
         stmt.run(
           jobId,
           job.type,
@@ -97,12 +93,12 @@ export class SqliteJobQueue implements JobQueueService {
           job.scheduledFor || now,
           0,
           job.maxRetries || 3,
-          'pending'
+          'pending',
         );
-        
+
         return jobId;
       },
-      catch: (error) => new DatabaseError(`Failed to enqueue job: ${error}`, error)
+      catch: (error) => new DatabaseError(`Failed to enqueue job: ${error}`, error),
     });
   }
 
@@ -116,37 +112,37 @@ export class SqliteJobQueue implements JobQueueService {
           AND scheduled_for <= ?
         `;
         const params: unknown[] = [now];
-        
+
         if (type) {
           sql += ' AND type = ?';
           params.push(type);
         }
-        
+
         sql += ' ORDER BY priority DESC, created_at ASC LIMIT 1';
-        
+
         const stmt = this.db.prepare(sql);
-        const row = stmt.get(...(params as never[])) as {
-          id: string;
-          type: JobType;
-          priority: JobPriority;
-          payload: string;
-          created_at: number;
-          scheduled_for?: number;
-          retry_count: number;
-          max_retries: number;
-          last_error?: string;
-        } | undefined;
-        
+        const row = stmt.get(...(params as never[])) as
+          | {
+              id: string;
+              type: JobType;
+              priority: JobPriority;
+              payload: string;
+              created_at: number;
+              scheduled_for?: number;
+              retry_count: number;
+              max_retries: number;
+              last_error?: string;
+            }
+          | undefined;
+
         if (!row) {
           return Option.none();
         }
-        
+
         // Mark as running
-        const updateStmt = this.db.prepare(
-          'UPDATE job_queue SET status = ?, started_at = ? WHERE id = ?'
-        );
+        const updateStmt = this.db.prepare('UPDATE job_queue SET status = ?, started_at = ? WHERE id = ?');
         updateStmt.run('running', now, row.id);
-        
+
         return Option.some({
           id: row.id,
           type: row.type as JobType,
@@ -156,10 +152,10 @@ export class SqliteJobQueue implements JobQueueService {
           scheduledFor: row.scheduled_for,
           retryCount: row.retry_count,
           maxRetries: row.max_retries,
-          lastError: row.last_error
+          lastError: row.last_error,
         });
       },
-      catch: (error) => new DatabaseError(`Failed to dequeue job: ${error}`, error)
+      catch: (error) => new DatabaseError(`Failed to dequeue job: ${error}`, error),
     });
   }
 
@@ -171,15 +167,10 @@ export class SqliteJobQueue implements JobQueueService {
           SET status = 'completed', completed_at = ?, duration_ms = ?, result = ?
           WHERE id = ?
         `);
-        
-        stmt.run(
-          Date.now(),
-          result.duration,
-          JSON.stringify(result.result),
-          jobId
-        );
+
+        stmt.run(Date.now(), result.duration, JSON.stringify(result.result), jobId);
       },
-      catch: (error) => new DatabaseError(`Failed to mark job completed: ${error}`, error)
+      catch: (error) => new DatabaseError(`Failed to mark job completed: ${error}`, error),
     });
   }
 
@@ -191,10 +182,10 @@ export class SqliteJobQueue implements JobQueueService {
           SET status = 'failed', completed_at = ?, last_error = ?
           WHERE id = ?
         `);
-        
+
         stmt.run(Date.now(), error, jobId);
       },
-      catch: (dbError) => new DatabaseError(`Failed to mark job failed: ${dbError}`, dbError)
+      catch: (dbError) => new DatabaseError(`Failed to mark job failed: ${dbError}`, dbError),
     });
   }
 
@@ -202,16 +193,16 @@ export class SqliteJobQueue implements JobQueueService {
     return Effect.tryPromise({
       try: async () => {
         const newScheduledTime = Date.now() + delayMs;
-        
+
         const stmt = this.db.prepare(`
           UPDATE job_queue 
           SET status = 'pending', scheduled_for = ?, retry_count = retry_count + 1
           WHERE id = ?
         `);
-        
+
         stmt.run(newScheduledTime, jobId);
       },
-      catch: (error) => new DatabaseError(`Failed to reschedule job: ${error}`, error)
+      catch: (error) => new DatabaseError(`Failed to reschedule job: ${error}`, error),
     });
   }
 
@@ -223,17 +214,17 @@ export class SqliteJobQueue implements JobQueueService {
           FROM job_queue 
           GROUP BY status
         `);
-        
+
         const rows = stmt.all() as Array<{ status: string; count: number }>;
-        
+
         const stats: JobQueueStats = {
           pending: 0,
           running: 0,
           completed: 0,
           failed: 0,
-          retrying: 0
+          retrying: 0,
         };
-        
+
         for (const row of rows) {
           switch (row.status) {
             case 'pending':
@@ -253,10 +244,10 @@ export class SqliteJobQueue implements JobQueueService {
               break;
           }
         }
-        
+
         return stats;
       },
-      catch: (error) => new DatabaseError(`Failed to get job stats: ${error}`, error)
+      catch: (error) => new DatabaseError(`Failed to get job stats: ${error}`, error),
     });
   }
 }
@@ -273,12 +264,12 @@ export const JobQueueLayer = Layer.effect(
   JobQueueServiceContext,
   Effect.gen(function* () {
     const { Database } = yield* Effect.promise(() => import('bun:sqlite'));
-    const { homedir } = yield* Effect.promise(() => import('os'));
-    const { join } = yield* Effect.promise(() => import('path'));
-    
+    const { homedir } = yield* Effect.promise(() => import('node:os'));
+    const { join } = yield* Effect.promise(() => import('node:path'));
+
     const dbPath = join(homedir(), '.ji', 'data.db');
     const db = new Database(dbPath);
-    
+
     // Create job queue table if it doesn't exist
     db.exec(`
       CREATE TABLE IF NOT EXISTS job_queue (
@@ -298,7 +289,7 @@ export const JobQueueLayer = Layer.effect(
         last_error TEXT
       )
     `);
-    
+
     // Create indexes for performance
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_job_queue_status_scheduled 
@@ -310,9 +301,9 @@ export const JobQueueLayer = Layer.effect(
       CREATE INDEX IF NOT EXISTS idx_job_queue_priority 
       ON job_queue(priority, created_at);
     `);
-    
+
     return new SqliteJobQueue(db);
-  })
+  }),
 );
 
 /**
@@ -325,7 +316,7 @@ export class JobWorker {
   constructor(
     private jobQueue: JobQueueService,
     private config: Config,
-    private workerName: string = 'default'
+    private workerName: string = 'default',
   ) {}
 
   /**
@@ -336,7 +327,7 @@ export class JobWorker {
     return Effect.gen(function* () {
       self.isRunning = true;
       console.log(`Job worker ${self.workerName} starting...`);
-      
+
       yield* self.processJobsLoop();
     });
   }
@@ -359,59 +350,50 @@ export class JobWorker {
     return Effect.gen(function* () {
       while (self.isRunning) {
         try {
-          const maybeJob = yield* Effect.catchAll(
-            self.jobQueue.dequeue(), 
-            (error) => {
-              console.error('Error dequeuing job:', error);
-              return Effect.succeed(Option.none());
-            }
-          );
-          
+          const maybeJob = yield* Effect.catchAll(self.jobQueue.dequeue(), (error) => {
+            console.error('Error dequeuing job:', error);
+            return Effect.succeed(Option.none());
+          });
+
           if (Option.isSome(maybeJob)) {
             const job = maybeJob.value;
             self.processingJob = job;
-            
+
             console.log(`Processing job ${job.id} (${job.type})`);
-            
+
             const startTime = Date.now();
             const result = yield* self.executeJob(job);
             const duration = Date.now() - startTime;
-            
+
             if (result.success) {
               yield* Effect.catchAll(
                 self.jobQueue.markCompleted(job.id, {
                   ...result,
-                  duration
+                  duration,
                 }),
                 (error) => {
                   console.error(`Failed to mark job ${job.id} as completed:`, error);
                   return Effect.succeed(undefined);
-                }
+                },
               );
             } else {
               if (job.retryCount < job.maxRetries) {
                 // Exponential backoff: 1s, 2s, 4s, 8s...
-                const delayMs = Math.pow(2, job.retryCount) * 1000;
-                yield* Effect.catchAll(
-                  self.jobQueue.reschedule(job.id, delayMs),
-                  (error) => {
-                    console.error(`Failed to reschedule job ${job.id}:`, error);
-                    return Effect.succeed(undefined);
-                  }
-                );
+                const delayMs = 2 ** job.retryCount * 1000;
+                yield* Effect.catchAll(self.jobQueue.reschedule(job.id, delayMs), (error) => {
+                  console.error(`Failed to reschedule job ${job.id}:`, error);
+                  return Effect.succeed(undefined);
+                });
                 console.log(`Job ${job.id} failed, retrying in ${delayMs}ms`);
               } else {
-                yield* Effect.catchAll(
-                  self.jobQueue.markFailed(job.id, result.error || 'Unknown error'),
-                  (error) => {
-                    console.error(`Failed to mark job ${job.id} as failed:`, error);
-                    return Effect.succeed(undefined);
-                  }
-                );
+                yield* Effect.catchAll(self.jobQueue.markFailed(job.id, result.error || 'Unknown error'), (error) => {
+                  console.error(`Failed to mark job ${job.id} as failed:`, error);
+                  return Effect.succeed(undefined);
+                });
                 console.error(`Job ${job.id} failed permanently: ${result.error}`);
               }
             }
-            
+
             self.processingJob = null;
           } else {
             // No jobs available, wait a bit
@@ -431,26 +413,28 @@ export class JobWorker {
   private executeJob(job: Job): Effect.Effect<JobResult, never> {
     return pipe(
       this.getJobExecutor(job.type),
-      Effect.flatMap(executor => executor(job.payload, this.config)),
-      Effect.map(result => ({
+      Effect.flatMap((executor) => executor(job.payload, this.config)),
+      Effect.map((result) => ({
         success: true,
         duration: 0, // Will be set by caller
-        result
+        result,
       })),
-      Effect.catchAll(error => 
+      Effect.catchAll((error) =>
         Effect.succeed({
           success: false,
           duration: 0,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      )
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      ),
     );
   }
 
   /**
    * Get job executor function based on job type
    */
-  private getJobExecutor(type: JobType): Effect.Effect<
+  private getJobExecutor(
+    type: JobType,
+  ): Effect.Effect<
     (payload: Record<string, unknown>, config: Config) => Effect.Effect<unknown, Error>,
     ValidationError
   > {
@@ -486,26 +470,26 @@ export class JobWorker {
         if (typeof projectKey !== 'string') {
           throw new Error('Missing or invalid projectKey');
         }
-        
+
         const { JiraClient } = await import('../jira-client.js');
         const { CacheManager } = await import('../cache.js');
-        
+
         const jiraClient = new JiraClient(config);
         const cache = new CacheManager();
-        
+
         try {
           const searchResult = await jiraClient.searchIssues(`project = "${projectKey}"`, { maxResults: 1000 });
-          
+
           for (const issue of searchResult.issues) {
             cache.saveIssue(issue);
           }
-          
+
           return { projectKey, synced: searchResult.issues.length };
         } finally {
           cache.close();
         }
       },
-      catch: (error) => new Error(`Sync Jira project failed: ${error}`)
+      catch: (error) => new Error(`Sync Jira project failed: ${error}`),
     });
   }
 
@@ -516,16 +500,16 @@ export class JobWorker {
         if (typeof spaceKey !== 'string') {
           throw new Error('Missing or invalid spaceKey');
         }
-        
+
         const { ConfluenceClient } = await import('../confluence-client.js');
         const { ContentManager } = await import('../content-manager.js');
-        
+
         const confluenceClient = new ConfluenceClient(config);
         const contentManager = new ContentManager();
-        
+
         try {
           const pages = await confluenceClient.getAllSpacePages(spaceKey);
-          
+
           for (const page of pages) {
             await contentManager.saveContent({
               id: `confluence:${page.id}`,
@@ -537,16 +521,16 @@ export class JobWorker {
               spaceKey: page.space.key,
               createdAt: Date.now(),
               updatedAt: new Date(page.version.when).getTime(),
-              syncedAt: Date.now()
+              syncedAt: Date.now(),
             });
           }
-          
+
           return { spaceKey, synced: pages.length };
         } finally {
           contentManager.close();
         }
       },
-      catch: (error) => new Error(`Sync Confluence space failed: ${error}`)
+      catch: (error) => new Error(`Sync Confluence space failed: ${error}`),
     });
   }
 
@@ -557,13 +541,13 @@ export class JobWorker {
         if (typeof issueKey !== 'string') {
           throw new Error('Missing or invalid issueKey');
         }
-        
+
         const { JiraClient } = await import('../jira-client.js');
         const { CacheManager } = await import('../cache.js');
-        
+
         const jiraClient = new JiraClient(config);
         const cache = new CacheManager();
-        
+
         try {
           const issue = await jiraClient.getIssue(issueKey);
           if (issue) {
@@ -576,7 +560,7 @@ export class JobWorker {
           cache.close();
         }
       },
-      catch: (error) => new Error(`Refresh issue failed: ${error}`)
+      catch: (error) => new Error(`Refresh issue failed: ${error}`),
     });
   }
 
@@ -587,13 +571,13 @@ export class JobWorker {
         if (!Array.isArray(contentIds)) {
           throw new Error('Missing or invalid contentIds array');
         }
-        
+
         const { ContentManager } = await import('../content-manager.js');
         const { MeilisearchAdapter } = await import('../meilisearch-adapter.js');
-        
+
         const contentManager = new ContentManager();
         new MeilisearchAdapter();
-        
+
         try {
           let indexed = 0;
           for (let i = 0; i < contentIds.length; i++) {
@@ -601,13 +585,13 @@ export class JobWorker {
             // For now, we'll simulate indexing
             indexed++;
           }
-          
+
           return { indexed };
         } finally {
           contentManager.close();
         }
       },
-      catch: (error) => new Error(`Index to Meilisearch failed: ${error}`)
+      catch: (error) => new Error(`Index to Meilisearch failed: ${error}`),
     });
   }
 
@@ -615,11 +599,11 @@ export class JobWorker {
     return Effect.tryPromise({
       try: async () => {
         const { olderThanDays = 30 } = payload;
-        const cutoffTime = Date.now() - (Number(olderThanDays) * 24 * 60 * 60 * 1000);
-        
+        const cutoffTime = Date.now() - Number(olderThanDays) * 24 * 60 * 60 * 1000;
+
         const { CacheManager } = await import('../cache.js');
         const cache = new CacheManager();
-        
+
         try {
           // This would need cleanup methods on CacheManager
           const cleaned = 0; // Placeholder
@@ -628,7 +612,7 @@ export class JobWorker {
           cache.close();
         }
       },
-      catch: (error) => new Error(`Cache cleanup failed: ${error}`)
+      catch: (error) => new Error(`Cache cleanup failed: ${error}`),
     });
   }
 
@@ -639,11 +623,11 @@ export class JobWorker {
         if (typeof projectKey !== 'string') {
           throw new Error('Missing or invalid projectKey');
         }
-        
+
         // Board refresh logic would go here
         return { projectKey, refreshed: true };
       },
-      catch: (error) => new Error(`Refresh boards failed: ${error}`)
+      catch: (error) => new Error(`Refresh boards failed: ${error}`),
     });
   }
 
@@ -651,11 +635,11 @@ export class JobWorker {
     return Effect.tryPromise({
       try: async () => {
         const { force = false } = payload;
-        
+
         // Search index update logic would go here
         return { updated: true, force };
       },
-      catch: (error) => new Error(`Update search index failed: ${error}`)
+      catch: (error) => new Error(`Update search index failed: ${error}`),
     });
   }
 }
@@ -668,7 +652,7 @@ export class BackgroundSyncScheduler {
 
   constructor(
     private jobQueue: JobQueueService,
-    private config: Config
+    private config: Config,
   ) {}
 
   /**
@@ -678,16 +662,16 @@ export class BackgroundSyncScheduler {
     const self = this;
     return Effect.gen(function* () {
       console.log('Starting background sync schedules...');
-      
+
       // Schedule regular project syncs every 30 minutes
       yield* self.scheduleProjectSync();
-      
+
       // Schedule Confluence sync every hour
       yield* self.scheduleConfluenceSync();
-      
+
       // Schedule cache cleanup daily
       yield* self.scheduleCacheCleanup();
-      
+
       // Schedule search index updates every 15 minutes
       yield* self.scheduleSearchIndexUpdate();
     });
@@ -696,28 +680,28 @@ export class BackgroundSyncScheduler {
   private scheduleProjectSync(): Effect.Effect<void, never> {
     const syncSchedule = Schedule.fixed(Duration.minutes(30));
     const self = this;
-    
+
     const syncEffect = Effect.gen(function* () {
       // Get all configured projects and schedule sync jobs
       const projectKeys = ['ENG', 'PROD']; // This would come from config
-      
+
       for (const projectKey of projectKeys) {
         yield* self.jobQueue.enqueue({
           type: 'sync-jira-project',
           priority: 'normal',
           payload: { projectKey },
-          maxRetries: 3
+          maxRetries: 3,
         });
       }
     });
-    
+
     const scheduledSync = pipe(
       syncEffect,
       Effect.repeat(syncSchedule),
       Effect.fork,
-      Effect.map(() => undefined)
+      Effect.map(() => undefined),
     );
-    
+
     this.schedules.set('project-sync', scheduledSync);
     return scheduledSync;
   }
@@ -725,27 +709,27 @@ export class BackgroundSyncScheduler {
   private scheduleConfluenceSync(): Effect.Effect<void, never> {
     const syncSchedule = Schedule.fixed(Duration.hours(1));
     const self = this;
-    
+
     const syncEffect = Effect.gen(function* () {
       const spaceKeys = ['ENG']; // This would come from config
-      
+
       for (const spaceKey of spaceKeys) {
         yield* self.jobQueue.enqueue({
           type: 'sync-confluence-space',
           priority: 'normal',
           payload: { spaceKey },
-          maxRetries: 3
+          maxRetries: 3,
         });
       }
     });
-    
+
     const scheduledSync = pipe(
       syncEffect,
       Effect.repeat(syncSchedule),
       Effect.fork,
-      Effect.map(() => undefined)
+      Effect.map(() => undefined),
     );
-    
+
     this.schedules.set('confluence-sync', scheduledSync);
     return scheduledSync;
   }
@@ -753,23 +737,23 @@ export class BackgroundSyncScheduler {
   private scheduleCacheCleanup(): Effect.Effect<void, never> {
     const cleanupSchedule = Schedule.fixed(Duration.hours(24));
     const self = this;
-    
+
     const cleanupEffect = Effect.gen(function* () {
       yield* self.jobQueue.enqueue({
         type: 'cleanup-cache',
         priority: 'low',
         payload: { olderThanDays: 30 },
-        maxRetries: 1
+        maxRetries: 1,
       });
     });
-    
+
     const scheduledCleanup = pipe(
       cleanupEffect,
       Effect.repeat(cleanupSchedule),
       Effect.fork,
-      Effect.map(() => undefined)
+      Effect.map(() => undefined),
     );
-    
+
     this.schedules.set('cache-cleanup', scheduledCleanup);
     return scheduledCleanup;
   }
@@ -777,23 +761,23 @@ export class BackgroundSyncScheduler {
   private scheduleSearchIndexUpdate(): Effect.Effect<void, never> {
     const updateSchedule = Schedule.fixed(Duration.minutes(15));
     const self = this;
-    
+
     const updateEffect = Effect.gen(function* () {
       yield* self.jobQueue.enqueue({
         type: 'update-search-index',
         priority: 'normal',
         payload: { force: false },
-        maxRetries: 2
+        maxRetries: 2,
       });
     });
-    
+
     const scheduledUpdate = pipe(
       updateEffect,
       Effect.repeat(updateSchedule),
       Effect.fork,
-      Effect.map(() => undefined)
+      Effect.map(() => undefined),
     );
-    
+
     this.schedules.set('search-index-update', scheduledUpdate);
     return scheduledUpdate;
   }
@@ -817,9 +801,7 @@ export function createJobQueueService(): Effect.Effect<JobQueueService, ConfigEr
     JobQueueLayer,
     Layer.build,
     Effect.scoped,
-    Effect.map(context => Context.get(context, JobQueueServiceContext)),
-    Effect.mapError(error => 
-      new DatabaseError(`Failed to create job queue service: ${error}`, error)
-    )
+    Effect.map((context) => Context.get(context, JobQueueServiceContext)),
+    Effect.mapError((error) => new DatabaseError(`Failed to create job queue service: ${error}`, error)),
   );
 }

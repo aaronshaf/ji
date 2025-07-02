@@ -1,7 +1,7 @@
-import { Effect, Layer, pipe, Context } from 'effect';
 import { Database } from 'bun:sqlite';
-import { homedir } from 'os';
-import { join } from 'path';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { Context, Effect, Layer, pipe } from 'effect';
 import { DatabaseError } from './errors';
 
 export interface Migration {
@@ -94,15 +94,12 @@ export class MigrationEffect {
   checkDatabaseHealth(): Effect.Effect<void, DatabaseError> {
     return pipe(
       this.validateSchema(),
-      Effect.mapError((error) => new DatabaseError('Database health check failed', error))
+      Effect.mapError((error) => new DatabaseError('Database health check failed', error)),
     );
   }
 }
 
-export class MigrationEffectTag extends Context.Tag('MigrationEffect')<
-  MigrationEffectTag,
-  MigrationEffect
->() {}
+export class MigrationEffectTag extends Context.Tag('MigrationEffect')<MigrationEffectTag, MigrationEffect>() {}
 
 export const MigrationEffectLive = Layer.effect(
   MigrationEffectTag,
@@ -110,5 +107,5 @@ export const MigrationEffectLive = Layer.effect(
     const dbPath = join(homedir(), '.ji', 'data.db');
     const db = new Database(dbPath);
     return new MigrationEffect(db);
-  })
+  }),
 );

@@ -1,6 +1,5 @@
-import { Schema } from 'effect';
+import { Effect, pipe, Schema } from 'effect';
 import type { Config } from './config.js';
-import { Effect, pipe } from 'effect';
 
 // Simple approach - just validate the basic structure and allow any fields
 const IssueSchema = Schema.Struct({
@@ -98,7 +97,7 @@ export class ValidationError extends Error {
 // Standard fields to fetch for issues including sprint information
 export const ISSUE_FIELDS = [
   'summary',
-  'description', 
+  'description',
   'status',
   'assignee',
   'reporter',
@@ -123,18 +122,18 @@ export class JiraClient {
   private getHeaders() {
     const token = Buffer.from(`${this.config.email}:${this.config.apiToken}`).toString('base64');
     return {
-      'Authorization': `Basic ${token}`,
-      'Accept': 'application/json',
+      Authorization: `Basic ${token}`,
+      Accept: 'application/json',
       'Content-Type': 'application/json',
     };
   }
 
   async getIssue(issueKey: string): Promise<Issue> {
     const params = new URLSearchParams({
-      fields: ISSUE_FIELDS.join(',')
+      fields: ISSUE_FIELDS.join(','),
     });
     const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}?${params}`;
-    
+
     const response = await fetch(url, {
       method: 'GET',
       headers: this.getHeaders(),
@@ -149,11 +148,14 @@ export class JiraClient {
     return Schema.decodeUnknownSync(IssueSchema)(data) as Issue;
   }
 
-  async searchIssues(jql: string, options?: {
-    startAt?: number;
-    maxResults?: number;
-    fields?: string[];
-  }): Promise<{ issues: Issue[]; total: number; startAt: number }> {
+  async searchIssues(
+    jql: string,
+    options?: {
+      startAt?: number;
+      maxResults?: number;
+      fields?: string[];
+    },
+  ): Promise<{ issues: Issue[]; total: number; startAt: number }> {
     const params = new URLSearchParams({
       jql,
       startAt: (options?.startAt || 0).toString(),
@@ -165,7 +167,7 @@ export class JiraClient {
     }
 
     const url = `${this.config.jiraUrl}/rest/api/3/search?${params}`;
-    
+
     const response = await fetch(url, {
       method: 'GET',
       headers: this.getHeaders(),
@@ -178,7 +180,7 @@ export class JiraClient {
 
     const data = await response.json();
     const result = Schema.decodeUnknownSync(SearchResultSchema)(data);
-    
+
     return {
       issues: result.issues as Issue[],
       total: result.total,
@@ -186,7 +188,11 @@ export class JiraClient {
     };
   }
 
-  async getAllProjectIssues(projectKey: string, onProgress?: (current: number, total: number) => void, jql?: string): Promise<Issue[]> {
+  async getAllProjectIssues(
+    projectKey: string,
+    onProgress?: (current: number, total: number) => void,
+    jql?: string,
+  ): Promise<Issue[]> {
     const allIssues: Issue[] = [];
     let startAt = 0;
     const maxResults = 100; // Max allowed by Jira API
@@ -224,7 +230,9 @@ export class JiraClient {
   /**
    * Effect-based version of getIssue with structured error handling
    */
-  getIssueEffect(issueKey: string): Effect.Effect<Issue, ValidationError | NotFoundError | NetworkError | AuthenticationError> {
+  getIssueEffect(
+    issueKey: string,
+  ): Effect.Effect<Issue, ValidationError | NotFoundError | NetworkError | AuthenticationError> {
     return pipe(
       // Validate issue key format
       Effect.sync(() => {
@@ -234,16 +242,16 @@ export class JiraClient {
       }),
       Effect.flatMap(() => {
         const params = new URLSearchParams({
-          fields: ISSUE_FIELDS.join(',')
+          fields: ISSUE_FIELDS.join(','),
         });
         const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}?${params}`;
-        
+
         return Effect.tryPromise({
           try: async () => {
             const response = await fetch(url, {
               method: 'GET',
               headers: this.getHeaders(),
-              signal: AbortSignal.timeout(10000) // 10 second timeout
+              signal: AbortSignal.timeout(10000), // 10 second timeout
             });
 
             if (response.status === 404) {
@@ -270,20 +278,26 @@ export class JiraClient {
             if (error instanceof AuthenticationError) return error;
             if (error instanceof NetworkError) return error;
             return new NetworkError(`Network error while fetching issue: ${error}`);
-          }
+          },
         });
-      })
+      }),
     );
   }
 
   /**
    * Effect-based version of searchIssues with structured error handling
    */
-  searchIssuesEffect(jql: string, options?: {
-    startAt?: number;
-    maxResults?: number;
-    fields?: string[];
-  }): Effect.Effect<{ issues: Issue[]; total: number; startAt: number }, ValidationError | NetworkError | AuthenticationError> {
+  searchIssuesEffect(
+    jql: string,
+    options?: {
+      startAt?: number;
+      maxResults?: number;
+      fields?: string[];
+    },
+  ): Effect.Effect<
+    { issues: Issue[]; total: number; startAt: number },
+    ValidationError | NetworkError | AuthenticationError
+  > {
     return pipe(
       // Validate JQL
       Effect.sync(() => {
@@ -303,13 +317,13 @@ export class JiraClient {
         }
 
         const url = `${this.config.jiraUrl}/rest/api/3/search?${params}`;
-        
+
         return Effect.tryPromise({
           try: async () => {
             const response = await fetch(url, {
               method: 'GET',
               headers: this.getHeaders(),
-              signal: AbortSignal.timeout(15000) // 15 second timeout for searches
+              signal: AbortSignal.timeout(15000), // 15 second timeout for searches
             });
 
             if (response.status === 401 || response.status === 403) {
@@ -324,7 +338,7 @@ export class JiraClient {
 
             const data = await response.json();
             const result = Schema.decodeUnknownSync(SearchResultSchema)(data);
-            
+
             return {
               issues: result.issues as Issue[],
               total: result.total,
@@ -336,9 +350,9 @@ export class JiraClient {
             if (error instanceof AuthenticationError) return error;
             if (error instanceof NetworkError) return error;
             return new NetworkError(`Network error while searching issues: ${error}`);
-          }
+          },
         });
-      })
+      }),
     );
   }
 
@@ -346,12 +360,12 @@ export class JiraClient {
    * Effect-based version of getAllProjectIssues with concurrent fetching and progress tracking
    */
   getAllProjectIssuesEffect(
-    projectKey: string, 
+    projectKey: string,
     options?: {
       jql?: string;
       onProgress?: (current: number, total: number) => void;
       maxConcurrency?: number;
-    }
+    },
   ): Effect.Effect<Issue[], ValidationError | NetworkError | AuthenticationError> {
     return pipe(
       // Validate project key
@@ -364,7 +378,7 @@ export class JiraClient {
         const searchJql = options?.jql || `project = ${projectKey} ORDER BY updated DESC`;
         const maxResults = 100; // Max allowed by Jira API
         const maxConcurrency = options?.maxConcurrency || 3; // Limit concurrent requests
-        
+
         // First, get the total count
         return pipe(
           this.searchIssuesEffect(searchJql, { startAt: 0, maxResults: 1 }),
@@ -375,45 +389,48 @@ export class JiraClient {
 
             // Calculate number of pages needed
             const pages = Math.ceil(total / maxResults);
-            const pageEffects = Array.from({ length: pages }, (_, i) => 
+            const pageEffects = Array.from({ length: pages }, (_, i) =>
               pipe(
                 this.searchIssuesEffect(searchJql, {
                   startAt: i * maxResults,
-                  maxResults
+                  maxResults,
                 }),
-                Effect.map(result => result.issues),
-                Effect.tap(() => 
+                Effect.map((result) => result.issues),
+                Effect.tap(() =>
                   Effect.sync(() => {
                     if (options?.onProgress) {
                       const currentCount = Math.min((i + 1) * maxResults, total);
                       options.onProgress(currentCount, total);
                     }
-                  })
-                )
-              )
+                  }),
+                ),
+              ),
             );
 
             // Execute with controlled concurrency
             return pipe(
               Effect.all(pageEffects, { concurrency: maxConcurrency }),
-              Effect.map(pages => pages.flat())
+              Effect.map((pages) => pages.flat()),
             );
-          })
+          }),
         );
-      })
+      }),
     );
   }
 
   // Effect-based get current user
-  getCurrentUserEffect(): Effect.Effect<{ accountId: string; displayName: string; emailAddress?: string }, NetworkError | AuthenticationError> {
+  getCurrentUserEffect(): Effect.Effect<
+    { accountId: string; displayName: string; emailAddress?: string },
+    NetworkError | AuthenticationError
+  > {
     const url = `${this.config.jiraUrl}/rest/api/3/myself`;
-    
+
     return Effect.tryPromise({
       try: async () => {
         const response = await fetch(url, {
           method: 'GET',
           headers: this.getHeaders(),
-          signal: AbortSignal.timeout(10000) // 10 second timeout
+          signal: AbortSignal.timeout(10000), // 10 second timeout
         });
 
         if (response.status === 401 || response.status === 403) {
@@ -426,12 +443,12 @@ export class JiraClient {
           throw new NetworkError(`Failed to get current user: ${response.status} - ${errorText}`);
         }
 
-        const data = await response.json() as {
+        const data = (await response.json()) as {
           accountId: string;
           displayName: string;
           emailAddress?: string;
         };
-        
+
         return {
           accountId: data.accountId,
           displayName: data.displayName,
@@ -442,14 +459,14 @@ export class JiraClient {
         if (error instanceof AuthenticationError) return error;
         if (error instanceof NetworkError) return error;
         return new NetworkError(`Network error while fetching current user: ${error}`);
-      }
+      },
     });
   }
 
   // Backward compatible version
   async getCurrentUser(): Promise<{ accountId: string; displayName: string; emailAddress?: string }> {
     const url = `${this.config.jiraUrl}/rest/api/3/myself`;
-    
+
     const response = await fetch(url, {
       method: 'GET',
       headers: this.getHeaders(),
@@ -460,7 +477,7 @@ export class JiraClient {
       throw new Error(`Failed to get current user: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       accountId: string;
       displayName: string;
       emailAddress?: string;
@@ -473,7 +490,10 @@ export class JiraClient {
   }
 
   // Effect-based assign issue
-  assignIssueEffect(issueKey: string, accountId: string): Effect.Effect<void, ValidationError | NotFoundError | NetworkError | AuthenticationError> {
+  assignIssueEffect(
+    issueKey: string,
+    accountId: string,
+  ): Effect.Effect<void, ValidationError | NotFoundError | NetworkError | AuthenticationError> {
     return pipe(
       // Validate inputs
       Effect.sync(() => {
@@ -486,14 +506,14 @@ export class JiraClient {
       }),
       Effect.flatMap(() => {
         const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}/assignee`;
-        
+
         return Effect.tryPromise({
           try: async () => {
             const response = await fetch(url, {
               method: 'PUT',
               headers: this.getHeaders(),
               body: JSON.stringify({ accountId }),
-              signal: AbortSignal.timeout(10000) // 10 second timeout
+              signal: AbortSignal.timeout(10000), // 10 second timeout
             });
 
             if (response.status === 404) {
@@ -517,16 +537,16 @@ export class JiraClient {
             if (error instanceof AuthenticationError) return error;
             if (error instanceof NetworkError) return error;
             return new NetworkError(`Network error while assigning issue: ${error}`);
-          }
+          },
         });
-      })
+      }),
     );
   }
 
   // Backward compatible version
   async assignIssue(issueKey: string, accountId: string): Promise<void> {
     const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}/assignee`;
-    
+
     const response = await fetch(url, {
       method: 'PUT',
       headers: this.getHeaders(),
@@ -542,35 +562,35 @@ export class JiraClient {
   /**
    * Effect-based version of getBoards with structured error handling
    */
-  getBoardsEffect(options?: { 
-    projectKeyOrId?: string; 
-    type?: 'scrum' | 'kanban' 
+  getBoardsEffect(options?: {
+    projectKeyOrId?: string;
+    type?: 'scrum' | 'kanban';
   }): Effect.Effect<Board[], ValidationError | NetworkError | AuthenticationError> {
     return pipe(
       Effect.sync(() => {
         let url = `${this.config.jiraUrl}/rest/agile/1.0/board`;
         const params = new URLSearchParams();
-        
+
         if (options?.projectKeyOrId) {
           params.append('projectKeyOrId', options.projectKeyOrId);
         }
         if (options?.type) {
           params.append('type', options.type);
         }
-        
+
         if (params.toString()) {
           url += `?${params.toString()}`;
         }
-        
+
         return url;
       }),
-      Effect.flatMap(url => 
+      Effect.flatMap((url) =>
         Effect.tryPromise({
           try: async () => {
             const response = await fetch(url, {
               method: 'GET',
               headers: this.getHeaders(),
-              signal: AbortSignal.timeout(10000)
+              signal: AbortSignal.timeout(10000),
             });
 
             if (response.status === 401 || response.status === 403) {
@@ -583,7 +603,7 @@ export class JiraClient {
               throw new NetworkError(`Failed to fetch boards: ${response.status} - ${errorText}`);
             }
 
-            const data = await response.json() as unknown;
+            const data = (await response.json()) as unknown;
             const parsed = Schema.decodeUnknownSync(BoardsResponseSchema)(data);
             return parsed.values as Board[];
           },
@@ -592,9 +612,9 @@ export class JiraClient {
             if (error instanceof AuthenticationError) return error;
             if (error instanceof NetworkError) return error;
             return new NetworkError(`Network error while fetching boards: ${error}`);
-          }
-        })
-      )
+          },
+        }),
+      ),
     );
   }
 
@@ -609,73 +629,75 @@ export class JiraClient {
           throw new ValidationError('User email cannot be empty');
         }
       }),
-      Effect.flatMap(() => 
+      Effect.flatMap(() =>
         // First get user's active projects
-        this.getUserActiveProjectsEffect(userEmail)
+        this.getUserActiveProjectsEffect(userEmail),
       ),
-      Effect.flatMap(activeProjects => {
+      Effect.flatMap((activeProjects) => {
         if (activeProjects.length === 0) {
           return Effect.succeed([] as Board[]);
         }
 
         // Get boards for each project concurrently
-        const boardEffects = activeProjects.map(projectKey =>
+        const boardEffects = activeProjects.map((projectKey) =>
           pipe(
             this.getBoardsEffect({ projectKeyOrId: projectKey }),
-            Effect.catchAll(() => Effect.succeed([] as Board[])) // Continue if one project fails
-          )
+            Effect.catchAll(() => Effect.succeed([] as Board[])), // Continue if one project fails
+          ),
         );
 
         return pipe(
           Effect.all(boardEffects, { concurrency: 3 }),
-          Effect.map(boardArrays => {
+          Effect.map((boardArrays) => {
             const allBoards = boardArrays.flat();
-            
+
             // Remove duplicates and sort by name
-            const uniqueBoards = allBoards.filter((board, index, array) => 
-              array.findIndex(b => b.id === board.id) === index
+            const uniqueBoards = allBoards.filter(
+              (board, index, array) => array.findIndex((b) => b.id === board.id) === index,
             );
-            
+
             return uniqueBoards.sort((a, b) => a.name.localeCompare(b.name));
-          })
+          }),
         );
-      })
+      }),
     );
   }
 
   /**
    * Effect-based version of getUserActiveProjects
    */
-  private getUserActiveProjectsEffect(userEmail: string): Effect.Effect<string[], ValidationError | NetworkError | AuthenticationError> {
+  private getUserActiveProjectsEffect(
+    userEmail: string,
+  ): Effect.Effect<string[], ValidationError | NetworkError | AuthenticationError> {
     const jql = `assignee = "${userEmail}" AND updated >= -30d ORDER BY updated DESC`;
-    
+
     return pipe(
       this.searchIssuesEffect(jql, { maxResults: 100 }),
-      Effect.map(result => {
+      Effect.map((result) => {
         const projectKeys = new Set<string>();
-        
-        result.issues.forEach(issue => {
+
+        result.issues.forEach((issue) => {
           const projectKey = issue.key.split('-')[0];
           projectKeys.add(projectKey);
         });
-        
+
         return Array.from(projectKeys);
       }),
-      Effect.catchAll(() => Effect.succeed([] as string[])) // Return empty array on error
+      Effect.catchAll(() => Effect.succeed([] as string[])), // Return empty array on error
     );
   }
 
   async getBoards(options?: { projectKeyOrId?: string; type?: 'scrum' | 'kanban' }): Promise<Board[]> {
     let url = `${this.config.jiraUrl}/rest/agile/1.0/board`;
     const params = new URLSearchParams();
-    
+
     if (options?.projectKeyOrId) {
       params.append('projectKeyOrId', options.projectKeyOrId);
     }
     if (options?.type) {
       params.append('type', options.type);
     }
-    
+
     if (params.toString()) {
       url += `?${params.toString()}`;
     }
@@ -690,7 +712,7 @@ export class JiraClient {
       throw new Error(`Failed to fetch boards: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as unknown;
+    const data = (await response.json()) as unknown;
     const parsed = Schema.decodeUnknownSync(BoardsResponseSchema)(data);
     return parsed.values as Board[];
   }
@@ -702,16 +724,16 @@ export class JiraClient {
   async getUserActiveProjects(userEmail: string): Promise<string[]> {
     // Get recent issues assigned to user to determine active projects
     const jql = `assignee = "${userEmail}" AND updated >= -30d ORDER BY updated DESC`;
-    
+
     try {
       const result = await this.searchIssues(jql, { maxResults: 100 });
       const projectKeys = new Set<string>();
-      
-      result.issues.forEach(issue => {
+
+      result.issues.forEach((issue) => {
         const projectKey = issue.key.split('-')[0];
         projectKeys.add(projectKey);
       });
-      
+
       return Array.from(projectKeys);
     } catch (error) {
       console.warn('Failed to get user active projects:', error);
@@ -722,7 +744,7 @@ export class JiraClient {
   async getUserBoards(userEmail: string): Promise<Board[]> {
     const activeProjects = await this.getUserActiveProjects(userEmail);
     const allBoards: Board[] = [];
-    
+
     // Get boards for each active project
     for (const projectKey of activeProjects) {
       try {
@@ -732,16 +754,16 @@ export class JiraClient {
         console.warn(`Failed to get boards for project ${projectKey}:`, error);
       }
     }
-    
+
     // Remove duplicates and sort by name
-    const uniqueBoards = allBoards.filter((board, index, array) => 
-      array.findIndex(b => b.id === board.id) === index
-    );
-    
+    const uniqueBoards = allBoards.filter((board, index, array) => array.findIndex((b) => b.id === board.id) === index);
+
     return uniqueBoards.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async getBoardConfiguration(boardId: number): Promise<{ columns: Array<{ name: string; statuses: Array<{ id: string; name: string }> }> }> {
+  async getBoardConfiguration(
+    boardId: number,
+  ): Promise<{ columns: Array<{ name: string; statuses: Array<{ id: string; name: string }> }> }> {
     const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/configuration`;
 
     const response = await fetch(url, {
@@ -754,18 +776,23 @@ export class JiraClient {
       throw new Error(`Failed to fetch board configuration: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as { columnConfig?: { columns?: { name: string; statuses: { id: string; name: string }[] }[] } };
+    const data = (await response.json()) as {
+      columnConfig?: { columns?: { name: string; statuses: { id: string; name: string }[] }[] };
+    };
     return {
-      columns: data.columnConfig?.columns || []
+      columns: data.columnConfig?.columns || [],
     };
   }
 
   /**
    * Effect-based version of getBoardIssues with structured error handling
    */
-  getBoardIssuesEffect(boardId: number, options?: {
-    maxResults?: number;
-  }): Effect.Effect<Issue[], ValidationError | NetworkError | AuthenticationError> {
+  getBoardIssuesEffect(
+    boardId: number,
+    options?: {
+      maxResults?: number;
+    },
+  ): Effect.Effect<Issue[], ValidationError | NetworkError | AuthenticationError> {
     return pipe(
       // Validate board ID
       Effect.sync(() => {
@@ -782,7 +809,7 @@ export class JiraClient {
             const response = await fetch(url, {
               method: 'GET',
               headers: this.getHeaders(),
-              signal: AbortSignal.timeout(15000) // 15 second timeout for board issues
+              signal: AbortSignal.timeout(15000), // 15 second timeout for board issues
             });
 
             if (response.status === 401 || response.status === 403) {
@@ -795,8 +822,8 @@ export class JiraClient {
               throw new NetworkError(`Failed to fetch board issues: ${response.status} - ${errorText}`);
             }
 
-            const data = await response.json() as { issues?: unknown[] };
-            
+            const data = (await response.json()) as { issues?: unknown[] };
+
             // Map the agile API response to our Issue type
             return (data.issues || []).map((issue: unknown) => {
               const typedIssue = issue as {
@@ -824,8 +851,8 @@ export class JiraClient {
                   reporter: typedIssue.fields.reporter,
                   priority: typedIssue.fields.priority,
                   created: typedIssue.fields.created,
-                  updated: typedIssue.fields.updated
-                }
+                  updated: typedIssue.fields.updated,
+                },
               };
             });
           },
@@ -834,9 +861,9 @@ export class JiraClient {
             if (error instanceof AuthenticationError) return error;
             if (error instanceof NetworkError) return error;
             return new NetworkError(`Network error while fetching board issues: ${error}`);
-          }
+          },
         });
-      })
+      }),
     );
   }
 
@@ -845,7 +872,7 @@ export class JiraClient {
     const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/issue?maxResults=50`;
 
     const response = await fetch(url, {
-      method: 'GET', 
+      method: 'GET',
       headers: this.getHeaders(),
     });
 
@@ -854,8 +881,8 @@ export class JiraClient {
       throw new Error(`Failed to fetch board issues: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as { issues?: unknown[] };
-    
+    const data = (await response.json()) as { issues?: unknown[] };
+
     // Map the agile API response to our Issue type
     return (data.issues || []).map((issue: unknown) => {
       const typedIssue = issue as {
@@ -883,8 +910,8 @@ export class JiraClient {
           reporter: typedIssue.fields.reporter,
           priority: typedIssue.fields.priority,
           created: typedIssue.fields.created,
-          updated: typedIssue.fields.updated
-        }
+          updated: typedIssue.fields.updated,
+        },
       };
     });
   }
@@ -892,7 +919,9 @@ export class JiraClient {
   /**
    * Effect-based version of getActiveSprints with structured error handling
    */
-  getActiveSprintsEffect(boardId: number): Effect.Effect<Sprint[], ValidationError | NetworkError | AuthenticationError> {
+  getActiveSprintsEffect(
+    boardId: number,
+  ): Effect.Effect<Sprint[], ValidationError | NetworkError | AuthenticationError> {
     return pipe(
       // Validate board ID
       Effect.sync(() => {
@@ -902,13 +931,13 @@ export class JiraClient {
       }),
       Effect.flatMap(() => {
         const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/sprint?state=active`;
-        
+
         return Effect.tryPromise({
           try: async () => {
             const response = await fetch(url, {
               method: 'GET',
               headers: this.getHeaders(),
-              signal: AbortSignal.timeout(10000)
+              signal: AbortSignal.timeout(10000),
             });
 
             if (response.status === 401 || response.status === 403) {
@@ -921,7 +950,7 @@ export class JiraClient {
               throw new NetworkError(`Failed to fetch active sprints: ${response.status} - ${errorText}`);
             }
 
-            const data = await response.json() as unknown;
+            const data = (await response.json()) as unknown;
             const parsed = Schema.decodeUnknownSync(SprintsResponseSchema)(data);
             return parsed.values as Sprint[];
           },
@@ -930,15 +959,15 @@ export class JiraClient {
             if (error instanceof AuthenticationError) return error;
             if (error instanceof NetworkError) return error;
             return new NetworkError(`Network error while fetching active sprints: ${error}`);
-          }
+          },
         });
-      })
+      }),
     );
   }
 
   async getActiveSprints(boardId: number): Promise<Sprint[]> {
     const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/sprint?state=active`;
-    
+
     const response = await fetch(url, {
       method: 'GET',
       headers: this.getHeaders(),
@@ -957,10 +986,13 @@ export class JiraClient {
   /**
    * Effect-based version of getSprintIssues with structured error handling
    */
-  getSprintIssuesEffect(sprintId: number, options?: {
-    startAt?: number;
-    maxResults?: number;
-  }): Effect.Effect<{ issues: Issue[]; total: number }, ValidationError | NetworkError | AuthenticationError> {
+  getSprintIssuesEffect(
+    sprintId: number,
+    options?: {
+      startAt?: number;
+      maxResults?: number;
+    },
+  ): Effect.Effect<{ issues: Issue[]; total: number }, ValidationError | NetworkError | AuthenticationError> {
     return pipe(
       // Validate sprint ID
       Effect.sync(() => {
@@ -975,13 +1007,13 @@ export class JiraClient {
         });
 
         const url = `${this.config.jiraUrl}/rest/agile/1.0/sprint/${sprintId}/issue?${params}`;
-        
+
         return Effect.tryPromise({
           try: async () => {
             const response = await fetch(url, {
               method: 'GET',
               headers: this.getHeaders(),
-              signal: AbortSignal.timeout(15000) // 15 second timeout for sprint issues
+              signal: AbortSignal.timeout(15000), // 15 second timeout for sprint issues
             });
 
             if (response.status === 401 || response.status === 403) {
@@ -994,10 +1026,10 @@ export class JiraClient {
               throw new NetworkError(`Failed to fetch sprint issues: ${response.status} - ${errorText}`);
             }
 
-            const data = await response.json() as { issues: unknown[]; total: number };
+            const data = (await response.json()) as { issues: unknown[]; total: number };
             return {
               issues: data.issues.map((issue: unknown) => Schema.decodeUnknownSync(IssueSchema)(issue) as Issue),
-              total: data.total
+              total: data.total,
             };
           },
           catch: (error) => {
@@ -1005,23 +1037,26 @@ export class JiraClient {
             if (error instanceof AuthenticationError) return error;
             if (error instanceof NetworkError) return error;
             return new NetworkError(`Network error while fetching sprint issues: ${error}`);
-          }
+          },
         });
-      })
+      }),
     );
   }
 
-  async getSprintIssues(sprintId: number, options?: {
-    startAt?: number;
-    maxResults?: number;
-  }): Promise<{ issues: Issue[]; total: number }> {
+  async getSprintIssues(
+    sprintId: number,
+    options?: {
+      startAt?: number;
+      maxResults?: number;
+    },
+  ): Promise<{ issues: Issue[]; total: number }> {
     const params = new URLSearchParams({
       startAt: (options?.startAt || 0).toString(),
       maxResults: (options?.maxResults || 50).toString(),
     });
 
     const url = `${this.config.jiraUrl}/rest/agile/1.0/sprint/${sprintId}/issue?${params}`;
-    
+
     const response = await fetch(url, {
       method: 'GET',
       headers: this.getHeaders(),
@@ -1032,17 +1067,19 @@ export class JiraClient {
       throw new Error(`Failed to fetch sprint issues: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as { issues: unknown[]; total: number };
+    const data = (await response.json()) as { issues: unknown[]; total: number };
     return {
       issues: data.issues.map((issue: unknown) => Schema.decodeUnknownSync(IssueSchema)(issue) as Issue),
-      total: data.total
+      total: data.total,
     };
   }
 
   /**
    * Effect-based version of getUserActiveSprints with concurrent fetching
    */
-  getUserActiveSprintsEffect(userEmail: string): Effect.Effect<Sprint[], ValidationError | NetworkError | AuthenticationError> {
+  getUserActiveSprintsEffect(
+    userEmail: string,
+  ): Effect.Effect<Sprint[], ValidationError | NetworkError | AuthenticationError> {
     return pipe(
       // Validate user email
       Effect.sync(() => {
@@ -1050,37 +1087,35 @@ export class JiraClient {
           throw new ValidationError('User email cannot be empty');
         }
       }),
-      Effect.flatMap(() => 
+      Effect.flatMap(() =>
         // First get user's boards
-        this.getUserBoardsEffect(userEmail)
+        this.getUserBoardsEffect(userEmail),
       ),
-      Effect.flatMap(boards => {
+      Effect.flatMap((boards) => {
         if (boards.length === 0) {
           return Effect.succeed([] as Sprint[]);
         }
 
         // Get active sprints for each board concurrently
-        const sprintEffects = boards.map(board =>
+        const sprintEffects = boards.map((board) =>
           pipe(
             this.getActiveSprintsEffect(board.id),
-            Effect.catchAll(() => Effect.succeed([] as Sprint[])) // Continue if one board fails
-          )
+            Effect.catchAll(() => Effect.succeed([] as Sprint[])), // Continue if one board fails
+          ),
         );
 
         return pipe(
           Effect.all(sprintEffects, { concurrency: 3 }),
-          Effect.map(sprintArrays => {
+          Effect.map((sprintArrays) => {
             const allSprints = sprintArrays.flat();
-            
+
             // Remove duplicates
-            const uniqueSprints = Array.from(
-              new Map(allSprints.map(s => [s.id, s])).values()
-            );
-            
+            const uniqueSprints = Array.from(new Map(allSprints.map((s) => [s.id, s])).values());
+
             return uniqueSprints;
-          })
+          }),
         );
-      })
+      }),
     );
   }
 
@@ -1088,23 +1123,18 @@ export class JiraClient {
     // First, get all boards the user has access to
     const boards = await this.getUserBoards(userEmail);
     const allSprints: Sprint[] = [];
-    
+
     // For each board, get active sprints
     for (const board of boards) {
       try {
         const sprints = await this.getActiveSprints(board.id);
         allSprints.push(...sprints);
-      } catch (error) {
-        // Skip boards that might not have sprint support
-        continue;
-      }
+      } catch (_error) {}
     }
-    
+
     // Remove duplicates
-    const uniqueSprints = Array.from(
-      new Map(allSprints.map(s => [s.id, s])).values()
-    );
-    
+    const uniqueSprints = Array.from(new Map(allSprints.map((s) => [s.id, s])).values());
+
     return uniqueSprints;
   }
 }

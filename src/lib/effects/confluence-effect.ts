@@ -1,5 +1,5 @@
 import { Effect, pipe } from 'effect';
-import { ConfluenceClient, type Page } from '../confluence-client';
+import type { ConfluenceClient, Page } from '../confluence-client';
 import { ConfluenceError, NotFoundError } from './errors';
 
 export class ConfluenceEffectClient {
@@ -13,8 +13,8 @@ export class ConfluenceEffectClient {
       }),
       Effect.filterOrFail(
         (page): page is Page => page !== null,
-        () => new NotFoundError(`Page ${pageId} not found`)
-      )
+        () => new NotFoundError(`Page ${pageId} not found`),
+      ),
     );
   }
 

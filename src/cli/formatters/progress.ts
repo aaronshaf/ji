@@ -7,7 +7,7 @@ export function createProgressBar(current: number, total: number, width: number 
   const percentage = Math.round((current / total) * 100);
   const filled = Math.round((current / total) * width);
   const empty = width - filled;
-  
+
   const bar = chalk.green('█').repeat(filled) + chalk.gray('░').repeat(empty);
   return `${bar} ${percentage}%`;
 }
