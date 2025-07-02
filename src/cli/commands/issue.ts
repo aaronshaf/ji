@@ -191,37 +191,38 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
     }
   });
 
-// Pure Effect-based viewIssue implementation
-const viewIssueEffect = (issueKey: string, _options: { json?: boolean; sync?: boolean } = {}) =>
+// Pure Effect-based viewIssue implementation - local-first approach
+const viewIssueEffect = (issueKey: string, options: { json?: boolean; sync?: boolean } = {}) =>
   pipe(
     getManagersEffect(),
     Effect.flatMap(({ config, configManager, cacheManager, contentManager, jiraClient }) =>
       pipe(
-        getIssueFromJiraEffect(jiraClient, issueKey),
-        Effect.flatMap((issue) =>
-          pipe(
-            updateCacheEffect(cacheManager, issue),
-            Effect.flatMap(() => updateSearchIndexEffect(contentManager, issue)),
-            Effect.flatMap(() => formatIssueOutputEffect(issue, config)),
-            Effect.flatMap(() => refreshInBackgroundEffect(config, issue)),
-            Effect.tap(() =>
-              Effect.sync(() => {
-                cacheManager.close();
-                contentManager.close();
-                configManager.close();
-              }),
-            ),
-          ),
-        ),
-        Effect.catchAll((error) => {
-          // Try to get from cache on network error
-          return pipe(
-            getCachedIssueEffect(cacheManager, issueKey),
-            Effect.flatMap((cachedIssue) => {
-              if (cachedIssue) {
-                return pipe(
-                  Console.log(chalk.yellow('⚠️  Showing cached data (network error occurred)')),
-                  Effect.flatMap(() => formatIssueOutputEffect(cachedIssue, config)),
+        // First, try to get from cache (local-first approach)
+        getCachedIssueEffect(cacheManager, issueKey),
+        Effect.flatMap((cachedIssue) => {
+          if (cachedIssue && !options.sync) {
+            // We have cached data, use it immediately (local-first)
+            return pipe(
+              formatIssueOutputEffect(cachedIssue, config),
+              // Optionally refresh in background for next time
+              Effect.tap(() => refreshInBackgroundEffect(config, cachedIssue)),
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  cacheManager.close();
+                  contentManager.close();
+                  configManager.close();
+                }),
+              ),
+            );
+          } else {
+            // No cached data or user requested fresh sync - fetch from API
+            return pipe(
+              getIssueFromJiraEffect(jiraClient, issueKey),
+              Effect.flatMap((issue) =>
+                pipe(
+                  updateCacheEffect(cacheManager, issue),
+                  Effect.flatMap(() => updateSearchIndexEffect(contentManager, issue)),
+                  Effect.flatMap(() => formatIssueOutputEffect(issue, config)),
                   Effect.tap(() =>
                     Effect.sync(() => {
                       cacheManager.close();
@@ -229,29 +230,36 @@ const viewIssueEffect = (issueKey: string, _options: { json?: boolean; sync?: bo
                       configManager.close();
                     }),
                   ),
-                );
-              } else {
-                return pipe(
-                  Effect.sync(() => {
-                    cacheManager.close();
-                    contentManager.close();
-                    configManager.close();
-                  }),
-                  Effect.flatMap(() => Effect.fail(error)),
-                );
-              }
-            }),
-            Effect.catchAll(() =>
-              pipe(
-                Effect.sync(() => {
-                  cacheManager.close();
-                  contentManager.close();
-                  configManager.close();
-                }),
-                Effect.flatMap(() => Effect.fail(error)),
+                ),
               ),
-            ),
-          );
+              Effect.catchAll((apiError) => {
+                // API failed, try to use cache if we have it
+                if (cachedIssue) {
+                  return pipe(
+                    Console.log(chalk.yellow('⚠️  Using cached data (API unavailable)')),
+                    Effect.flatMap(() => formatIssueOutputEffect(cachedIssue, config)),
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        cacheManager.close();
+                        contentManager.close();
+                        configManager.close();
+                      }),
+                    ),
+                  );
+                } else {
+                  // No cache and API failed
+                  return pipe(
+                    Effect.sync(() => {
+                      cacheManager.close();
+                      contentManager.close();
+                      configManager.close();
+                    }),
+                    Effect.flatMap(() => Effect.fail(apiError)),
+                  );
+                }
+              }),
+            );
+          }
         }),
       ),
     ),
