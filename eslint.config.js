@@ -24,6 +24,12 @@ export default [
         Bun: 'readonly',
         URLSearchParams: 'readonly',
         TextDecoder: 'readonly',
+        // Browser/Node globals
+        URL: 'readonly',
+        AbortController: 'readonly',
+        AbortSignal: 'readonly',
+        DOMException: 'readonly',
+        RequestInit: 'readonly',
       },
     },
     plugins: {
