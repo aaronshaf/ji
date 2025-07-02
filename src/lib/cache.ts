@@ -3,6 +3,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import type { Issue, Board } from './jira-client.js';
 import { ContentManager } from './content-manager.js';
+import { Effect, Option, pipe } from 'effect';
 
 export class CacheManager {
   private db: Database;
@@ -27,6 +28,33 @@ export class CacheManager {
     }
   }
 
+  /**
+   * Effect-based version of getIssue with better error handling
+   * Returns Option.none() for not found, throws specific errors for other failures
+   */
+  getIssueEffect(key: string): Effect.Effect<Option.Option<Issue>, Error> {
+    return pipe(
+      Effect.sync(() => {
+        const stmt = this.db.prepare('SELECT raw_data FROM issues WHERE key = ?');
+        const row = stmt.get(key) as { raw_data: string } | undefined;
+        return row;
+      }),
+      Effect.flatMap(row => {
+        if (!row) {
+          return Effect.succeed(Option.none());
+        }
+        return pipe(
+          Effect.try(() => JSON.parse(row.raw_data) as Issue),
+          Effect.mapError(error => new Error(`Failed to parse issue ${key}: ${error}`)),
+          Effect.map(Option.some)
+        );
+      }),
+      Effect.catchAll(error => 
+        Effect.fail(new Error(`Database error while fetching issue ${key}: ${error}`))
+      )
+    );
+  }
+
   async deleteProjectIssues(projectKey: string): Promise<void> {
     // Delete from both issues table and searchable_content table
     const deleteIssuesStmt = this.db.prepare('DELETE FROM issues WHERE project_key = ?');
@@ -37,6 +65,12 @@ export class CacheManager {
     
     // Also clear the backfill limit for this project
     await this.clearBackfillLimit(projectKey);
+  }
+
+  async deleteSpacePages(spaceKey: string): Promise<void> {
+    // Delete Confluence pages from searchable_content table
+    const deleteContentStmt = this.db.prepare('DELETE FROM searchable_content WHERE space_key = ? AND source = ?');
+    deleteContentStmt.run(spaceKey, 'confluence');
   }
 
   async saveIssue(issue: Issue): Promise<void> {

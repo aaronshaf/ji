@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { Effect, pipe } from 'effect';
 
 export class OllamaClient {
   private baseUrl = 'http://127.0.0.1:11434';
@@ -85,8 +86,34 @@ export class OllamaClient {
 
 
 
-  // Create a hash of content for change detection
+  // Create a hash of content for change detection (Effect version)
+  static contentHashEffect(content: string): Effect.Effect<string, Error> {
+    // Validate input first
+    if (!content || content.length === 0) {
+      return Effect.fail(new Error("Cannot hash empty content"));
+    }
+    
+    if (content.length > 10_000_000) { // 10MB limit
+      return Effect.fail(new Error("Content too large to hash"));
+    }
+    
+    // Create hash using Effect.sync since this operation won't throw
+    return Effect.sync(() => 
+      createHash('sha256').update(content).digest('hex').substring(0, 16)
+    );
+  }
+  
+  // Backward-compatible version
   static contentHash(content: string): string {
-    return createHash('sha256').update(content).digest('hex').substring(0, 16);
+    // Run the Effect synchronously and handle errors
+    return Effect.runSync(
+      pipe(
+        this.contentHashEffect(content),
+        Effect.catchAll((error) => 
+          // Fallback to old behavior for compatibility
+          Effect.sync(() => createHash('sha256').update(content || '').digest('hex').substring(0, 16))
+        )
+      )
+    );
   }
 }
