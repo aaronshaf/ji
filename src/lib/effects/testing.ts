@@ -141,10 +141,10 @@ export class TestMocks {
    * Create a mock logging service
    */
   static createMockLogger(): LoggingService {
-    const logs: Array<{ level: string; message: string; metadata?: any; error?: Error }> = [];
+    const logs: Array<{ level: string; message: string; metadata?: Record<string, unknown>; error?: Error }> = [];
     
     const createLogFunction = (level: string) => 
-      (message: string, metadataOrError?: any, metadata?: any) => 
+      (message: string, metadataOrError?: Record<string, unknown> | Error, metadata?: Record<string, unknown>) => 
         Effect.sync(() => {
           logs.push({
             level,
@@ -166,7 +166,7 @@ export class TestMocks {
       setLevel: () => Effect.succeed(undefined),
       flush: () => Effect.succeed(undefined),
       getLogs: () => logs
-    } as LoggingService & { getLogs: () => any[] };
+    } as LoggingService & { getLogs: () => Array<{ level: string; message: string; metadata?: Record<string, unknown>; error?: Error }> };
   }
 
   /**
@@ -189,7 +189,7 @@ export class TestMocks {
 
     return {
       get: (key) => Effect.succeed(mockConfig[key]),
-      getPath: (path) => Effect.succeed(path.split('.').reduce((obj, key) => obj?.[key], mockConfig as any)),
+      getPath: (path) => Effect.succeed(path.split('.').reduce((obj, key) => obj?.[key], mockConfig as Record<string, unknown>)),
       set: (key, value) => Effect.sync(() => { mockConfig[key] = value; }),
       setPath: (_path, _value) => Effect.succeed(undefined),
       reload: () => Effect.succeed(mockConfig),
@@ -206,7 +206,7 @@ export class TestMocks {
    * Create a mock cache service
    */
   static createMockCache(): CacheService {
-    const cache = new Map<string, any>();
+    const cache = new Map<string, unknown>();
     
     return {
       get: (key) => Effect.succeed(cache.has(key) ? Option.some(cache.get(key)) : Option.none()),
@@ -238,20 +238,20 @@ export class TestMocks {
    * Create a mock database
    */
   static createMockDatabase() {
-    const tables = new Map<string, any[]>();
+    const tables = new Map<string, unknown[]>();
     
     return {
       prepare: (_sql: string) => ({
-        run: (..._params: any[]) => ({ changes: 1, lastInsertRowid: 1 }),
-        get: (..._params: any[]) => null,
-        all: (..._params: any[]) => []
+        run: (..._params: unknown[]) => ({ changes: 1, lastInsertRowid: 1 }),
+        get: (..._params: unknown[]) => null,
+        all: (..._params: unknown[]) => []
       }),
       exec: (_sql: string) => undefined,
       close: () => undefined,
       transaction: (fn: Function) => fn(),
       getTables: () => Array.from(tables.keys()),
       getTable: (name: string) => tables.get(name) || [],
-      setTable: (name: string, data: any[]) => tables.set(name, data)
+      setTable: (name: string, data: unknown[]) => tables.set(name, data)
     };
   }
 }
@@ -331,7 +331,7 @@ export class PropertyGenerators {
   /**
    * Generate objects with specific shape
    */
-  static object<T extends Record<string, any>>(
+  static object<T extends Record<string, unknown>>(
     _schema: { [K in keyof T]: PropertyGenerator<T[K]> }
   ): PropertyGenerator<T> {
     return {
@@ -348,8 +348,8 @@ export class PropertyGenerators {
  * Test fixture manager
  */
 export class TestFixtureManager {
-  private fixtures = new Map<string, TestFixture<any>>();
-  private activeResources = new Map<string, any>();
+  private fixtures = new Map<string, TestFixture<unknown>>();
+  private activeResources = new Map<string, unknown>();
 
   /**
    * Register a test fixture

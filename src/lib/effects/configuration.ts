@@ -161,11 +161,11 @@ export class EffectConfigManager implements ConfigurationService {
   getPath<T>(path: string): Effect.Effect<T, ConfigError> {
     return Effect.sync(() => {
       const keys = path.split('.');
-      let current: any = this.config;
+      let current: unknown = this.config;
       
       for (const key of keys) {
         if (current && typeof current === 'object' && key in current) {
-          current = current[key];
+          current = (current as Record<string, unknown>)[key];
         } else {
           throw new ConfigError(`Configuration path not found: ${path}`);
         }
@@ -541,7 +541,7 @@ export const configValidation: ConfigValidation = {
  * Configuration migration utilities
  */
 export class ConfigMigration {
-  static migrateToV2(oldConfig: any): AppConfig {
+  static migrateToV2(oldConfig: Record<string, unknown>): AppConfig {
     // Migrate from v1 to v2 configuration format
     const migrated = { ...defaultConfig };
     
@@ -565,8 +565,9 @@ export class ConfigMigration {
     return '2.0.0';
   }
 
-  static needsMigration(config: any): boolean {
-    return !config.app || !config.app.version || config.app.version !== this.getCurrentVersion();
+  static needsMigration(config: Record<string, unknown>): boolean {
+    const app = config.app as Record<string, unknown> | undefined;
+    return !app || !app.version || app.version !== this.getCurrentVersion();
   }
 }
 
@@ -743,11 +744,11 @@ export const ConfigUtils = {
    */
   getNestedValue: <T>(config: AppConfig, path: string, defaultValue?: T): T | undefined => {
     const keys = path.split('.');
-    let current: any = config;
+    let current: unknown = config;
     
     for (const key of keys) {
       if (current && typeof current === 'object' && key in current) {
-        current = current[key];
+        current = (current as Record<string, unknown>)[key];
       } else {
         return defaultValue;
       }
@@ -762,11 +763,11 @@ export const ConfigUtils = {
   mergeConfigs: (base: AppConfig, override: Partial<AppConfig>): AppConfig => {
     const merged = JSON.parse(JSON.stringify(base));
     
-    function deepMerge(target: any, source: any): any {
+    function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
       for (const key in source) {
         if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
           if (!target[key]) target[key] = {};
-          deepMerge(target[key], source[key]);
+          deepMerge(target[key] as Record<string, unknown>, source[key] as Record<string, unknown>);
         } else {
           target[key] = source[key];
         }
