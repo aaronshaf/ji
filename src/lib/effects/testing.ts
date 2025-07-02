@@ -41,8 +41,8 @@ export class EffectTestAssertions {
   /**
    * Assert that an Effect succeeds with the expected value
    */
-  static succeeds = <T>(
-    effect: Effect.Effect<T, any>,
+  static succeeds = <T, E>(
+    effect: Effect.Effect<T, E>,
     expected: T
   ): Effect.Effect<void, Error> =>
     pipe(
@@ -58,9 +58,9 @@ export class EffectTestAssertions {
   /**
    * Assert that an Effect fails with the expected error type
    */
-  static fails = <E extends Error>(
-    effect: Effect.Effect<any, E>,
-    expectedErrorType: new (...args: any[]) => E
+  static fails = <T, E extends Error>(
+    effect: Effect.Effect<T, E>,
+    expectedErrorType: new (...args: unknown[]) => E
   ): Effect.Effect<void, Error> =>
     pipe(
       effect,
@@ -98,9 +98,9 @@ export class EffectTestAssertions {
   /**
    * Assert that two Effects produce the same result
    */
-  static equivalent = <T>(
-    effect1: Effect.Effect<T, any>,
-    effect2: Effect.Effect<T, any>
+  static equivalent = <T, E>(
+    effect1: Effect.Effect<T, E>,
+    effect2: Effect.Effect<T, E>
   ): Effect.Effect<void, Error> =>
     pipe(
       Effect.all([effect1, effect2]),
@@ -115,8 +115,8 @@ export class EffectTestAssertions {
   /**
    * Assert that an Effect is idempotent (same result when run multiple times)
    */
-  static idempotent = <T>(
-    effect: Effect.Effect<T, any>,
+  static idempotent = <T, E>(
+    effect: Effect.Effect<T, E>,
     iterations: number = 3
   ): Effect.Effect<void, Error> =>
     pipe(

@@ -360,7 +360,7 @@ export class SyncCommand extends BaseCommand<{ synced: number; errors: number }>
               const configManager = new ConfigManager();
               // For now, sync all configured projects and spaces
               // This would need to be implemented based on stored configuration
-              const workspaces: any[] = [];
+              const workspaces: Array<{ type: 'jira_project' | 'confluence_space' }> = [];
               
               for (const workspace of workspaces) {
                 if (workspace.type === 'jira_project') {

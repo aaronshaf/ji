@@ -3,7 +3,7 @@
  */
 
 // Set up global test environment
-global.beforeEach = () => {
+globalThis.beforeEach = () => {
   // Reset any global state
 };
 

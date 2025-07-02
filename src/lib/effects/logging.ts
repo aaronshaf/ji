@@ -62,7 +62,7 @@ export class StructuredLogger implements LoggingService {
     private config: LogConfig,
     private module: string = 'default',
     private context: Record<string, unknown> = {},
-    private db?: any
+    private db?: { prepare: (sql: string) => { run: (...args: unknown[]) => void } }
   ) {
     // Start background flush
     this.startBackgroundFlush();
@@ -533,7 +533,7 @@ export const LoggingServiceContext = Context.GenericTag<LoggingService>('Logging
 export const LoggingLayer = (config: LogConfig) => Layer.effect(
   LoggingServiceContext,
   Effect.gen(function* () {
-    let db: any = undefined;
+    let db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } } | undefined = undefined;
 
     // Initialize database for log storage if enabled
     if (config.enableFile || config.enableStructured) {

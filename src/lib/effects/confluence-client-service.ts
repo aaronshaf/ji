@@ -291,7 +291,7 @@ export interface ConfluenceClientService {
   // Attachment operations
   readonly getPageAttachments: (pageId: string) => Effect.Effect<Attachment[], AllErrors>;
   readonly downloadAttachment: (attachmentId: string) => Effect.Effect<ArrayBuffer, ValidationError | NotFoundError | CommonErrors>;
-  readonly uploadAttachment: (pageId: string, file: File, comment?: string) => Effect.Effect<Attachment, AllErrors>;
+  readonly uploadAttachment: (pageId: string, file: globalThis.File, comment?: string) => Effect.Effect<Attachment, AllErrors>;
   
   // Batch operations
   readonly batchGetPages: (pageIds: string[], concurrency?: number) => Stream.Stream<Page, AllErrors>;
@@ -783,12 +783,12 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
     );
   }
   
-  uploadAttachment(pageId: string, file: File, comment?: string): Effect.Effect<Attachment, AllErrors> {
+  uploadAttachment(pageId: string, file: globalThis.File, comment?: string): Effect.Effect<Attachment, AllErrors> {
     return pipe(
       this.validatePageId(pageId),
       Effect.flatMap(() => this.initializeBaseUrl()),
       Effect.flatMap(() => {
-        const formData = new FormData();
+        const formData = new globalThis.FormData();
         formData.append('file', file);
         if (comment) {
           formData.append('comment', comment);
@@ -947,7 +947,7 @@ class ConfluenceClientServiceImpl implements ConfluenceClientService {
     );
   }
   
-  private makeFormRequest<T>(url: string, formData: FormData): Effect.Effect<T, NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError> {
+  private makeFormRequest<T>(url: string, formData: globalThis.FormData): Effect.Effect<T, NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError> {
     return pipe(
       this.config.getConfig,
       Effect.flatMap((config) => {

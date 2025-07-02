@@ -259,7 +259,7 @@ export function withRetryStrategy<R, E extends JiError, A>(
   return pipe(
     effect,
     Effect.catchAll((error: E) => {
-      let retrySchedule: Schedule.Schedule<any, any, any> = Schedule.stop;
+      let retrySchedule: Schedule.Schedule<unknown, E, never> = Schedule.stop;
       
       switch (error.module) {
         case 'network':
