@@ -44,7 +44,29 @@ export class MeilisearchFast {
     };
 
     // Handle search based on source
-    const results: any[] = [];
+    const results: Array<{
+      hits: Array<{
+        _rankingScore?: number;
+        _formatted?: { content?: string };
+        _cropLength?: { content?: string };
+        id: string;
+        originalId?: string;
+        source: string;
+        type?: string;
+        title: string;
+        content: string;
+        url?: string;
+        spaceKey?: string;
+        projectKey?: string;
+        status?: string;
+        priority?: string;
+        assignee?: string;
+        reporter?: string;
+        createdAt?: number;
+        updatedAt?: number;
+        syncedAt?: number;
+      }>;
+    }> = [];
     
     if (!options.source || options.source === 'jira') {
       // Search Jira with status filters
@@ -65,7 +87,7 @@ export class MeilisearchFast {
       }
       
       const jiraResult = await this.jiraIndex.search(query, jiraParams);
-      results.push(jiraResult);
+      results.push(jiraResult as any);
     }
     
     if (!options.source || options.source === 'confluence') {
@@ -77,7 +99,7 @@ export class MeilisearchFast {
       }
       
       const confluenceResult = await this.confluenceIndex.search(query, confluenceParams);
-      results.push(confluenceResult);
+      results.push(confluenceResult as any);
     }
 
     // Merge and sort results by ranking score
@@ -135,7 +157,7 @@ export class MeilisearchFast {
         type: hit.type || (hit.source === 'jira' ? 'issue' : 'page'),
         title: hit.title,
         content: hit.content,
-        url: hit.url,
+        url: hit.url || '',
         spaceKey: hit.spaceKey,
         projectKey: hit.projectKey,
         metadata: {
@@ -146,7 +168,7 @@ export class MeilisearchFast {
         },
         createdAt: hit.createdAt,
         updatedAt: hit.updatedAt,
-        syncedAt: hit.syncedAt
+        syncedAt: hit.syncedAt || Date.now()
       },
       score: hit._rankingScore || 0,
       snippet: hit._formatted?.content || hit._cropLength?.content || ''
@@ -183,7 +205,29 @@ export class MeilisearchFast {
     }
 
     // Handle search based on source
-    const results: any[] = [];
+    const results: Array<{
+      hits: Array<{
+        _rankingScore?: number;
+        _formatted?: { content?: string };
+        _cropLength?: { content?: string };
+        id: string;
+        originalId?: string;
+        source: string;
+        type?: string;
+        title: string;
+        content: string;
+        url?: string;
+        spaceKey?: string;
+        projectKey?: string;
+        status?: string;
+        priority?: string;
+        assignee?: string;
+        reporter?: string;
+        createdAt?: number;
+        updatedAt?: number;
+        syncedAt?: number;
+      }>;
+    }> = [];
     
     if (!options.source || options.source === 'jira') {
       // Search Jira with status filters
@@ -205,12 +249,12 @@ export class MeilisearchFast {
       
       try {
         const jiraResult = await this.jiraIndex.search(query, jiraParams);
-        results.push(jiraResult);
+        results.push(jiraResult as any);
       } catch (error) {
         // Hybrid search failed (likely Ollama not available), fall back to regular search
         const { hybrid: _hybrid, ...fallbackParams } = jiraParams;
         const jiraResult = await this.jiraIndex.search(query, fallbackParams);
-        results.push(jiraResult);
+        results.push(jiraResult as any);
       }
     }
     
@@ -224,12 +268,12 @@ export class MeilisearchFast {
       
       try {
         const confluenceResult = await this.confluenceIndex.search(query, confluenceParams);
-        results.push(confluenceResult);
+        results.push(confluenceResult as any);
       } catch (error) {
         // Hybrid search failed (likely Ollama not available), fall back to regular search
         const { hybrid: _hybrid, ...fallbackParams } = confluenceParams;
         const confluenceResult = await this.confluenceIndex.search(query, fallbackParams);
-        results.push(confluenceResult);
+        results.push(confluenceResult as any);
       }
     }
 
@@ -285,7 +329,7 @@ export class MeilisearchFast {
         type: hit.type || (hit.source === 'jira' ? 'issue' : 'page'),
         title: hit.title,
         content: hit.content,
-        url: hit.url,
+        url: hit.url || '',
         spaceKey: hit.spaceKey,
         projectKey: hit.projectKey,
         metadata: {
@@ -296,7 +340,7 @@ export class MeilisearchFast {
         },
         createdAt: hit.createdAt,
         updatedAt: hit.updatedAt,
-        syncedAt: hit.syncedAt
+        syncedAt: hit.syncedAt || Date.now()
       },
       score: hit._rankingScore || 0,
       snippet: hit._formatted?.content || hit._cropLength?.content || ''

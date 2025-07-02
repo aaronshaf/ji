@@ -153,24 +153,54 @@ export class CacheManager {
     await this.contentManager.saveJiraIssue(issue);
   }
 
-  async listIssuesByProject(projectKey: string): Promise<any[]> {
+  async listIssuesByProject(projectKey: string): Promise<Array<{
+    key: string;
+    summary: string;
+    status: string;
+    priority: string;
+    assignee_name: string | null;
+    updated: string;
+  }>> {
     const stmt = this.db.prepare(`
       SELECT key, summary, status, priority, assignee_name, updated
       FROM issues
       WHERE project_key = ?
       ORDER BY updated DESC
     `);
-    return stmt.all(projectKey);
+    return stmt.all(projectKey) as Array<{
+      key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      assignee_name: string | null;
+      updated: string;
+    }>;
   }
 
-  async listRecentIssues(limit: number = 20): Promise<any[]> {
+  async listRecentIssues(limit: number = 20): Promise<Array<{
+    key: string;
+    project_key: string;
+    summary: string;
+    status: string;
+    priority: string;
+    assignee_name: string | null;
+    updated: string;
+  }>> {
     const stmt = this.db.prepare(`
       SELECT key, project_key, summary, status, priority, assignee_name, updated
       FROM issues
       ORDER BY updated DESC
       LIMIT ?
     `);
-    return stmt.all(limit);
+    return stmt.all(limit) as Array<{
+      key: string;
+      project_key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      assignee_name: string | null;
+      updated: string;
+    }>;
   }
 
   /**
@@ -220,14 +250,30 @@ export class CacheManager {
     );
   }
 
-  async listMyOpenIssues(assigneeEmail: string): Promise<any[]> {
+  async listMyOpenIssues(assigneeEmail: string): Promise<Array<{
+    key: string;
+    project_key: string;
+    summary: string;
+    status: string;
+    priority: string;
+    assignee_name: string | null;
+    updated: string;
+  }>> {
     const stmt = this.db.prepare(`
       SELECT key, project_key, summary, status, priority, assignee_name, updated
       FROM issues
       WHERE assignee_email = ? AND LOWER(status) NOT IN ('closed', 'done', 'resolved', 'cancelled', 'canceled', 'rejected', 'won''t do', 'duplicate', 'invalid')
       ORDER BY updated DESC
     `);
-    return stmt.all(assigneeEmail);
+    return stmt.all(assigneeEmail) as Array<{
+      key: string;
+      project_key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      assignee_name: string | null;
+      updated: string;
+    }>;
   }
 
   async getProjectLastSync(projectKey: string): Promise<Date | null> {
@@ -236,7 +282,7 @@ export class CacheManager {
       FROM issues
       WHERE project_key = ?
     `);
-    const result = stmt.get(projectKey) as any;
+    const result = stmt.get(projectKey) as { last_sync: number | null } | undefined;
     return result?.last_sync ? new Date(result.last_sync) : null;
   }
 
@@ -246,7 +292,7 @@ export class CacheManager {
       FROM issues
       WHERE project_key = ?
     `);
-    const results = stmt.all(projectKey) as any[];
+    const results = stmt.all(projectKey) as { key: string }[];
     return results.map(r => r.key);
   }
 
@@ -411,15 +457,21 @@ export class CacheManager {
       ORDER BY b.project_key, b.name
     `);
     
-    const rows = stmt.all(userEmail) as any[];
+    const rows = stmt.all(userEmail) as Array<{
+      id: number;
+      name: string;
+      type: string;
+      project_key: string | null;
+      project_name: string | null;
+    }>;
     return rows.map(row => ({
       id: row.id,
       name: row.name,
       type: row.type,
-      location: {
-        projectKey: row.project_key,
-        projectName: row.project_name
-      }
+      location: row.project_key || row.project_name ? {
+        projectKey: row.project_key || undefined,
+        projectName: row.project_name || undefined
+      } : undefined
     }));
   }
 
@@ -430,15 +482,21 @@ export class CacheManager {
       ORDER BY project_key, name
     `);
     
-    const rows = stmt.all() as any[];
+    const rows = stmt.all() as Array<{
+      id: number;
+      name: string;
+      type: string;
+      project_key: string | null;
+      project_name: string | null;
+    }>;
     return rows.map(row => ({
       id: row.id,
       name: row.name,
       type: row.type,
-      location: {
-        projectKey: row.project_key,
-        projectName: row.project_name
-      }
+      location: row.project_key || row.project_name ? {
+        projectKey: row.project_key || undefined,
+        projectName: row.project_name || undefined
+      } : undefined
     }));
   }
 
@@ -462,7 +520,15 @@ export class CacheManager {
       LIMIT 10
     `);
     
-    const rows = stmt.all() as any[];
+    const rows = stmt.all() as Array<{
+      id: string;
+      type: string;
+      name: string;
+      key_or_id: string;
+      usage_count: number;
+      last_used: number;
+      auto_sync: number;
+    }>;
     return rows.map(row => ({
       id: row.id,
       type: row.type,
@@ -514,7 +580,13 @@ export class CacheManager {
       ORDER BY last_accessed DESC
     `);
     
-    const rows = stmt.all(userEmail) as any[];
+    const rows = stmt.all(userEmail) as Array<{
+      sprint_id: string;
+      sprint_name: string;
+      board_id: number;
+      project_key: string;
+      last_accessed: number;
+    }>;
     return rows.map(row => ({
       sprintId: row.sprint_id,
       sprintName: row.sprint_name,
@@ -526,7 +598,18 @@ export class CacheManager {
 
   async getSprintIssues(sprintId: string, options?: { 
     assignee?: string | null 
-  }): Promise<any[]> {
+  }): Promise<Array<{
+    key: string;
+    project_key: string;
+    summary: string;
+    status: string;
+    priority: string;
+    assignee_name: string | null;
+    assignee_email: string | null;
+    updated: string;
+    sprint_id: string;
+    sprint_name: string;
+  }>> {
     let query = `
       SELECT key, project_key, summary, status, priority, assignee_name, assignee_email, updated, sprint_id, sprint_name
       FROM issues
@@ -547,19 +630,63 @@ export class CacheManager {
     query += ` ORDER BY priority DESC, updated DESC`;
     
     const stmt = this.db.prepare(query);
-    return stmt.all(...params);
+    return stmt.all(...params) as Array<{
+      key: string;
+      project_key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      assignee_name: string | null;
+      assignee_email: string | null;
+      updated: string;
+      sprint_id: string;
+      sprint_name: string;
+    }>;
   }
 
-  async getCachedSprintIssues(sprintId: string): Promise<any[]> {
+  async getCachedSprintIssues(sprintId: string): Promise<Array<{
+    sprint_id: string;
+    key: string;
+    project_key: string;
+    summary: string;
+    status: string;
+    priority: string;
+    priority_order: number;
+    assignee_name: string | null;
+    assignee_email: string | null;
+    updated: string;
+    cached_at: number;
+  }>> {
     const stmt = this.db.prepare(`
       SELECT * FROM sprint_issues_cache
       WHERE sprint_id = ?
       ORDER BY priority_order, updated DESC
     `);
-    return stmt.all(sprintId) as any[];
+    return stmt.all(sprintId) as Array<{
+      sprint_id: string;
+      key: string;
+      project_key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      priority_order: number;
+      assignee_name: string | null;
+      assignee_email: string | null;
+      updated: string;
+      cached_at: number;
+    }>;
   }
 
-  async setCachedSprintIssues(sprintId: string, issues: any[]): Promise<void> {
+  async setCachedSprintIssues(sprintId: string, issues: Array<{
+    key: string;
+    project_key: string;
+    summary: string;
+    status: string;
+    priority: string;
+    assignee_name?: string | null;
+    assignee_email?: string | null;
+    updated: string;
+  }>): Promise<void> {
     // Delete existing cached issues for this sprint
     const deleteStmt = this.db.prepare('DELETE FROM sprint_issues_cache WHERE sprint_id = ?');
     deleteStmt.run(sprintId);
@@ -586,8 +713,8 @@ export class CacheManager {
         issue.status,
         issue.priority,
         priorityOrder[issue.priority] || 6,
-        issue.assignee_name,
-        issue.assignee_email,
+        issue.assignee_name || null,
+        issue.assignee_email || null,
         issue.updated,
         now
       );

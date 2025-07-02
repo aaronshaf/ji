@@ -120,15 +120,31 @@ export function confluenceToText(storageFormat: string): string {
 }
 
 // Extract metadata from Confluence page for better search
-export function extractPageMetadata(page: any): {
+export function extractPageMetadata(page: {
+  metadata?: {
+    labels?: {
+      results?: Array<{ name: string }>;
+    };
+  };
+  version?: {
+    when?: string;
+    by?: {
+      displayName?: string;
+    };
+  };
+}): {
   labels?: string[];
   lastModified?: Date;
   author?: string;
 } {
-  const metadata: any = {};
+  const metadata: {
+    labels?: string[];
+    lastModified?: Date;
+    author?: string;
+  } = {};
 
   if (page.metadata?.labels?.results) {
-    metadata.labels = page.metadata.labels.results.map((l: any) => l.name);
+    metadata.labels = page.metadata.labels.results.map((l) => l.name);
   }
 
   if (page.version?.when) {
