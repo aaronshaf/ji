@@ -116,7 +116,7 @@ export class ContentManager {
               issue.fields.reporter.emailAddress || null,
               new Date(issue.fields.created).getTime(),
               new Date(issue.fields.updated).getTime(),
-              this.extractDescription(issue.fields.description),
+              this.extractDescription(issue.fields.description as string | { content?: ADFNode[] } | null | undefined),
               JSON.stringify(issue),
               Date.now(),
               sprintInfo?.id || null,
@@ -186,7 +186,7 @@ export class ContentManager {
       issue.fields.reporter.emailAddress || null,
       new Date(issue.fields.created).getTime(),
       new Date(issue.fields.updated).getTime(),
-      this.extractDescription(issue.fields.description),
+      this.extractDescription(issue.fields.description as string | { content?: ADFNode[] } | null | undefined),
       JSON.stringify(issue),
       Date.now(),
       sprintInfo?.id || null,
@@ -469,7 +469,7 @@ export class ContentManager {
       issue.fields.priority ? `Priority: ${issue.fields.priority.name}` : '',
       issue.fields.assignee ? `Assignee: ${issue.fields.assignee.displayName}` : '',
       `Reporter: ${issue.fields.reporter.displayName}`,
-      this.extractDescription(issue.fields.description)
+      this.extractDescription(issue.fields.description as string | { content?: ADFNode[] } | null | undefined)
     ];
 
     return parts.filter(Boolean).join('\n');

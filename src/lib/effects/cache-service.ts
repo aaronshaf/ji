@@ -3,9 +3,27 @@
  * Replaces the traditional CacheManager with a fully Effect-based implementation
  */
 
-import { Effect, Layer, Context, Option, pipe, Stream } from 'effect';
+import { Effect, Layer, Context, Option, pipe, Stream, Schema } from 'effect';
 import type { Issue, Board } from './jira-client-service.js';
 import { DatabaseService, DatabaseServiceTag } from './layers.js';
+
+// ADF (Atlassian Document Format) schema
+interface ADFNode {
+  readonly type: string;
+  readonly text?: string;
+  readonly content?: readonly ADFNode[];
+}
+
+const ADFNodeSchema: Schema.Schema<ADFNode> = Schema.suspend(() => Schema.Struct({
+  type: Schema.String,
+  text: Schema.optional(Schema.String),
+  content: Schema.optional(Schema.Array(ADFNodeSchema))
+}));
+
+const ADFDocumentSchema = Schema.Struct({
+  content: Schema.optional(Schema.Array(ADFNodeSchema))
+});
+
 import { 
   QueryError, 
   ParseError, 
@@ -464,7 +482,7 @@ class CacheServiceImpl implements CacheService {
     ).pipe(Effect.asVoid);
   }
   
-  private extractDescription(description: string | { content?: any[] } | null | undefined): string {
+  private extractDescription(description: string | { content?: unknown[] } | null | undefined): string {
     if (typeof description === 'string') {
       return description;
     }
@@ -476,30 +494,37 @@ class CacheServiceImpl implements CacheService {
     return '';
   }
   
-  private parseADF(doc: { content?: any[] }): string {
-    let text = '';
-    
-    const parseNode = (node: any): string => {
-      if (node.type === 'text') {
-        return node.text || '';
-      }
-      
-      if (node.type === 'paragraph' && node.content) {
-        return '\n' + node.content.map((n: any) => parseNode(n)).join('') + '\n';
-      }
-      
-      if (node.content) {
-        return node.content.map((n: any) => parseNode(n)).join('');
-      }
-      
-      return '';
-    };
-    
-    if (doc.content) {
-      text = doc.content.map((node: any) => parseNode(node)).join('');
-    }
-    
-    return text.trim();
+  private parseADF(doc: { content?: unknown[] }): string {
+    return pipe(
+      Effect.try({
+        try: () => Schema.decodeUnknownSync(ADFDocumentSchema)(doc),
+        catch: () => ({ content: [] as ADFNode[] }) // Fallback to empty content
+      }),
+      Effect.map(validatedDoc => {
+        const parseNode = (node: ADFNode): string => {
+          if (node.type === 'text') {
+            return node.text || '';
+          }
+          
+          if (node.type === 'paragraph' && node.content) {
+            return '\n' + node.content.map(n => parseNode(n)).join('') + '\n';
+          }
+          
+          if (node.content) {
+            return node.content.map(n => parseNode(n)).join('');
+          }
+          
+          return '';
+        };
+        
+        if (validatedDoc.content) {
+          return validatedDoc.content.map(node => parseNode(node)).join('').trim();
+        }
+        
+        return '';
+      }),
+      Effect.runSync
+    );
   }
 }
 

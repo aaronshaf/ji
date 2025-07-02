@@ -221,7 +221,7 @@ export class TestMocks {
     const cache = new Map<string, any>();
     
     return {
-      get: (key) => Effect.succeed(cache.has(key) ? Option.some(cache.get(key)) : Option.none()),
+      get: <T>(key: string) => Effect.succeed(cache.has(key) ? Option.some(cache.get(key) as T) : Option.none<T>()),
       set: (key, value) => Effect.sync(() => { cache.set(key, value); }),
       delete: (key) => Effect.sync(() => cache.delete(key)),
       clear: () => Effect.sync(() => { cache.clear(); }),
@@ -230,16 +230,16 @@ export class TestMocks {
         hits: 0, misses: 0, evictions: 0, size: cache.size,
         maxSize: 1000, hitRate: 0, memoryUsage: 0
       }),
-      getOrCompute: (key, compute) => pipe(
+      getOrCompute: <T, E>(key: string, compute: Effect.Effect<T, E>) => pipe(
         Effect.succeed(cache.has(key)),
         Effect.flatMap(exists => 
           exists 
-            ? Effect.succeed(cache.get(key))
+            ? Effect.succeed(cache.get(key) as T)
             : pipe(compute, Effect.tap(value => Effect.sync(() => cache.set(key, value))))
         )
       ),
       warmUp: () => Effect.succeed(undefined),
-      refresh: (key, compute) => pipe(
+      refresh: <T, E>(key: string, compute: Effect.Effect<T, E>) => pipe(
         compute,
         Effect.tap(value => Effect.sync(() => cache.set(key, value)))
       )
@@ -368,7 +368,7 @@ export class TestFixtureManager {
    */
   register<T>(fixture: TestFixture<T>): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      this.fixtures.set(fixture.name, fixture);
+      this.fixtures.set(fixture.name, fixture as any);
     });
   }
 
@@ -386,7 +386,7 @@ export class TestFixtureManager {
       }),
       Effect.flatMap(fixture => 
         pipe(
-          fixture.setup(),
+          (fixture as TestFixture<T>).setup(),
           Effect.tap(resource => Effect.sync(() => {
             this.activeResources.set(name, resource);
           }))
@@ -447,7 +447,7 @@ export class TestFixtureManager {
       if (!resource) {
         throw new Error(`Active fixture not found: ${name}`);
       }
-      return resource;
+      return resource as T;
     });
   }
 }

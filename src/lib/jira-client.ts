@@ -57,7 +57,7 @@ export interface Issue {
   self: string;
   fields: {
     summary: string;
-    description?: any;
+    description?: unknown;
     status: { name: string };
     assignee?: { displayName: string; emailAddress?: string } | null;
     reporter: { displayName: string; emailAddress?: string };
@@ -463,23 +463,39 @@ export class JiraClient {
       throw new Error(`Failed to fetch board issues: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as { issues?: any[] };
+    const data = await response.json() as { issues?: unknown[] };
     
     // Map the agile API response to our Issue type
-    return (data.issues || []).map((issue: any) => ({
-      key: issue.key,
-      self: issue.self,
-      fields: {
-        summary: issue.fields.summary,
-        description: issue.fields.description,
-        status: issue.fields.status,
-        assignee: issue.fields.assignee,
-        reporter: issue.fields.reporter,
-        priority: issue.fields.priority,
-        created: issue.fields.created,
-        updated: issue.fields.updated
-      }
-    }));
+    return (data.issues || []).map((issue: unknown) => {
+      const typedIssue = issue as {
+        key: string;
+        self: string;
+        fields: {
+          summary: string;
+          description: unknown;
+          status: { name: string };
+          assignee?: { displayName: string; emailAddress?: string } | null;
+          reporter: { displayName: string; emailAddress?: string };
+          priority?: { name: string } | null;
+          created: string;
+          updated: string;
+        };
+      };
+      return {
+        key: typedIssue.key,
+        self: typedIssue.self,
+        fields: {
+          summary: typedIssue.fields.summary,
+          description: typedIssue.fields.description,
+          status: typedIssue.fields.status,
+          assignee: typedIssue.fields.assignee,
+          reporter: typedIssue.fields.reporter,
+          priority: typedIssue.fields.priority,
+          created: typedIssue.fields.created,
+          updated: typedIssue.fields.updated
+        }
+      };
+    });
   }
 
   async getActiveSprints(boardId: number): Promise<Sprint[]> {
@@ -521,9 +537,9 @@ export class JiraClient {
       throw new Error(`Failed to fetch sprint issues: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json() as { issues: any[]; total: number };
+    const data = await response.json() as { issues: unknown[]; total: number };
     return {
-      issues: data.issues.map((issue: any) => Schema.decodeUnknownSync(IssueSchema)(issue) as Issue),
+      issues: data.issues.map((issue: unknown) => Schema.decodeUnknownSync(IssueSchema)(issue) as Issue),
       total: data.total
     };
   }
