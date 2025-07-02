@@ -1,8 +1,6 @@
 import chalk from 'chalk';
-import { formatDistanceToNow } from 'date-fns';
 import { ConfigManager } from '../../lib/config.js';
 import { ContentManager } from '../../lib/content-manager.js';
-import { MeilisearchAdapter } from '../../lib/meilisearch-adapter.js';
 import { OllamaClient } from '../../lib/ollama.js';
 
 export async function search(
@@ -57,36 +55,64 @@ export async function search(
 
 function displaySearchResults(
   results: Array<{
-    content: { id: string; title?: string; source: string; updatedAt?: string | number; metadata?: any };
+    content: {
+      id: string;
+      title?: string;
+      source: string;
+      updatedAt?: string | number;
+      metadata?: Record<string, unknown>;
+    };
     snippet?: string;
   }>,
-  totalCount: number,
+  _totalCount: number,
 ) {
-  // YAML-friendly output for LLM compatibility
-  results.slice(0, 10).forEach((result) => {
+  // YAML-friendly output for LLM compatibility with color highlighting
+  results.slice(0, 10).forEach((result, index) => {
     const { content, snippet } = result;
     const type = content.source === 'jira' ? 'issue' : 'page';
     const key = content.id.replace(/^(jira|confluence):/, '');
-    const title = content.title || 'Untitled';
-    const updated = content.updatedAt
-      ? new Date(typeof content.updatedAt === 'string' ? content.updatedAt : content.updatedAt * 1000).toISOString()
-      : null;
+    // Remove redundant key from title if present
+    let title = content.title || 'Untitled';
+    if (title.startsWith(`${key}: `)) {
+      title = title.substring(key.length + 2);
+    }
+    // Handle date properly - convert from milliseconds if needed
+    let updated = null;
+    if (content.updatedAt) {
+      const timestamp = typeof content.updatedAt === 'string' ? parseInt(content.updatedAt) : content.updatedAt;
+      // If timestamp is in milliseconds (>= year 2001), use as is, otherwise multiply by 1000
+      const dateValue = timestamp >= 978307200000 ? timestamp : timestamp * 1000;
+      updated = new Date(dateValue).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    }
 
-    // YAML-ish output
-    console.log(`- type: ${type}`);
-    console.log(`  key: ${key}`);
-    console.log(`  title: ${title}`);
+    // YAML-ish output with color
+    console.log(chalk.cyan('- type:') + ` ${type}`);
+    console.log(chalk.cyan('  key:') + ` ${chalk.bold(key)}`);
+    console.log(chalk.cyan('  title:') + ` ${title}`);
     if (updated) {
-      console.log(`  updated: ${updated}`);
+      console.log(chalk.cyan('  updated:') + ` ${chalk.dim(updated)}`);
     }
     if (content.metadata?.status) {
-      console.log(`  status: ${content.metadata.status}`);
+      const statusColor =
+        String(content.metadata.status).toLowerCase() === 'closed'
+          ? chalk.gray
+          : String(content.metadata.status).toLowerCase() === 'open'
+            ? chalk.green
+            : chalk.yellow;
+      console.log(chalk.cyan('  status:') + ` ${statusColor(String(content.metadata.status))}`);
     }
     if (content.metadata?.priority) {
-      console.log(`  priority: ${content.metadata.priority}`);
+      const priority = String(content.metadata.priority);
+      const priorityColor =
+        priority === 'P1' || priority === 'P2' ? chalk.red : priority === 'P3' ? chalk.yellow : chalk.gray;
+      console.log(chalk.cyan('  priority:') + ` ${priorityColor(priority)}`);
     }
     if (content.metadata?.assignee) {
-      console.log(`  assignee: ${content.metadata.assignee}`);
+      console.log(chalk.cyan('  assignee:') + ` ${content.metadata.assignee}`);
     }
     if (snippet) {
       const cleanSnippet = snippet
@@ -94,10 +120,23 @@ function displaySearchResults(
         .replace(/<\/mark>/g, '')
         .replace(/\s+/g, ' ')
         .trim();
-      console.log(`  description: |`);
-      console.log(`    ${cleanSnippet}`);
+
+      // Truncate at word boundary with ellipsis
+      const maxLength = 150;
+      let truncated = cleanSnippet;
+      if (cleanSnippet.length > maxLength) {
+        const lastSpace = cleanSnippet.lastIndexOf(' ', maxLength);
+        truncated = cleanSnippet.substring(0, lastSpace > 0 ? lastSpace : maxLength) + '...';
+      }
+
+      console.log(chalk.cyan('  description:') + ' |');
+      console.log(`    ${chalk.gray(truncated)}`);
     }
-    console.log(); // Empty line between results
+
+    // Only add empty line between results, not after the last one
+    if (index < results.slice(0, 10).length - 1) {
+      console.log();
+    }
   });
 }
 
