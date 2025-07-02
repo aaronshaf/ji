@@ -57,47 +57,48 @@ export async function search(
 
 function displaySearchResults(
   results: Array<{
-    content: { id: string; title?: string; source: string; updatedAt?: string | number };
+    content: { id: string; title?: string; source: string; updatedAt?: string | number; metadata?: any };
     snippet?: string;
   }>,
   totalCount: number,
 ) {
-  const displayCount = Math.min(results.length, 10);
-  console.log(chalk.bold(`Found ${totalCount} results (showing top ${displayCount}):\n`));
-  console.log(chalk.gray('---'));
-
-  results.slice(0, 10).forEach((result, index) => {
+  // YAML-friendly output for LLM compatibility
+  results.slice(0, 10).forEach((result) => {
     const { content, snippet } = result;
-    // Use "Issue" for jira and "Page" for confluence
-    const type = content.source === 'jira' ? 'Issue' : 'Page';
+    const type = content.source === 'jira' ? 'issue' : 'page';
     const key = content.id.replace(/^(jira|confluence):/, '');
     const title = content.title || 'Untitled';
     const updated = content.updatedAt
-      ? formatDistanceToNow(
-          new Date(typeof content.updatedAt === 'string' ? content.updatedAt : content.updatedAt * 1000),
-          { addSuffix: true },
-        )
-      : 'unknown';
+      ? new Date(typeof content.updatedAt === 'string' ? content.updatedAt : content.updatedAt * 1000).toISOString()
+      : null;
 
-    console.log(`${chalk.blue(`- ${type}`)}: ${chalk.bold(key)}`);
-    console.log(`  ${chalk.yellow(title)}`);
-    console.log(`  ${chalk.dim(`Updated ${updated}`)}`);
-
+    // YAML-ish output
+    console.log(`- type: ${type}`);
+    console.log(`  key: ${key}`);
+    console.log(`  title: ${title}`);
+    if (updated) {
+      console.log(`  updated: ${updated}`);
+    }
+    if (content.metadata?.status) {
+      console.log(`  status: ${content.metadata.status}`);
+    }
+    if (content.metadata?.priority) {
+      console.log(`  priority: ${content.metadata.priority}`);
+    }
+    if (content.metadata?.assignee) {
+      console.log(`  assignee: ${content.metadata.assignee}`);
+    }
     if (snippet) {
       const cleanSnippet = snippet
         .replace(/<mark>/g, '')
         .replace(/<\/mark>/g, '')
         .replace(/\s+/g, ' ')
         .trim();
-      console.log(chalk.gray(`  ${cleanSnippet}`));
+      console.log(`  description: |`);
+      console.log(`    ${cleanSnippet}`);
     }
-
-    if (index < displayCount - 1) {
-      console.log();
-    }
+    console.log(); // Empty line between results
   });
-
-  console.log(chalk.gray('---'));
 }
 
 export async function ask(question: string) {
