@@ -22,6 +22,7 @@
   "license": "MIT",
   "dependencies": {
     "chalk": "^5.3.0",
+    "effect": "^3.16.10",
     "meilisearch": "latest",
     "ora": "^8.2.0",
     "turndown": "^7.2.0",

@@ -17,6 +17,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
+import { Effect, Option, pipe } from 'effect';
 
 async function auth() {
   const rl = readline.createInterface({ input, output });
@@ -90,8 +91,37 @@ async function viewIssue(issueKey: string, options: { json?: boolean, sync?: boo
     
     // Try cache first unless --sync is specified
     if (!options.sync) {
-      issue = await cacheManager.getIssue(issueKey);
-      if (issue) {
+      // Use Effect version for better error visibility
+      const cacheEffect = pipe(
+        cacheManager.getIssueEffect(issueKey),
+        Effect.tap(() => 
+          Effect.sync(() => {
+            if (process.env.DEBUG) {
+              console.log(chalk.dim('[Effect] Checking cache...'));
+            }
+          })
+        ),
+        Effect.match({
+          onFailure: (error: Error) => {
+            if (process.env.DEBUG) {
+              console.error(chalk.red(`[Effect] Cache error: ${error.message}`));
+            }
+            return null;
+          },
+          onSuccess: (optionIssue) => {
+            const result = Option.getOrNull(optionIssue);
+            if (process.env.DEBUG) {
+              console.log(chalk.dim(`[Effect] Cache result: ${result ? 'found' : 'not found'}`));
+            }
+            return result;
+          }
+        })
+      );
+      
+      const cachedResult = await Effect.runPromise(cacheEffect);
+      
+      if (cachedResult) {
+        issue = cachedResult;
         fromCache = true;
       }
     }
@@ -784,7 +814,9 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
         await cacheManager.clearBackfillLimit(workspace.keyOrId);
       }
       // Clear Confluence spaces too
-      // TODO: Add confluence clean support when needed
+      for (const workspace of confluenceWorkspaces) {
+        await cacheManager.deleteSpacePages(workspace.keyOrId);
+      }
     }
     
     // Sync boards and show how many were updated
