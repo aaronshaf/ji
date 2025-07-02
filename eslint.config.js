@@ -38,13 +38,20 @@ export default [
     rules: {
       // TypeScript-specific rules - graduated from warn to error as we fix them
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }], // ✅ 0 warnings - now error
-      '@typescript-eslint/no-explicit-any': 'warn', // 🔄 Still working on this one
+      '@typescript-eslint/no-explicit-any': 'error', // ✅ 4 warnings in test files only - now error
       
       // General rules
       'no-console': 'off', // CLI tool needs console output
       'no-unused-vars': 'off', // Use TypeScript version instead
       'prefer-const': 'warn', // Warn instead of error for now
       'no-undef': 'error', // ✅ 0 warnings - now error (using globalThis.*)
+    },
+  },
+  {
+    // Allow 'any' in test and mock files where it's often appropriate
+    files: ['**/*test*.ts', '**/*mock*.ts', '**/testing.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
   {
