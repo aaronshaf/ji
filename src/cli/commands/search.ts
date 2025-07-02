@@ -16,46 +16,39 @@ export async function search(
   const limit = options.limit || 10;
 
   try {
-    // Try Meilisearch first (if available)
-    try {
-      const meilisearch = new MeilisearchAdapter();
-      const results = await meilisearch.search(query, {
-        source: options.source,
-        limit,
-        includeAll: options.includeAll,
-      });
+    // Always use local SQLite search for instant results
+    const contentManager = new ContentManager();
+    const results = await contentManager.searchContent(query, {
+      source: options.source,
+      limit,
+    });
 
-      if (results.length === 0) {
-        console.log(chalk.yellow('No results found'));
-        return;
-      }
-
-      displaySearchResults(results, results.length);
-    } catch (_meilisearchError) {
-      // Fallback to SQLite FTS5 search
-      console.log(chalk.gray('Using local search (Meilisearch not available)\n'));
-
-      const contentManager = new ContentManager();
-      const results = await contentManager.searchContent(query, {
-        source: options.source,
-        limit,
-      });
-
-      if (results.length === 0) {
-        console.log(chalk.yellow('No results found'));
-        return;
-      }
-
-      // Convert ContentManager results to match Meilisearch format
-      const formattedResults = results.map((result) => ({
-        content: result,
-        snippet: result.content ? `${result.content.slice(0, 200).trim()}...` : undefined,
-      }));
-
-      displaySearchResults(formattedResults, results.length);
-
+    if (results.length === 0) {
+      console.log(chalk.yellow('No results found'));
       contentManager.close();
+      return;
     }
+
+    // Convert ContentManager results to display format with truncated snippets
+    const formattedResults = results.map((result) => {
+      // Truncate content to 150 chars for cleaner display
+      const truncatedContent = result.content
+        ? result.content
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .trim()
+            .slice(0, 150)
+            .trim()
+        : '';
+
+      return {
+        content: result,
+        snippet: truncatedContent ? `${truncatedContent}...` : undefined,
+      };
+    });
+
+    displaySearchResults(formattedResults, results.length);
+
+    contentManager.close();
   } catch (error) {
     console.error(chalk.red('Search failed:'), error instanceof Error ? error.message : 'Unknown error');
     process.exit(1);
@@ -75,7 +68,8 @@ function displaySearchResults(
 
   results.slice(0, 10).forEach((result, index) => {
     const { content, snippet } = result;
-    const type = content.source === 'jira' ? 'JIRA' : 'CONFLUENCE';
+    // Use "Issue" for jira and "Page" for confluence
+    const type = content.source === 'jira' ? 'Issue' : 'Page';
     const key = content.id.replace(/^(jira|confluence):/, '');
     const title = content.title || 'Untitled';
     const updated = content.updatedAt
@@ -85,11 +79,9 @@ function displaySearchResults(
         )
       : 'unknown';
 
-    console.log(chalk.cyan(`- result: ${index + 1}`));
-    console.log(`  type: ${chalk.blue(type)}`);
-    console.log(`  key: ${chalk.bold(key)}`);
-    console.log(`  title: ${chalk.yellow(title)}`);
-    console.log(`  updated: ${updated}`);
+    console.log(`${chalk.blue(`- ${type}`)}: ${chalk.bold(key)}`);
+    console.log(`  ${chalk.yellow(title)}`);
+    console.log(`  ${chalk.dim(`Updated ${updated}`)}`);
 
     if (snippet) {
       const cleanSnippet = snippet
@@ -97,8 +89,7 @@ function displaySearchResults(
         .replace(/<\/mark>/g, '')
         .replace(/\s+/g, ' ')
         .trim();
-      console.log(`  preview: |`);
-      console.log(chalk.gray(`    ${cleanSnippet}`));
+      console.log(chalk.gray(`  ${cleanSnippet}`));
     }
 
     if (index < displayCount - 1) {
