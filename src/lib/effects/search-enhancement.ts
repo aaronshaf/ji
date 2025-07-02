@@ -1,4 +1,5 @@
 import { Effect, Stream, Duration, pipe, Option, Context, Layer } from 'effect';
+import { Database } from 'bun:sqlite';
 import {
   NetworkError,
   DatabaseError,
@@ -616,7 +617,7 @@ export class EnhancedSearchEngine implements StreamingSearchService {
  * Search analytics implementation
  */
 export class SearchAnalyticsService implements SearchAnalytics {
-  constructor(private db: any) {}
+  constructor(private db: Database) {}
 
   recordQuery(query: SearchQuery, results: EnhancedSearchResult[]): Effect.Effect<void, DatabaseError> {
     return Effect.tryPromise({
@@ -697,8 +698,8 @@ export class SearchAnalyticsService implements SearchAnalytics {
         
         const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
         
-        const queryCount = (queryStmt.get(query, sevenDaysAgo) as any)?.query_count || 0;
-        const clickCount = (clickStmt.get(query, sevenDaysAgo) as any)?.click_count || 0;
+        const queryCount = (queryStmt.get(query, sevenDaysAgo) as { query_count?: number })?.query_count || 0;
+        const clickCount = (clickStmt.get(query, sevenDaysAgo) as { click_count?: number })?.click_count || 0;
         
         return queryCount > 0 ? clickCount / queryCount : 0;
       },
