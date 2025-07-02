@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 import type { Config } from './config.js';
 import { Effect, Schedule, pipe, Option } from 'effect';
 import {
@@ -12,89 +12,87 @@ import {
   ConfluenceError
 } from './effects/errors.js';
 
-// Confluence API schemas
-const PageSchema = z.object({
-  id: z.string(),
-  type: z.string(),
-  status: z.string(),
-  title: z.string(),
-  space: z.object({
-    key: z.string(),
-    name: z.string(),
-  }),
-  version: z.object({
-    number: z.number(),
-    when: z.string(),
-  }),
-  body: z.object({
-    storage: z.object({
-      value: z.string(),
-      representation: z.literal('storage'),
-    }).optional(),
-    view: z.object({
-      value: z.string(),
-      representation: z.literal('view'),
-    }).optional(),
-  }).optional(),
-  _links: z.object({
-    self: z.string(),
-    webui: z.string(),
-  }),
+// Simplified Confluence API schemas
+const PageSchema = Schema.Struct({
+  id: Schema.String,
+  type: Schema.String,
+  status: Schema.String,
+  title: Schema.String,
+  space: Schema.Any, // Allow any space structure
+  version: Schema.Any, // Allow any version structure
+  body: Schema.Any.pipe(Schema.optional), // Allow any body structure
+  _links: Schema.Any, // Allow any links structure
 });
 
-// Schema for search API results - Confluence search API wraps results in 'content'
-const SearchResultSchema = z.object({
-  content: z.object({
-    id: z.string(),
-    type: z.string(),
-    title: z.string(),
-    version: z.object({
-      number: z.number(),
-      when: z.string(),
-      by: z.object({
-        displayName: z.string(),
-      }).optional(),
-    }).optional(), // Make version optional for now to debug
-    _links: z.object({
-      webui: z.string(),
-    }),
-  }),
+const SearchResultSchema = Schema.Struct({
+  content: Schema.Any, // Accept any content structure
 });
 
-const SearchResponseSchema = z.object({
-  results: z.array(SearchResultSchema),
-  start: z.number(),
-  limit: z.number(),
-  size: z.number(),
-  totalSize: z.number().optional(),
-  _links: z.object({
-    next: z.string().optional(),
-  }).optional(),
+const SearchResponseSchema = Schema.Struct({
+  results: Schema.Array(SearchResultSchema),
+  start: Schema.Number,
+  limit: Schema.Number,
+  size: Schema.Number,
+  totalSize: Schema.Number.pipe(Schema.optional),
+  _links: Schema.Any.pipe(Schema.optional),
 });
 
-const SpaceSchema = z.object({
-  key: z.string(),
-  name: z.string(),
-  type: z.string(),
-  status: z.string(),
-  _links: z.object({
-    self: z.string(),
-    webui: z.string(),
-  }),
+const SpaceSchema = Schema.Struct({
+  key: Schema.String,
+  name: Schema.String,
+  type: Schema.String,
+  status: Schema.String,
+  _links: Schema.Any,
 });
 
-const PageListResponseSchema = z.object({
-  results: z.array(PageSchema),
-  start: z.number(),
-  limit: z.number(),
-  size: z.number(),
-  _links: z.object({
-    next: z.string().optional(),
-  }).optional(),
+const PageListResponseSchema = Schema.Struct({
+  results: Schema.Array(PageSchema),
+  start: Schema.Number,
+  limit: Schema.Number,
+  size: Schema.Number,
+  _links: Schema.Any.pipe(Schema.optional),
 });
 
-export type Page = z.infer<typeof PageSchema>;
-export type Space = z.infer<typeof SpaceSchema>;
+// Define interfaces instead of deriving from schemas
+export interface Page {
+  id: string;
+  type: string;
+  status: string;
+  title: string;
+  space: {
+    key: string;
+    name: string;
+  };
+  version: {
+    number: number;
+    when: string;
+  };
+  body?: {
+    storage?: {
+      value: string;
+      representation: string;
+    };
+    view?: {
+      value: string;
+      representation: string;
+    };
+  };
+  _links: {
+    self: string;
+    webui: string;
+  };
+}
+
+export interface Space {
+  key: string;
+  name: string;
+  type: string;
+  status: string;
+  _links: {
+    self: string;
+    webui: string;
+  };
+}
 
 export class ConfluenceClient {
   private config: Config;
@@ -135,14 +133,14 @@ export class ConfluenceClient {
     }
 
     const data = await response.json();
-    return SpaceSchema.parse(data);
+    return Schema.decodeUnknownSync(SpaceSchema)(data) as Space;
   }
 
   async getSpaceContent(spaceKey: string, options?: {
     start?: number;
     limit?: number;
     expand?: string[];
-  }): Promise<z.infer<typeof PageListResponseSchema>> {
+  }): Promise<{ results: Page[]; start: number; limit: number; size: number; _links?: any }> {
     const params = new URLSearchParams({
       start: (options?.start || 0).toString(),
       limit: (options?.limit || 25).toString(),
@@ -162,7 +160,7 @@ export class ConfluenceClient {
     }
 
     const data = await response.json();
-    return PageListResponseSchema.parse(data);
+    return Schema.decodeUnknownSync(PageListResponseSchema)(data) as { results: Page[]; start: number; limit: number; size: number; _links?: any };
   }
 
   async getPagesSince(
@@ -244,12 +242,12 @@ export class ConfluenceClient {
     }
 
     const data = await response.json();
-    const parsedData = SearchResponseSchema.parse(data);
+    const parsedData = Schema.decodeUnknownSync(SearchResponseSchema)(data);
     
     return parsedData.results.map((result) => {
       // The search API doesn't always return version info
       // Use lastModified from the search result instead
-      const searchResult = result as z.infer<typeof SearchResultSchema> & { lastModified?: string };
+      const searchResult = result as any & { lastModified?: string };
       return {
         id: result.content.id,
         title: result.content.title,
@@ -280,7 +278,7 @@ export class ConfluenceClient {
         expand: ['version', 'space'] // Get version and space info, no body content
       });
 
-      const lightweightPages = response.results.map(page => ({
+      const lightweightPages = response.results.map((page: Page) => ({
         id: page.id,
         title: page.title,
         version: page.version
@@ -359,7 +357,7 @@ export class ConfluenceClient {
     }
 
     const data = await response.json();
-    return PageSchema.parse(data);
+    return Schema.decodeUnknownSync(PageSchema)(data) as Page;
   }
 
   async getChildPages(pageId: string): Promise<Page[]> {
@@ -376,8 +374,8 @@ export class ConfluenceClient {
     }
 
     const data = await response.json();
-    const parsed = PageListResponseSchema.parse(data);
-    return parsed.results;
+    const parsed = Schema.decodeUnknownSync(PageListResponseSchema)(data);
+    return parsed.results as Page[];
   }
 
   /**
@@ -475,7 +473,7 @@ export class ConfluenceClient {
       }),
       Effect.flatMap(() => {
         const url = `${this.baseUrl}/space/${spaceKey}`;
-        return this.makeRequestEffect(url, { method: 'GET' }, (data) => SpaceSchema.parse(data));
+        return this.makeRequestEffect(url, { method: 'GET' }, (data) => Schema.decodeUnknownSync(SpaceSchema)(data) as Space);
       })
     );
   }
@@ -492,7 +490,7 @@ export class ConfluenceClient {
       }),
       Effect.flatMap(() => {
         const url = `${this.baseUrl}/content/${pageId}?expand=body.storage,body.view,version,space`;
-        return this.makeRequestEffect(url, { method: 'GET' }, (data) => PageSchema.parse(data));
+        return this.makeRequestEffect(url, { method: 'GET' }, (data) => Schema.decodeUnknownSync(PageSchema)(data) as Page);
       })
     );
   }
@@ -507,7 +505,7 @@ export class ConfluenceClient {
       limit?: number;
       expand?: string[];
     }
-  ): Effect.Effect<z.infer<typeof PageListResponseSchema>, ValidationError | NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> {
+  ): Effect.Effect<{ results: Page[]; start: number; limit: number; size: number; _links?: any }, ValidationError | NetworkError | TimeoutError | RateLimitError | AuthenticationError | NotFoundError | ParseError> {
     return pipe(
       Effect.sync(() => {
         if (!spaceKey || spaceKey.trim().length === 0) {
@@ -528,7 +526,7 @@ export class ConfluenceClient {
         });
         
         const url = `${this.baseUrl}/space/${spaceKey}/content/page?${params}`;
-        return this.makeRequestEffect(url, { method: 'GET' }, (data) => PageListResponseSchema.parse(data));
+        return this.makeRequestEffect(url, { method: 'GET' }, (data) => Schema.decodeUnknownSync(PageListResponseSchema)(data) as { results: Page[]; start: number; limit: number; size: number; _links?: any });
       })
     );
   }

@@ -1,81 +1,78 @@
-import { z } from 'zod';
+import { Schema } from 'effect';
 import type { Config } from './config.js';
 import { Effect, pipe } from 'effect';
 
-const IssueSchema = z.object({
-  key: z.string(),
-  self: z.string(),
-  fields: z.object({
-    summary: z.string(),
-    description: z.any().nullable(),
-    status: z.object({
-      name: z.string(),
-    }),
-    assignee: z.object({
-      displayName: z.string(),
-      emailAddress: z.string().email().optional(),
-    }).nullable(),
-    reporter: z.object({
-      displayName: z.string(),
-      emailAddress: z.string().email().optional(),
-    }),
-    priority: z.object({
-      name: z.string(),
-    }).nullable(),
-    created: z.string(),
-    updated: z.string(),
-    // Common sprint custom fields - these will be present when we fetch with custom fields
-    customfield_10020: z.any().optional(), // Most common sprint field
-    customfield_10021: z.any().optional(), // Alternative sprint field
-    customfield_10016: z.any().optional(), // Another common sprint field
-  }).catchall(z.any()), // Allow other custom fields to pass through
+// Simple approach - just validate the basic structure and allow any fields
+const IssueSchema = Schema.Struct({
+  key: Schema.String,
+  self: Schema.String,
+  fields: Schema.Any, // Accept any fields structure
 });
 
-const SearchResultSchema = z.object({
-  issues: z.array(IssueSchema),
-  startAt: z.number(),
-  maxResults: z.number(),
-  total: z.number(),
+const SearchResultSchema = Schema.Struct({
+  issues: Schema.Array(IssueSchema),
+  startAt: Schema.Number,
+  maxResults: Schema.Number,
+  total: Schema.Number,
 });
 
-const BoardSchema = z.object({
-  id: z.number(),
-  name: z.string(),
-  type: z.string(),
-  location: z.object({
-    projectKey: z.string().optional(),
-    projectName: z.string().optional(),
-  }).optional(),
+const BoardSchema = Schema.Struct({
+  id: Schema.Number,
+  name: Schema.String,
+  type: Schema.String,
+  location: Schema.Struct({
+    projectKey: Schema.String.pipe(Schema.optional),
+    projectName: Schema.String.pipe(Schema.optional),
+  }).pipe(Schema.optional),
 });
 
-const BoardsResponseSchema = z.object({
-  values: z.array(BoardSchema),
-  startAt: z.number(),
-  maxResults: z.number(),
-  total: z.number(),
+const BoardsResponseSchema = Schema.Struct({
+  values: Schema.Array(BoardSchema),
+  startAt: Schema.Number,
+  maxResults: Schema.Number,
+  total: Schema.Number,
 });
 
-const SprintSchema = z.object({
-  id: z.number(),
-  self: z.string(),
-  state: z.string(),
-  name: z.string(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  originBoardId: z.number(),
-  goal: z.string().optional(),
+const SprintSchema = Schema.Struct({
+  id: Schema.Number,
+  self: Schema.String,
+  state: Schema.String,
+  name: Schema.String,
+  startDate: Schema.String.pipe(Schema.optional),
+  endDate: Schema.String.pipe(Schema.optional),
+  originBoardId: Schema.Number,
+  goal: Schema.String.pipe(Schema.optional),
 });
 
-const SprintsResponseSchema = z.object({
-  values: z.array(SprintSchema),
-  startAt: z.number(),
-  maxResults: z.number(),
-  total: z.number(),
+const SprintsResponseSchema = Schema.Struct({
+  values: Schema.Array(SprintSchema),
+  startAt: Schema.Number,
+  maxResults: Schema.Number,
+  total: Schema.Number,
 });
 
-export type Issue = z.infer<typeof IssueSchema>;
-export type Board = z.infer<typeof BoardSchema>;
-export type Sprint = z.infer<typeof SprintSchema>;
+// Define proper Issue interface instead of deriving from schema
+export interface Issue {
+  key: string;
+  self: string;
+  fields: {
+    summary: string;
+    description?: any;
+    status: { name: string };
+    assignee?: { displayName: string; emailAddress?: string } | null;
+    reporter: { displayName: string; emailAddress?: string };
+    priority?: { name: string } | null;
+    created: string;
+    updated: string;
+    labels?: string[];
+    comment?: any;
+    project?: any;
+    [key: string]: any; // Allow additional custom fields
+  };
+}
+
+export type Board = Schema.Schema.Type<typeof BoardSchema>;
+export type Sprint = Schema.Schema.Type<typeof SprintSchema>;
 
 // Error types for Jira operations
 export class JiraError extends Error {
@@ -149,7 +146,7 @@ export class JiraClient {
     }
 
     const data = await response.json();
-    return IssueSchema.parse(data);
+    return Schema.decodeUnknownSync(IssueSchema)(data) as Issue;
   }
 
   async searchIssues(jql: string, options?: {
@@ -180,10 +177,10 @@ export class JiraClient {
     }
 
     const data = await response.json();
-    const result = SearchResultSchema.parse(data);
+    const result = Schema.decodeUnknownSync(SearchResultSchema)(data);
     
     return {
-      issues: result.issues,
+      issues: result.issues as Issue[],
       total: result.total,
       startAt: result.startAt,
     };
@@ -383,8 +380,8 @@ export class JiraClient {
     }
 
     const data = await response.json() as unknown;
-    const parsed = BoardsResponseSchema.parse(data);
-    return parsed.values;
+    const parsed = Schema.decodeUnknownSync(BoardsResponseSchema)(data);
+    return parsed.values as Board[];
   }
 
   async getBoardsForProject(projectKey: string): Promise<Board[]> {
@@ -499,8 +496,8 @@ export class JiraClient {
     }
 
     const data = await response.json();
-    const parsed = SprintsResponseSchema.parse(data);
-    return parsed.values;
+    const parsed = Schema.decodeUnknownSync(SprintsResponseSchema)(data);
+    return parsed.values as Sprint[];
   }
 
   async getSprintIssues(sprintId: number, options?: {
@@ -526,7 +523,7 @@ export class JiraClient {
 
     const data = await response.json() as any;
     return {
-      issues: data.issues.map((issue: any) => IssueSchema.parse(issue)),
+      issues: data.issues.map((issue: any) => Schema.decodeUnknownSync(IssueSchema)(issue) as Issue),
       total: data.total
     };
   }
