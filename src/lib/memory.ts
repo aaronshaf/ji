@@ -169,7 +169,17 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
     params.push(questionHash, limit);
     
     const stmt = this.db.prepare(sql);
-    const rows = stmt.all(...params) as any[];
+    const rows = stmt.all(...params) as Array<{
+      id: string;
+      question_hash: string;
+      key_facts: string;
+      relevant_doc_ids: string | null;
+      confidence: number;
+      created_at: number;
+      last_accessed: number;
+      access_count: number;
+      source: string;
+    }>;
     
     // Update access tracking
     const updateStmt = this.db.prepare(`
@@ -216,8 +226,8 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
     
     const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
     
-    const total = (totalStmt.get() as any).count;
-    const recent = (recentStmt.get(weekAgo) as any).count;
+    const total = (totalStmt.get() as { count: number }).count;
+    const recent = (recentStmt.get(weekAgo) as { count: number }).count;
     
     return { total, recent };
   }
@@ -230,7 +240,17 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       LIMIT ?
     `);
     
-    const rows = stmt.all(limit) as any[];
+    const rows = stmt.all(limit) as Array<{
+      id: string;
+      question_hash: string;
+      key_facts: string;
+      relevant_doc_ids: string | null;
+      confidence: number;
+      created_at: number;
+      last_accessed: number;
+      access_count: number;
+      source: string;
+    }>;
     return rows.map(row => ({
       id: row.id,
       questionHash: row.question_hash,
@@ -384,7 +404,17 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
         LIMIT 20
       `);
       
-      const rows = stmt.all(`%${searchTerm}%`) as any[];
+      const rows = stmt.all(`%${searchTerm}%`) as Array<{
+        id: string;
+        question_hash: string;
+        key_facts: string;
+        relevant_doc_ids: string | null;
+        confidence: number;
+        created_at: number;
+        last_accessed: number;
+        access_count: number;
+        source: string;
+      }>;
       return rows.map(row => ({
         id: row.id,
         questionHash: row.question_hash,
@@ -432,7 +462,7 @@ Return only definitive facts, one per line (or nothing if uncertain):`;
       
       if (existing) {
         // Update existing fact instead of creating duplicate
-        return this.updateMemoryFacts((existing as any).id, fact);
+        return this.updateMemoryFacts((existing as { id: string }).id, fact);
       }
       
       const stmt = this.db.prepare(`

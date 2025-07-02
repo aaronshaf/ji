@@ -577,7 +577,7 @@ class JiraClientServiceImpl implements JiraClientService {
           Effect.flatMap((data) =>
             Effect.try({
               try: () => {
-                const parsedData = data as any;
+                const parsedData = data as { columnConfig?: { columns?: unknown[] } };
                 return {
                   columns: parsedData.columnConfig?.columns || []
                 };
@@ -617,8 +617,8 @@ class JiraClientServiceImpl implements JiraClientService {
           Effect.flatMap((data) =>
             Effect.try({
               try: () => {
-                const parsedData = data as any;
-                const issues = (parsedData.issues || []).map((issue: any) => IssueSchema.parse(issue));
+                const parsedData = data as { issues?: unknown[]; startAt?: number; maxResults?: number; total?: number };
+                const issues = (parsedData.issues || []).map((issue: unknown) => IssueSchema.parse(issue));
                 return {
                   values: issues,
                   startAt: parsedData.startAt || 0,
@@ -721,8 +721,8 @@ class JiraClientServiceImpl implements JiraClientService {
           Effect.flatMap((data) =>
             Effect.try({
               try: () => {
-                const parsedData = data as any;
-                const issues = (parsedData.issues || []).map((issue: any) => IssueSchema.parse(issue));
+                const parsedData = data as { issues?: unknown[]; startAt?: number; maxResults?: number; total?: number };
+                const issues = (parsedData.issues || []).map((issue: unknown) => IssueSchema.parse(issue));
                 return {
                   values: issues,
                   startAt: parsedData.startAt || 0,
