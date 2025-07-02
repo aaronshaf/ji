@@ -1,4 +1,3 @@
-import { Effect } from 'effect';
 import chalk from 'chalk';
 
 export async function showRecentConfluencePages(spaceKey: string, limit: number) {

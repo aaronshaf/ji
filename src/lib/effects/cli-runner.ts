@@ -8,9 +8,7 @@ import {
 import {
   CliErrorReporter,
   GracefulShutdown,
-  ProgressTracker,
-  createDefaultErrorReporter,
-  withErrorHandling
+  createDefaultErrorReporter
 } from './cli-error-handling.js';
 import { ValidationError, ConfigError } from './errors.js';
 import type { Config } from '../config.js';
@@ -152,11 +150,11 @@ export class CliRunner {
       if (options.json && result) {
         console.log(JSON.stringify(result, null, 2));
       } else if (commandName === 'view' && result) {
-        this.displayIssue(result as any);
+        this.displayIssue(result);
       } else if (commandName === 'search' && Array.isArray(result)) {
-        this.displaySearchResults(result as any[]);
+        this.displaySearchResults(result as unknown[]);
       } else if (commandName === 'sync' && result) {
-        this.displaySyncResults(result as any);
+        this.displaySyncResults(result);
       }
     });
   }
@@ -164,17 +162,18 @@ export class CliRunner {
   /**
    * Display issue information
    */
-  private displayIssue(issue: any): void {
-    console.log(chalk.blue.bold(`\\n${issue.key}: ${issue.fields.summary}`));
-    console.log(chalk.gray(`Status: ${issue.fields.status.name}`));
-    if (issue.fields.assignee) {
-      console.log(chalk.gray(`Assignee: ${issue.fields.assignee.displayName}`));
+  private displayIssue(issue: unknown): void {
+    const issueWithFields = issue as { key: string; fields: { summary: string; status: { name: string }; assignee?: { displayName: string }; reporter: { displayName: string }; description?: string } };
+    console.log(chalk.blue.bold(`\\n${issueWithFields.key}: ${issueWithFields.fields.summary}`));
+    console.log(chalk.gray(`Status: ${issueWithFields.fields.status.name}`));
+    if (issueWithFields.fields.assignee) {
+      console.log(chalk.gray(`Assignee: ${issueWithFields.fields.assignee.displayName}`));
     }
-    console.log(chalk.gray(`Reporter: ${issue.fields.reporter.displayName}`));
+    console.log(chalk.gray(`Reporter: ${issueWithFields.fields.reporter.displayName}`));
     
-    if (issue.fields.description) {
+    if (issueWithFields.fields.description) {
       console.log(chalk.gray('\\nDescription:'));
-      console.log(this.formatDescription(issue.fields.description));
+      console.log(this.formatDescription(issueWithFields.fields.description));
     }
     console.log('');
   }
@@ -182,7 +181,7 @@ export class CliRunner {
   /**
    * Display search results
    */
-  private displaySearchResults(results: any[]): void {
+  private displaySearchResults(results: unknown[]): void {
     if (results.length === 0) {
       console.log(chalk.yellow('No results found.'));
       return;
@@ -191,7 +190,8 @@ export class CliRunner {
     console.log(chalk.blue.bold(`\\nFound ${results.length} result(s):\\n`));
     
     for (const result of results) {
-      const { content, score, snippet } = result;
+      const searchResult = result as { content: { title: string; source: string; url: string }; score: number; snippet?: string };
+      const { content, score, snippet } = searchResult;
       const scoreColor = score > 0.8 ? chalk.green : score > 0.5 ? chalk.yellow : chalk.red;
       
       console.log(chalk.bold(content.title));
@@ -209,8 +209,9 @@ export class CliRunner {
   /**
    * Display sync results
    */
-  private displaySyncResults(results: any): void {
-    const { synced, errors } = results;
+  private displaySyncResults(results: unknown): void {
+    const syncResults = results as { synced: number; errors: number };
+    const { synced, errors } = syncResults;
     
     if (errors > 0) {
       console.log(chalk.yellow(`Sync completed with ${errors} error(s)`));
@@ -272,13 +273,13 @@ export class CliRunner {
   /**
    * Format issue description for display
    */
-  private formatDescription(description: any): string {
+  private formatDescription(description: unknown): string {
     if (typeof description === 'string') {
       return this.truncateText(description, 500);
     }
     
     // Handle ADF (Atlassian Document Format)
-    if (description?.content) {
+    if (typeof description === 'object' && description !== null && 'content' in description) {
       return this.truncateText('[Rich content - use --json for full details]', 500);
     }
     

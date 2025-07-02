@@ -3,20 +3,18 @@
  * These layers provide test doubles and mocks for testing
  */
 
-import { Effect, Layer, Context, Ref, pipe } from 'effect';
+import { Effect, Layer, Ref, pipe } from 'effect';
 import { Database } from 'bun:sqlite';
 import type { Config as JiConfig } from '../config.js';
 import {
-  ConfigService,
   ConfigServiceTag,
-  DatabaseService,
   DatabaseServiceTag,
   HttpClientService,
   HttpClientServiceTag,
   LoggerService,
   LoggerServiceTag
 } from './layers.js';
-import { ConfigError, DatabaseError, NetworkError } from './errors.js';
+import { DatabaseError, NetworkError } from './errors.js';
 
 // ============= Test Configuration Layer =============
 export const TestConfigServiceLive = Layer.effect(

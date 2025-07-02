@@ -1,7 +1,6 @@
-import { Effect } from 'effect';
 import chalk from 'chalk';
 
-export async function search(query: string, options: { 
+export async function search(query: string, _options: { 
   source?: 'jira' | 'confluence',
   limit?: number,
   includeAll?: boolean

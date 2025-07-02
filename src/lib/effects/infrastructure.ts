@@ -1,15 +1,13 @@
 import { Effect, Layer, Context, pipe, Runtime, Duration } from 'effect';
 import { 
   LoggingService, 
-  createLogger, 
-  defaultLogConfig,
+  createLogger,
   PerformanceLogger,
   AuditLogger 
 } from './logging.js';
 import { 
   ConfigurationService, 
-  createConfigurationService,
-  defaultConfig 
+  createConfigurationService
 } from './configuration.js';
 import { 
   CacheService, 
@@ -175,7 +173,7 @@ export class InfrastructureManager {
       Effect.map(infrastructure => {
         if (!this.runtime) {
           // Create a simple runtime with the infrastructure context
-          const layer = this.createInfrastructureLayer(infrastructure);
+          this.createInfrastructureLayer(infrastructure);
           this.runtime = Runtime.defaultRuntime as Runtime.Runtime<AppInfrastructure>;
         }
         return this.runtime;

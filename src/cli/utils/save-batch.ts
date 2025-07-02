@@ -26,7 +26,6 @@ export async function saveIssuesBatch(
     // Update progress at intervals
     const now = Date.now();
     if (now - lastUpdateTime > updateInterval || i === issues.length - 1) {
-      const percent = Math.round((i + 1) / issues.length * 100);
       process.stdout.write(`\r${createProgressBar(i + 1, issues.length)} ${i + 1}/${issues.length} issues`);
       lastUpdateTime = now;
     }

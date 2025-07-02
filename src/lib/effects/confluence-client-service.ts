@@ -4,7 +4,7 @@
  * Handles all Confluence API interactions with proper error handling and retry strategies
  */
 
-import { Effect, Layer, Context, pipe, Schedule, Duration, Option, Stream, Chunk } from 'effect';
+import { Effect, Layer, Context, pipe, Schedule, Duration, Option, Stream } from 'effect';
 import { z } from 'zod';
 import { HttpClientService, HttpClientServiceTag, ConfigService, ConfigServiceTag, LoggerService, LoggerServiceTag } from './layers.js';
 import { 
@@ -15,7 +15,6 @@ import {
   RateLimitError,
   TimeoutError,
   ParseError,
-  ConfluenceError,
   ConfigError
 } from './errors.js';
 

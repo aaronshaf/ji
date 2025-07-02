@@ -5,21 +5,24 @@ interface ADFNode {
   type: string;
   text?: string;
   content?: ADFNode[];
-  attrs?: Record<string, any>;
+  attrs?: Record<string, unknown>;
 }
 
 /**
  * Format issue description from Atlassian Document Format or plain text
  */
-export function formatDescription(description: any): string {
+export function formatDescription(description: unknown): string {
   if (!description) return chalk.gray('No description');
   
   if (typeof description === 'string') {
     return description.trim() || chalk.gray('No description');
   }
   
-  if (description.version && description.content) {
-    return parseADF(description.content);
+  // Type guard for ADF format
+  if (typeof description === 'object' && description !== null && 
+      'version' in description && 'content' in description) {
+    const adfDescription = description as { version: number; content: ADFNode[] };
+    return parseADF(adfDescription.content);
   }
   
   return chalk.gray('No description');
@@ -49,7 +52,7 @@ export function parseADF(nodes: ADFNode[]): string {
       case 'codeBlock':
         return node.content ? `\n\`\`\`\n${parseADF(node.content)}\n\`\`\`\n` : '';
       case 'heading': {
-        const level = node.attrs?.level || 1;
+        const level = typeof node.attrs?.level === 'number' ? node.attrs.level : 1;
         const prefix = '#'.repeat(level);
         return node.content ? `\n${prefix} ${parseADF(node.content)}\n` : '';
       }

@@ -3,7 +3,7 @@
  * Handles database initialization, migrations, and schema validation
  */
 
-import { Effect, Layer, Context, pipe, Schedule, Duration } from 'effect';
+import { Effect, Layer, Context, pipe } from 'effect';
 import { DatabaseService, DatabaseServiceTag, LoggerService, LoggerServiceTag } from './layers.js';
 import { 
   QueryError, 
@@ -654,7 +654,7 @@ class SchemaServiceImpl implements SchemaService {
     );
   }
   
-  getBackupInfo(backupPath: string): Effect.Effect<{ size: number; createdAt: Date } | null, QueryError> {
+  getBackupInfo(_backupPath: string): Effect.Effect<{ size: number; createdAt: Date } | null, QueryError> {
     // This would require file system access, which we don't have in the database service
     return Effect.succeed(null);
   }

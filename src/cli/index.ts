@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { Effect } from 'effect';
 import chalk from 'chalk';
 import { auth } from './commands/auth.js';
 import { viewIssue } from './commands/issue.js';

@@ -1,11 +1,9 @@
 import { Effect } from 'effect';
 import chalk from 'chalk';
 import { ConfigManager } from '../../lib/config.js';
-import { JiraClient, type Issue, ISSUE_FIELDS } from '../../lib/jira-client.js';
+import { JiraClient } from '../../lib/jira-client.js';
 import { CacheManager } from '../../lib/cache.js';
 import { getJiraStatusIcon } from '../formatters/issue.js';
-import { formatTimeAgo } from '../formatters/time.js';
-import { getTeamFromMetadata } from '../utils/team.js';
 import { createProgressBar } from '../formatters/progress.js';
 import Bun from 'bun';
 
@@ -198,7 +196,6 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
           const doneIssues = allIssues.filter((i) => ['Done', 'Closed', 'Resolved'].includes(i.fields.status.name));
 
           // Progress bar
-          const progress = doneIssues.length / allIssues.length;
           const progressBar = createProgressBar(doneIssues.length, allIssues.length);
 
           console.log(`  ${progressBar} ${doneIssues.length}/${allIssues.length} completed`);

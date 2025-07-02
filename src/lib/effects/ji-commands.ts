@@ -1,4 +1,4 @@
-import { Effect, pipe, Option } from 'effect';
+import { Effect, pipe } from 'effect';
 import { BaseCommand, type CommandError } from './cli-commands.js';
 import { ValidationError, NetworkError, DatabaseError } from './errors.js';
 import type { Config } from '../config.js';
@@ -34,7 +34,7 @@ export class AskCommand extends BaseCommand<string> {
     );
   }
 
-  execute(args: string[], config: Config): Effect.Effect<string, CommandError> {
+  execute(args: string[], _config: Config): Effect.Effect<string, CommandError> {
     return pipe(
       this.parseOptions(args),
       Effect.flatMap(({ args: cleanArgs, options }) => {
@@ -64,7 +64,7 @@ export class AskCommand extends BaseCommand<string> {
             });
             
             // Get relevant memories if not disabled
-            let memories: any[] = [];
+            let memories: unknown[] = [];
             if (!noMemory) {
               memories = await memoryManager.getRelevantMemories(question, 5);
             }
@@ -77,7 +77,10 @@ export class AskCommand extends BaseCommand<string> {
               url: result.url
             }));
             
-            const memoryContext = memories.map(memory => memory.facts).join('\\n');
+            const memoryContext = memories.map(memory => {
+              const memoryWithFacts = memory as { facts?: string };
+              return memoryWithFacts.facts || '';
+            }).join('\\n');
             
             // Generate AI response
             const prompt = `Based on the following context from Jira issues and Confluence pages, answer the question: "${question}"
@@ -125,7 +128,7 @@ export class MineCommand extends BaseCommand<Issue[]> {
   readonly name = 'mine';
   readonly description = 'Show your assigned Jira issues';
 
-  validate(args: string[]): Effect.Effect<void, ValidationError> {
+  validate(_args: string[]): Effect.Effect<void, ValidationError> {
     return Effect.succeed(undefined); // Mine command has no required arguments
   }
 
@@ -255,7 +258,7 @@ export class TakeCommand extends BaseCommand<void> {
 /**
  * Memory commands for managing AI memory
  */
-export class MemoryCommand extends BaseCommand<any> {
+export class MemoryCommand extends BaseCommand<unknown> {
   readonly name = 'memory';
   readonly description = 'Manage AI memory (add, list, delete)';
 
@@ -293,7 +296,7 @@ export class MemoryCommand extends BaseCommand<any> {
     );
   }
 
-  execute(args: string[], config: Config): Effect.Effect<any, CommandError> {
+  execute(args: string[], _config: Config): Effect.Effect<unknown, CommandError> {
     return pipe(
       this.parseOptions(args),
       Effect.flatMap(({ args: cleanArgs, options }) => {
@@ -326,7 +329,10 @@ export class MemoryCommand extends BaseCommand<any> {
                   
                   for (const memory of memories) {
                     console.log(`ID: ${memory.id}`);
-                    console.log(`Facts: ${(memory as any).facts?.slice(0, 200) || 'No facts'}${(memory as any).facts && (memory as any).facts.length > 200 ? '...' : ''}`);
+                    const memoryWithFacts = memory as { facts?: string };
+                    const facts = memoryWithFacts.facts?.slice(0, 200) || 'No facts';
+                    const isTruncated = memoryWithFacts.facts && memoryWithFacts.facts.length > 200;
+                    console.log(`Facts: ${facts}${isTruncated ? '...' : ''}`);
                     console.log(`Created: ${new Date(memory.createdAt).toLocaleString()}`);
                     console.log('---');
                   }
@@ -395,15 +401,15 @@ export class MemoryCommand extends BaseCommand<any> {
 /**
  * Sprint command - Show sprint information
  */
-export class SprintCommand extends BaseCommand<any> {
+export class SprintCommand extends BaseCommand<unknown> {
   readonly name = 'sprint';
   readonly description = 'Show sprint information and issues';
 
-  validate(args: string[]): Effect.Effect<void, ValidationError> {
+  validate(_args: string[]): Effect.Effect<void, ValidationError> {
     return Effect.succeed(undefined); // Sprint command can work without arguments
   }
 
-  execute(args: string[], config: Config): Effect.Effect<any, CommandError> {
+  execute(args: string[], _config: Config): Effect.Effect<unknown, CommandError> {
     return pipe(
       this.parseOptions(args),
       Effect.flatMap(({ args: cleanArgs, options }) => {
@@ -415,7 +421,7 @@ export class SprintCommand extends BaseCommand<any> {
             const { JiraClient } = await import('../jira-client.js');
             const { CacheManager } = await import('../cache.js');
             
-            const jiraClient = new JiraClient(config);
+            const jiraClient = new JiraClient(_config);
             const cache = new CacheManager();
             
             let sprints;
@@ -427,11 +433,14 @@ export class SprintCommand extends BaseCommand<any> {
               sprints = [sprint];
             } else {
               // Get active sprints for user's projects
-              const currentUser = await jiraClient.getCurrentUser();
+              await jiraClient.getCurrentUser();
               // Get user's issues from cache - simplified approach
               // Note: getAllIssues method needs to be implemented
-              const myIssues: any[] = [];
-              const projectKeys = [...new Set(myIssues.map(i => i.project_key))];
+              const myIssues: unknown[] = [];
+              const projectKeys = [...new Set(myIssues.map(i => {
+                const issue = i as { project_key?: string };
+                return issue.project_key;
+              }).filter(Boolean))];
               
               const allSprints = [];
               for (const projectKey of projectKeys) {
@@ -461,7 +470,7 @@ export class SprintCommand extends BaseCommand<any> {
               }
               
               // Group by status
-              const statusGroups = new Map<string, any[]>();
+              const statusGroups = new Map<string, unknown[]>();
               for (const issue of issues) {
                 const status = issue.fields.status.name;
                 if (!statusGroups.has(status)) {
