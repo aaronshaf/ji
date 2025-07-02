@@ -291,7 +291,7 @@ async function saveIssuesBatch(
   cacheManager: CacheManager, 
   contentManager: ContentManager
 ): Promise<void> {
-  const startTime = Date.now();
+  Date.now();
   let lastUpdateTime = Date.now();
   const updateInterval = 100;
   
@@ -845,13 +845,13 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
     // Sync boards and show how many were updated
     if (jiraWorkspaces.length > 0) {
       const allBoards = [];
-      let boardSyncErrors = 0;
+      let _boardSyncErrors = 0;
       for (const workspace of jiraWorkspaces) {
         try {
           const projectBoards = await jiraClient.getBoardsForProject(workspace.keyOrId);
           allBoards.push(...projectBoards);
         } catch (error) {
-          boardSyncErrors++;
+          _boardSyncErrors++;
         }
       }
       
@@ -866,8 +866,8 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
     if (jiraWorkspaces.length > 0) {
       process.stdout.write('Issues');
       let totalIssues = 0;
-      let issueSyncErrors = 0;
-      let allIssues: Issue[] = [];
+      let _issueSyncErrors = 0;
+      const allIssues: Issue[] = [];
       
       // First, collect all issues that need syncing
       for (const workspace of jiraWorkspaces) {
@@ -971,7 +971,7 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
           }
           } // End of non-clean sync logic
         } catch (error) {
-          issueSyncErrors++;
+          _issueSyncErrors++;
           process.stdout.write(' x');
         }
       }
@@ -983,7 +983,7 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
         for (let i = 0; i < allIssues.length; i += BATCH_SIZE) {
           const batch = allIssues.slice(i, i + BATCH_SIZE);
           const savePromises = batch.map(issue => 
-            cacheManager.saveIssue(issue).catch(err => null)
+            cacheManager.saveIssue(issue).catch(_err => null)
           );
           await Promise.all(savePromises);
           process.stdout.write('.');
@@ -999,12 +999,12 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
     if (confluenceWorkspaces.length > 0) {
       process.stdout.write('Pages');
       let totalPages = 0;
-      let pageSyncErrors = 0;
+      let _pageSyncErrors = 0;
       let hasAnyPages = false;
       
       for (const workspace of confluenceWorkspaces) {
         try {
-          const startTime = Date.now();
+          Date.now();
           
           // Get content manager for page counting
           const contentManager = new ContentManager();
@@ -1063,7 +1063,7 @@ async function syncWorkspaces(options: { clean?: boolean } = {}) {
           
           contentManager.close();
         } catch (error) {
-          pageSyncErrors++;
+          _pageSyncErrors++;
           process.stdout.write(' x');
         }
       }
@@ -1191,7 +1191,7 @@ const TECHNICAL_ABBREVIATIONS: Record<string, string> = {
   'docs': 'documentation'
 };
 
-function expandQueryWithSynonyms(query: string): string {
+function _expandQueryWithSynonyms(query: string): string {
   let expandedQuery = query;
   
   // Expand abbreviations
@@ -1210,7 +1210,7 @@ function expandQueryWithSynonyms(query: string): string {
   return expandedQuery;
 }
 
-function detectSearchIntent(query: string): 'troubleshooting' | 'howto' | 'conceptual' | 'general' {
+function _detectSearchIntent(query: string): 'troubleshooting' | 'howto' | 'conceptual' | 'general' {
   const lowerQuery = query.toLowerCase();
   
   if (lowerQuery.includes('error') || lowerQuery.includes('broken') || lowerQuery.includes('issue') || 
@@ -1231,7 +1231,7 @@ function detectSearchIntent(query: string): 'troubleshooting' | 'howto' | 'conce
   return 'general';
 }
 
-function assessContentQuality(content: any): number {
+function _assessContentQuality(content: any): number {
   let qualityScore = 1.0;
   const text = content.content.toLowerCase();
   
@@ -1268,7 +1268,7 @@ function assessContentQuality(content: any): number {
   return Math.max(0.1, Math.min(2.0, qualityScore));
 }
 
-function getFreshnessBoost(updatedAt: number | undefined): number {
+function _getFreshnessBoost(updatedAt: number | undefined): number {
   if (!updatedAt) return 0.8;
   
   const daysSinceUpdate = (Date.now() - updatedAt) / (1000 * 60 * 60 * 24);
@@ -1280,7 +1280,7 @@ function getFreshnessBoost(updatedAt: number | undefined): number {
   return 0.7;                               // Stale
 }
 
-function highlightQueryInText(text: string, query: string): string {
+function _highlightQueryInText(text: string, query: string): string {
   const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
   let highlightedText = text;
   
@@ -1842,7 +1842,7 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       batches.push(pagesToSync.slice(i, i + BATCH_SIZE));
     }
     
-    let processedCount = 0;
+    let _processedCount = 0;
     
     // Process each batch
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
@@ -1888,7 +1888,7 @@ async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {
       
       // Wait for all pages in this batch to complete
       await Promise.all(batchPromises);
-      processedCount += batch.length;
+      _processedCount += batch.length;
     }
 
     console.log(''); // New line after progress
@@ -2424,7 +2424,7 @@ Return only the queries, one per line:`;
     }
     
     if (options.verbose) {
-      const byRound = [1, 2, 3].map(round => 
+      const _byRound = [1, 2, 3].map(round => 
         deduplicatedContexts.filter(c => c.searchRound === round).length
       );
       spinner.stop();
@@ -2872,7 +2872,7 @@ async function searchWithoutAI(question: string, options: {
     console.log(chalk.bold(`\nSearch Results for "${question}":\n`));
 
     results.forEach((result, index) => {
-      const { content, score, snippet } = result;
+      const { content, score: _score, snippet } = result;
       
       if (content.source === 'jira') {
         const issueKey = content.id.replace('jira:', '');
