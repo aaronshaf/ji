@@ -485,6 +485,48 @@ export class ContentManager {
       limit?: number;
     },
   ): Promise<SearchableContent[]> {
+    // Handle exact Jira issue key search (e.g., "EVAL-5273")
+    const jiraKeyPattern = /^[A-Z]+-\d+$/;
+    if (jiraKeyPattern.test(query)) {
+      const stmt = this.db.prepare('SELECT * FROM searchable_content WHERE id = ?');
+      const row = stmt.get(`jira:${query}`) as
+        | {
+            id: string;
+            source: string;
+            type: string;
+            title: string;
+            content: string;
+            url: string;
+            space_key?: string;
+            project_key?: string;
+            metadata?: string;
+            created_at?: number;
+            updated_at?: number;
+            synced_at: number;
+          }
+        | undefined;
+
+      if (row) {
+        return [
+          {
+            id: row.id,
+            source: row.source as 'jira' | 'confluence',
+            type: row.type,
+            title: row.title,
+            content: row.content,
+            url: row.url,
+            spaceKey: row.space_key,
+            projectKey: row.project_key,
+            metadata: JSON.parse(row.metadata || '{}'),
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            syncedAt: row.synced_at,
+          },
+        ];
+      }
+      // Fall through to regular search if not found
+    }
+
     // Handle special case for ID search
     if (query.startsWith('id:')) {
       const id = query.substring(3);
