@@ -506,7 +506,7 @@ export class EnhancedSearchEngine implements StreamingSearchService {
     }
   }
 
-  private computeSimilarDocuments(contentId: string): Effect.Effect<SearchResult[], NetworkError | DatabaseError> {
+  private computeSimilarDocuments(_contentId: string): Effect.Effect<SearchResult[], NetworkError | DatabaseError> {
     return Effect.tryPromise({
       try: async () => {
         // This would use vector similarity or content-based similarity
