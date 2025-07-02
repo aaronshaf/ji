@@ -51,10 +51,22 @@ const saveConfig = (config: { jiraUrl: string; email: string; apiToken: string }
   });
 
 // Effect wrapper for readline operations with default value
-const askQuestionWithDefault = (question: string, defaultValue: string | undefined, rl: readline.Interface) =>
+const askQuestionWithDefault = (
+  question: string,
+  defaultValue: string | undefined,
+  rl: readline.Interface,
+  isSecret = false,
+) =>
   Effect.tryPromise({
     try: async () => {
-      const prompt = defaultValue ? `${question} [${defaultValue}]: ` : `${question}: `;
+      let prompt: string;
+      if (defaultValue && !isSecret) {
+        prompt = `${question} ${chalk.dim(`[${defaultValue}]`)}: `;
+      } else if (defaultValue && isSecret) {
+        prompt = `${question} ${chalk.dim('[<hidden>]')}: `;
+      } else {
+        prompt = `${question}: `;
+      }
       const answer = await rl.question(prompt);
       return answer.trim() || defaultValue || '';
     },
@@ -98,7 +110,7 @@ const authEffect = (rl: readline.Interface) =>
             askQuestionWithDefault('Email', existingConfig?.email, rl),
             Effect.flatMap((email: string) =>
               pipe(
-                askQuestionWithDefault('API Token', existingConfig?.apiToken, rl),
+                askQuestionWithDefault('API Token', existingConfig?.apiToken, rl, true),
                 Effect.map((apiToken: string) => ({ jiraUrl, email, apiToken })),
               ),
             ),
