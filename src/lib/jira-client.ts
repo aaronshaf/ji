@@ -219,6 +219,191 @@ export class JiraClient {
     return allIssues;
   }
 
+  // ============= Effect-based Core Methods =============
+
+  /**
+   * Effect-based version of getIssue with structured error handling
+   */
+  getIssueEffect(issueKey: string): Effect.Effect<Issue, ValidationError | NotFoundError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate issue key format
+      Effect.sync(() => {
+        if (!issueKey || !issueKey.match(/^[A-Z]+-\d+$/)) {
+          throw new ValidationError('Invalid issue key format. Expected format: PROJECT-123');
+        }
+      }),
+      Effect.flatMap(() => {
+        const params = new URLSearchParams({
+          fields: ISSUE_FIELDS.join(',')
+        });
+        const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}?${params}`;
+        
+        return Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(url, {
+              method: 'GET',
+              headers: this.getHeaders(),
+              signal: AbortSignal.timeout(10000) // 10 second timeout
+            });
+
+            if (response.status === 404) {
+              const errorText = await response.text();
+              throw new NotFoundError(`Issue ${issueKey} not found: ${errorText}`);
+            }
+
+            if (response.status === 401 || response.status === 403) {
+              const errorText = await response.text();
+              throw new AuthenticationError(`Authentication failed: ${response.status} - ${errorText}`);
+            }
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new NetworkError(`Failed to fetch issue: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json();
+            return Schema.decodeUnknownSync(IssueSchema)(data) as Issue;
+          },
+          catch: (error) => {
+            if (error instanceof ValidationError) return error;
+            if (error instanceof NotFoundError) return error;
+            if (error instanceof AuthenticationError) return error;
+            if (error instanceof NetworkError) return error;
+            return new NetworkError(`Network error while fetching issue: ${error}`);
+          }
+        });
+      })
+    );
+  }
+
+  /**
+   * Effect-based version of searchIssues with structured error handling
+   */
+  searchIssuesEffect(jql: string, options?: {
+    startAt?: number;
+    maxResults?: number;
+    fields?: string[];
+  }): Effect.Effect<{ issues: Issue[]; total: number; startAt: number }, ValidationError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate JQL
+      Effect.sync(() => {
+        if (!jql || jql.trim().length === 0) {
+          throw new ValidationError('JQL query cannot be empty');
+        }
+      }),
+      Effect.flatMap(() => {
+        const params = new URLSearchParams({
+          jql,
+          startAt: (options?.startAt || 0).toString(),
+          maxResults: (options?.maxResults || 50).toString(),
+        });
+
+        if (options?.fields) {
+          params.append('fields', options.fields.join(','));
+        }
+
+        const url = `${this.config.jiraUrl}/rest/api/3/search?${params}`;
+        
+        return Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(url, {
+              method: 'GET',
+              headers: this.getHeaders(),
+              signal: AbortSignal.timeout(15000) // 15 second timeout for searches
+            });
+
+            if (response.status === 401 || response.status === 403) {
+              const errorText = await response.text();
+              throw new AuthenticationError(`Authentication failed: ${response.status} - ${errorText}`);
+            }
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new NetworkError(`Failed to search issues: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json();
+            const result = Schema.decodeUnknownSync(SearchResultSchema)(data);
+            
+            return {
+              issues: result.issues as Issue[],
+              total: result.total,
+              startAt: result.startAt,
+            };
+          },
+          catch: (error) => {
+            if (error instanceof ValidationError) return error;
+            if (error instanceof AuthenticationError) return error;
+            if (error instanceof NetworkError) return error;
+            return new NetworkError(`Network error while searching issues: ${error}`);
+          }
+        });
+      })
+    );
+  }
+
+  /**
+   * Effect-based version of getAllProjectIssues with concurrent fetching and progress tracking
+   */
+  getAllProjectIssuesEffect(
+    projectKey: string, 
+    options?: {
+      jql?: string;
+      onProgress?: (current: number, total: number) => void;
+      maxConcurrency?: number;
+    }
+  ): Effect.Effect<Issue[], ValidationError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate project key
+      Effect.sync(() => {
+        if (!projectKey || projectKey.trim().length === 0) {
+          throw new ValidationError('Project key cannot be empty');
+        }
+      }),
+      Effect.flatMap(() => {
+        const searchJql = options?.jql || `project = ${projectKey} ORDER BY updated DESC`;
+        const maxResults = 100; // Max allowed by Jira API
+        const maxConcurrency = options?.maxConcurrency || 3; // Limit concurrent requests
+        
+        // First, get the total count
+        return pipe(
+          this.searchIssuesEffect(searchJql, { startAt: 0, maxResults: 1 }),
+          Effect.flatMap(({ total }) => {
+            if (total === 0) {
+              return Effect.succeed([] as Issue[]);
+            }
+
+            // Calculate number of pages needed
+            const pages = Math.ceil(total / maxResults);
+            const pageEffects = Array.from({ length: pages }, (_, i) => 
+              pipe(
+                this.searchIssuesEffect(searchJql, {
+                  startAt: i * maxResults,
+                  maxResults
+                }),
+                Effect.map(result => result.issues),
+                Effect.tap(() => 
+                  Effect.sync(() => {
+                    if (options?.onProgress) {
+                      const currentCount = Math.min((i + 1) * maxResults, total);
+                      options.onProgress(currentCount, total);
+                    }
+                  })
+                )
+              )
+            );
+
+            // Execute with controlled concurrency
+            return pipe(
+              Effect.all(pageEffects, { concurrency: maxConcurrency }),
+              Effect.map(pages => pages.flat())
+            );
+          })
+        );
+      })
+    );
+  }
+
   // Effect-based get current user
   getCurrentUserEffect(): Effect.Effect<{ accountId: string; displayName: string; emailAddress?: string }, NetworkError | AuthenticationError> {
     const url = `${this.config.jiraUrl}/rest/api/3/myself`;
@@ -354,6 +539,132 @@ export class JiraClient {
     }
   }
 
+  /**
+   * Effect-based version of getBoards with structured error handling
+   */
+  getBoardsEffect(options?: { 
+    projectKeyOrId?: string; 
+    type?: 'scrum' | 'kanban' 
+  }): Effect.Effect<Board[], ValidationError | NetworkError | AuthenticationError> {
+    return pipe(
+      Effect.sync(() => {
+        let url = `${this.config.jiraUrl}/rest/agile/1.0/board`;
+        const params = new URLSearchParams();
+        
+        if (options?.projectKeyOrId) {
+          params.append('projectKeyOrId', options.projectKeyOrId);
+        }
+        if (options?.type) {
+          params.append('type', options.type);
+        }
+        
+        if (params.toString()) {
+          url += `?${params.toString()}`;
+        }
+        
+        return url;
+      }),
+      Effect.flatMap(url => 
+        Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(url, {
+              method: 'GET',
+              headers: this.getHeaders(),
+              signal: AbortSignal.timeout(10000)
+            });
+
+            if (response.status === 401 || response.status === 403) {
+              const errorText = await response.text();
+              throw new AuthenticationError(`Authentication failed: ${response.status} - ${errorText}`);
+            }
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new NetworkError(`Failed to fetch boards: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json() as unknown;
+            const parsed = Schema.decodeUnknownSync(BoardsResponseSchema)(data);
+            return parsed.values as Board[];
+          },
+          catch: (error) => {
+            if (error instanceof ValidationError) return error;
+            if (error instanceof AuthenticationError) return error;
+            if (error instanceof NetworkError) return error;
+            return new NetworkError(`Network error while fetching boards: ${error}`);
+          }
+        })
+      )
+    );
+  }
+
+  /**
+   * Effect-based version of getUserBoards with concurrent fetching
+   */
+  getUserBoardsEffect(userEmail: string): Effect.Effect<Board[], ValidationError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate user email
+      Effect.sync(() => {
+        if (!userEmail || userEmail.trim().length === 0) {
+          throw new ValidationError('User email cannot be empty');
+        }
+      }),
+      Effect.flatMap(() => 
+        // First get user's active projects
+        this.getUserActiveProjectsEffect(userEmail)
+      ),
+      Effect.flatMap(activeProjects => {
+        if (activeProjects.length === 0) {
+          return Effect.succeed([] as Board[]);
+        }
+
+        // Get boards for each project concurrently
+        const boardEffects = activeProjects.map(projectKey =>
+          pipe(
+            this.getBoardsEffect({ projectKeyOrId: projectKey }),
+            Effect.catchAll(() => Effect.succeed([] as Board[])) // Continue if one project fails
+          )
+        );
+
+        return pipe(
+          Effect.all(boardEffects, { concurrency: 3 }),
+          Effect.map(boardArrays => {
+            const allBoards = boardArrays.flat();
+            
+            // Remove duplicates and sort by name
+            const uniqueBoards = allBoards.filter((board, index, array) => 
+              array.findIndex(b => b.id === board.id) === index
+            );
+            
+            return uniqueBoards.sort((a, b) => a.name.localeCompare(b.name));
+          })
+        );
+      })
+    );
+  }
+
+  /**
+   * Effect-based version of getUserActiveProjects
+   */
+  private getUserActiveProjectsEffect(userEmail: string): Effect.Effect<string[], ValidationError | NetworkError | AuthenticationError> {
+    const jql = `assignee = "${userEmail}" AND updated >= -30d ORDER BY updated DESC`;
+    
+    return pipe(
+      this.searchIssuesEffect(jql, { maxResults: 100 }),
+      Effect.map(result => {
+        const projectKeys = new Set<string>();
+        
+        result.issues.forEach(issue => {
+          const projectKey = issue.key.split('-')[0];
+          projectKeys.add(projectKey);
+        });
+        
+        return Array.from(projectKeys);
+      }),
+      Effect.catchAll(() => Effect.succeed([] as string[])) // Return empty array on error
+    );
+  }
+
   async getBoards(options?: { projectKeyOrId?: string; type?: 'scrum' | 'kanban' }): Promise<Board[]> {
     let url = `${this.config.jiraUrl}/rest/agile/1.0/board`;
     const params = new URLSearchParams();
@@ -449,6 +760,86 @@ export class JiraClient {
     };
   }
 
+  /**
+   * Effect-based version of getBoardIssues with structured error handling
+   */
+  getBoardIssuesEffect(boardId: number, options?: {
+    maxResults?: number;
+  }): Effect.Effect<Issue[], ValidationError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate board ID
+      Effect.sync(() => {
+        if (!boardId || boardId <= 0) {
+          throw new ValidationError('Board ID must be a positive number');
+        }
+      }),
+      Effect.flatMap(() => {
+        const maxResults = options?.maxResults || 50;
+        const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/issue?maxResults=${maxResults}`;
+
+        return Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(url, {
+              method: 'GET',
+              headers: this.getHeaders(),
+              signal: AbortSignal.timeout(15000) // 15 second timeout for board issues
+            });
+
+            if (response.status === 401 || response.status === 403) {
+              const errorText = await response.text();
+              throw new AuthenticationError(`Authentication failed: ${response.status} - ${errorText}`);
+            }
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new NetworkError(`Failed to fetch board issues: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json() as { issues?: unknown[] };
+            
+            // Map the agile API response to our Issue type
+            return (data.issues || []).map((issue: unknown) => {
+              const typedIssue = issue as {
+                key: string;
+                self: string;
+                fields: {
+                  summary: string;
+                  description: unknown;
+                  status: { name: string };
+                  assignee?: { displayName: string; emailAddress?: string } | null;
+                  reporter: { displayName: string; emailAddress?: string };
+                  priority?: { name: string } | null;
+                  created: string;
+                  updated: string;
+                };
+              };
+              return {
+                key: typedIssue.key,
+                self: typedIssue.self,
+                fields: {
+                  summary: typedIssue.fields.summary,
+                  description: typedIssue.fields.description,
+                  status: typedIssue.fields.status,
+                  assignee: typedIssue.fields.assignee,
+                  reporter: typedIssue.fields.reporter,
+                  priority: typedIssue.fields.priority,
+                  created: typedIssue.fields.created,
+                  updated: typedIssue.fields.updated
+                }
+              };
+            });
+          },
+          catch: (error) => {
+            if (error instanceof ValidationError) return error;
+            if (error instanceof AuthenticationError) return error;
+            if (error instanceof NetworkError) return error;
+            return new NetworkError(`Network error while fetching board issues: ${error}`);
+          }
+        });
+      })
+    );
+  }
+
   async getBoardIssues(boardId: number): Promise<Issue[]> {
     // Simple version - just get first 50 issues to avoid timeout
     const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/issue?maxResults=50`;
@@ -498,6 +889,53 @@ export class JiraClient {
     });
   }
 
+  /**
+   * Effect-based version of getActiveSprints with structured error handling
+   */
+  getActiveSprintsEffect(boardId: number): Effect.Effect<Sprint[], ValidationError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate board ID
+      Effect.sync(() => {
+        if (!boardId || boardId <= 0) {
+          throw new ValidationError('Board ID must be a positive number');
+        }
+      }),
+      Effect.flatMap(() => {
+        const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/sprint?state=active`;
+        
+        return Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(url, {
+              method: 'GET',
+              headers: this.getHeaders(),
+              signal: AbortSignal.timeout(10000)
+            });
+
+            if (response.status === 401 || response.status === 403) {
+              const errorText = await response.text();
+              throw new AuthenticationError(`Authentication failed: ${response.status} - ${errorText}`);
+            }
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new NetworkError(`Failed to fetch active sprints: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json() as unknown;
+            const parsed = Schema.decodeUnknownSync(SprintsResponseSchema)(data);
+            return parsed.values as Sprint[];
+          },
+          catch: (error) => {
+            if (error instanceof ValidationError) return error;
+            if (error instanceof AuthenticationError) return error;
+            if (error instanceof NetworkError) return error;
+            return new NetworkError(`Network error while fetching active sprints: ${error}`);
+          }
+        });
+      })
+    );
+  }
+
   async getActiveSprints(boardId: number): Promise<Sprint[]> {
     const url = `${this.config.jiraUrl}/rest/agile/1.0/board/${boardId}/sprint?state=active`;
     
@@ -514,6 +952,63 @@ export class JiraClient {
     const data = await response.json();
     const parsed = Schema.decodeUnknownSync(SprintsResponseSchema)(data);
     return parsed.values as Sprint[];
+  }
+
+  /**
+   * Effect-based version of getSprintIssues with structured error handling
+   */
+  getSprintIssuesEffect(sprintId: number, options?: {
+    startAt?: number;
+    maxResults?: number;
+  }): Effect.Effect<{ issues: Issue[]; total: number }, ValidationError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate sprint ID
+      Effect.sync(() => {
+        if (!sprintId || sprintId <= 0) {
+          throw new ValidationError('Sprint ID must be a positive number');
+        }
+      }),
+      Effect.flatMap(() => {
+        const params = new URLSearchParams({
+          startAt: (options?.startAt || 0).toString(),
+          maxResults: (options?.maxResults || 50).toString(),
+        });
+
+        const url = `${this.config.jiraUrl}/rest/agile/1.0/sprint/${sprintId}/issue?${params}`;
+        
+        return Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(url, {
+              method: 'GET',
+              headers: this.getHeaders(),
+              signal: AbortSignal.timeout(15000) // 15 second timeout for sprint issues
+            });
+
+            if (response.status === 401 || response.status === 403) {
+              const errorText = await response.text();
+              throw new AuthenticationError(`Authentication failed: ${response.status} - ${errorText}`);
+            }
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new NetworkError(`Failed to fetch sprint issues: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json() as { issues: unknown[]; total: number };
+            return {
+              issues: data.issues.map((issue: unknown) => Schema.decodeUnknownSync(IssueSchema)(issue) as Issue),
+              total: data.total
+            };
+          },
+          catch: (error) => {
+            if (error instanceof ValidationError) return error;
+            if (error instanceof AuthenticationError) return error;
+            if (error instanceof NetworkError) return error;
+            return new NetworkError(`Network error while fetching sprint issues: ${error}`);
+          }
+        });
+      })
+    );
   }
 
   async getSprintIssues(sprintId: number, options?: {
@@ -542,6 +1037,51 @@ export class JiraClient {
       issues: data.issues.map((issue: unknown) => Schema.decodeUnknownSync(IssueSchema)(issue) as Issue),
       total: data.total
     };
+  }
+
+  /**
+   * Effect-based version of getUserActiveSprints with concurrent fetching
+   */
+  getUserActiveSprintsEffect(userEmail: string): Effect.Effect<Sprint[], ValidationError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate user email
+      Effect.sync(() => {
+        if (!userEmail || userEmail.trim().length === 0) {
+          throw new ValidationError('User email cannot be empty');
+        }
+      }),
+      Effect.flatMap(() => 
+        // First get user's boards
+        this.getUserBoardsEffect(userEmail)
+      ),
+      Effect.flatMap(boards => {
+        if (boards.length === 0) {
+          return Effect.succeed([] as Sprint[]);
+        }
+
+        // Get active sprints for each board concurrently
+        const sprintEffects = boards.map(board =>
+          pipe(
+            this.getActiveSprintsEffect(board.id),
+            Effect.catchAll(() => Effect.succeed([] as Sprint[])) // Continue if one board fails
+          )
+        );
+
+        return pipe(
+          Effect.all(sprintEffects, { concurrency: 3 }),
+          Effect.map(sprintArrays => {
+            const allSprints = sprintArrays.flat();
+            
+            // Remove duplicates
+            const uniqueSprints = Array.from(
+              new Map(allSprints.map(s => [s.id, s])).values()
+            );
+            
+            return uniqueSprints;
+          })
+        );
+      })
+    );
   }
 
   async getUserActiveSprints(userEmail: string): Promise<Sprint[]> {
