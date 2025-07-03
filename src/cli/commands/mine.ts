@@ -94,22 +94,11 @@ const showMyIssuesEffect = () =>
           // Display by project in YAML format
           const projectEntries = Object.entries(byProject);
           const displayEffect = Effect.sync(() => {
-            // Add a summary header
-            const totalIssues = issues.length;
-            const totalProjects = projectEntries.length;
-            console.log(chalk.dim('─'.repeat(60)));
-            console.log(
-              `${chalk.bold('📋 My Open Issues')} ${chalk.dim('·')} ${chalk.yellow(totalIssues)} issue${totalIssues !== 1 ? 's' : ''} across ${chalk.yellow(totalProjects)} project${totalProjects !== 1 ? 's' : ''}`,
-            );
-            console.log(chalk.dim('─'.repeat(60)));
-            console.log();
-
             // Start with projects list
             console.log(`${chalk.bold.cyan('projects:')}`);
 
             projectEntries.forEach(([projectKey, projectIssues]) => {
               console.log(`${chalk.cyan('- name:')} ${chalk.bold.white(projectKey)}`);
-              console.log(`  ${chalk.cyan('issue_count:')} ${chalk.yellow(projectIssues.length)}`);
               console.log(`  ${chalk.cyan('issues:')}`);
 
               projectIssues.forEach((issue) => {
