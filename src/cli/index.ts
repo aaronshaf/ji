@@ -151,7 +151,7 @@ async function main() {
         break;
 
       case 'sync':
-        await syncWorkspaces();
+        await syncWorkspaces({ clean: args.includes('--clean') });
         break;
 
       case 'search': {
