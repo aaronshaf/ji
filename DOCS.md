@@ -263,6 +263,21 @@ ji issue sync PROJECT --clean
 ji confluence sync SPACE --clean
 ```
 
+### Fresh Sync (Future)
+
+The `--fresh` flag (when implemented) will force a full sync without deleting existing data:
+
+```bash
+# Force full sync without clearing local data
+ji issue sync PROJECT --fresh
+ji confluence sync SPACE --fresh
+```
+
+Key differences:
+- `--clean`: Deletes all existing local data before syncing (destructive)
+- `--fresh`: Forces a full sync but preserves existing data (non-destructive)
+- Default: Incremental sync based on last update timestamp
+
 ### Background Sync
 
 ```bash
