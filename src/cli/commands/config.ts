@@ -42,17 +42,7 @@ const getCustomFieldsEffect = (jiraClient: JiraClient) =>
     catch: (error) => new Error(`Failed to get custom fields: ${error}`),
   });
 
-// Get current configured fields Effect
-const getCurrentConfigEffect = (configManager: ConfigManager) =>
-  Effect.tryPromise({
-    try: async () => {
-      const currentFields = await configManager.getSetting('customFields');
-      return currentFields ? JSON.parse(currentFields) : {};
-    },
-    catch: () => ({}), // Return empty object if no config
-  });
-
-// Categorize fields
+// Categorize fields for better display
 const categorizeFields = (customFields: CustomField[]) => {
   const acceptanceCriteria = customFields.filter(
     (field) =>
@@ -82,13 +72,13 @@ const categorizeFields = (customFields: CustomField[]) => {
           field.name.toLowerCase().includes('version') ||
           field.name.toLowerCase().includes('release')),
     )
-    .slice(0, 5);
+    .slice(0, 10);
 
   return { acceptanceCriteria, storyPoints, otherUseful };
 };
 
-// Main configuration Effect
-const configureCustomFieldsEffect = () =>
+// Main field discovery Effect
+const discoverCustomFieldsEffect = () =>
   pipe(
     getConfigEffect(),
     Effect.flatMap(({ config, configManager }) => {
@@ -96,93 +86,49 @@ const configureCustomFieldsEffect = () =>
 
       return pipe(
         Effect.sync(() => {
-          console.log(chalk.bold('\n⚙️  Configure Custom Fields\n'));
+          console.log(chalk.bold('\n🔍 Custom Field Discovery\n'));
           console.log(chalk.cyan('Discovering custom fields from your Jira instance...'));
         }),
         Effect.flatMap(() => getCustomFieldsEffect(jiraClient)),
         Effect.flatMap((customFields) =>
-          pipe(
-            getCurrentConfigEffect(configManager),
-            Effect.map((configuredFields) => {
-              const categories = categorizeFields(customFields);
+          Effect.sync(() => {
+            const categories = categorizeFields(customFields);
 
-              console.log(chalk.yellow('\n📋 Recommended Custom Fields:'));
+            console.log(chalk.yellow('\n✅ Good News!'));
+            console.log(chalk.white('All custom fields are automatically fetched and displayed in issue views.'));
+            console.log(chalk.white('No configuration needed!'));
 
-              if (categories.acceptanceCriteria.length > 0) {
-                console.log(chalk.cyan('\n  Acceptance Criteria Fields:'));
-                categories.acceptanceCriteria.forEach((field, index) => {
-                  const isConfigured = configuredFields[field.id];
-                  const status = isConfigured ? chalk.green('✓ enabled') : chalk.dim('  disabled');
-                  console.log(`    ${index + 1}. ${chalk.white(field.name)} (${chalk.green(field.id)}) ${status}`);
-                  if (field.description) {
-                    console.log(`       ${chalk.dim(field.description)}`);
-                  }
-                });
-              }
+            if (categories.acceptanceCriteria.length > 0) {
+              console.log(chalk.yellow('\n📋 Acceptance Criteria Fields Found:'));
+              categories.acceptanceCriteria.forEach((field, index) => {
+                console.log(`  ${index + 1}. ${chalk.white(field.name)} (${chalk.green(field.id)})`);
+                if (field.description) {
+                  console.log(`     ${chalk.dim(field.description)}`);
+                }
+              });
+            }
 
-              if (categories.storyPoints.length > 0) {
-                console.log(chalk.cyan('\n  Story Points Fields:'));
-                categories.storyPoints.forEach((field, index) => {
-                  const isConfigured = configuredFields[field.id];
-                  const status = isConfigured ? chalk.green('✓ enabled') : chalk.dim('  disabled');
-                  console.log(`    ${index + 1}. ${chalk.white(field.name)} (${chalk.green(field.id)}) ${status}`);
-                });
-              }
+            if (categories.storyPoints.length > 0) {
+              console.log(chalk.yellow('\n📊 Story Points Fields Found:'));
+              categories.storyPoints.forEach((field, index) => {
+                console.log(`  ${index + 1}. ${chalk.white(field.name)} (${chalk.green(field.id)})`);
+              });
+            }
 
-              if (categories.otherUseful.length > 0) {
-                console.log(chalk.cyan('\n  Other Useful Fields:'));
-                categories.otherUseful.forEach((field, index) => {
-                  const isConfigured = configuredFields[field.id];
-                  const status = isConfigured ? chalk.green('✓ enabled') : chalk.dim('  disabled');
-                  console.log(`    ${index + 1}. ${chalk.white(field.name)} (${chalk.green(field.id)}) ${status}`);
-                });
-              }
+            if (categories.otherUseful.length > 0) {
+              console.log(chalk.yellow('\n🔧 Other Useful Fields Found:'));
+              categories.otherUseful.forEach((field, index) => {
+                console.log(`  ${index + 1}. ${chalk.white(field.name)} (${chalk.green(field.id)})`);
+              });
+            }
 
-              console.log(chalk.yellow('\n📝 Configuration Instructions:'));
-              console.log(chalk.white('To enable custom fields, run these commands:'));
-              console.log('');
+            console.log(chalk.yellow('\n🚀 Next Steps:'));
+            console.log(chalk.white('1. Run: ji sync --clean  (to fetch all custom fields)'));
+            console.log(chalk.white('2. Test: ji PROJ-123     (all custom fields will appear)'));
 
-              if (categories.acceptanceCriteria.length > 0) {
-                const topAC = categories.acceptanceCriteria[0];
-                console.log(chalk.green(`# Enable acceptance criteria field:`));
-                console.log(
-                  chalk.white(
-                    `sqlite3 ~/.ji/data.db "INSERT OR REPLACE INTO config (key, value) VALUES ('customField_${topAC.id}', '${topAC.name}')"`,
-                  ),
-                );
-              }
-
-              if (categories.storyPoints.length > 0) {
-                const topSP = categories.storyPoints[0];
-                console.log(chalk.green(`# Enable story points field:`));
-                console.log(
-                  chalk.white(
-                    `sqlite3 ~/.ji/data.db "INSERT OR REPLACE INTO config (key, value) VALUES ('customField_${topSP.id}', '${topSP.name}')"`,
-                  ),
-                );
-              }
-
-              console.log('');
-              console.log(chalk.yellow('🔄 After configuring fields:'));
-              console.log(chalk.white('1. Run: ji sync --clean  (to fetch new fields)'));
-              console.log(chalk.white('2. Test: ji PROJ-123     (custom fields will appear in issue details)'));
-
-              console.log(chalk.yellow('\n📊 Current Status:'));
-              if (Object.keys(configuredFields).length === 0) {
-                console.log(chalk.dim('  No custom fields configured yet'));
-              } else {
-                console.log(chalk.green(`  ${Object.keys(configuredFields).length} custom fields enabled`));
-                Object.entries(configuredFields).forEach(([fieldId, fieldName]) => {
-                  console.log(`    ${chalk.green(fieldId)}: ${fieldName}`);
-                });
-              }
-
-              console.log(chalk.yellow(`\n📄 All Custom Fields Available (${customFields.length} total):`));
-              console.log(chalk.dim('  Use the field IDs above in your configuration commands'));
-
-              return configuredFields;
-            }),
-          ),
+            console.log(chalk.yellow(`\n📄 Summary: ${customFields.length} total custom fields available`));
+            console.log(chalk.dim('  All fields are automatically included in issue views'));
+          }),
         ),
         Effect.tap(() => Effect.sync(() => configManager.close())),
         Effect.catchAll((error) =>
@@ -201,7 +147,7 @@ const configureCustomFieldsEffect = () =>
 
 export async function configureCustomFields() {
   try {
-    await Effect.runPromise(configureCustomFieldsEffect());
+    await Effect.runPromise(discoverCustomFieldsEffect());
   } catch (_error) {
     process.exit(1);
   }
