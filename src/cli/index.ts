@@ -40,7 +40,7 @@ ${chalk.yellow('Confluence:')}
   ji confluence view <page-id>         View a Confluence page
 
 ${chalk.yellow('Search & AI:')}
-  ji search <query>                    Search across Jira and Confluence
+  ji search <query> [--limit=N]        Search across Jira and Confluence
   ji ask "<question>"                  Ask a question about your content
 
 ${chalk.yellow('Memory:')}
@@ -66,6 +66,7 @@ ${chalk.gray('Examples:')}
   ji ABC-123                           View issue ABC-123
   ji mine                              Show your assigned issues
   ji search "login bug"                Search for login bugs
+  ji search "Gradebook" --limit=3      Search with custom result limit
   ji ask "What are the deployment steps?"
   ji confluence sync WIKI              Sync the WIKI space
 `);
@@ -158,10 +159,46 @@ async function main() {
           console.error('Please provide a search query');
           process.exit(1);
         }
-        const query = subArgs.join(' ');
+
+        // Parse limit option (supports both --limit=3 and --limit 3 formats)
+        let limit = 10; // default
+        const limitIndex = args.findIndex((arg) => arg.startsWith('--limit'));
+        if (limitIndex !== -1) {
+          const limitArg = args[limitIndex];
+          if (limitArg.includes('=')) {
+            // Format: --limit=3
+            const limitValue = limitArg.split('=')[1];
+            const parsed = parseInt(limitValue);
+            if (!isNaN(parsed) && parsed > 0) {
+              limit = parsed;
+            }
+          } else if (limitIndex + 1 < args.length) {
+            // Format: --limit 3
+            const parsed = parseInt(args[limitIndex + 1]);
+            if (!isNaN(parsed) && parsed > 0) {
+              limit = parsed;
+            }
+          }
+        }
+
+        // Filter out --limit and its value from the query
+        const queryArgs = subArgs.filter((arg, index) => {
+          const argIndex = subArgs.indexOf(arg);
+          const prevArg = argIndex > 0 ? subArgs[argIndex - 1] : '';
+
+          // Skip --limit=3 format
+          if (arg.startsWith('--limit')) return false;
+
+          // Skip value after --limit in --limit 3 format
+          if (prevArg === '--limit') return false;
+
+          return true;
+        });
+
+        const query = queryArgs.join(' ');
         await search(query, {
           source: args.includes('--jira') ? 'jira' : args.includes('--confluence') ? 'confluence' : undefined,
-          limit: 10,
+          limit,
           includeAll: args.includes('--all'),
         });
         break;
