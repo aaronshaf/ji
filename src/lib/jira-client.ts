@@ -638,6 +638,174 @@ export class JiraClient {
   }
 
   /**
+   * Effect-based version of getting available transitions for an issue
+   */
+  getIssueTransitionsEffect(
+    issueKey: string,
+  ): Effect.Effect<
+    Array<{ id: string; name: string }>,
+    ValidationError | NotFoundError | NetworkError | AuthenticationError
+  > {
+    return pipe(
+      // Validate issue key
+      Effect.sync(() => {
+        if (!issueKey || !issueKey.match(/^[A-Z]+-\d+$/)) {
+          throw new ValidationError('Invalid issue key format. Expected format: PROJECT-123');
+        }
+      }),
+      Effect.flatMap(() => {
+        const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}/transitions`;
+
+        return Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(url, {
+              method: 'GET',
+              headers: this.getHeaders(),
+              signal: AbortSignal.timeout(10000),
+            });
+
+            if (response.status === 404) {
+              const errorText = await response.text();
+              throw new NotFoundError(`Issue ${issueKey} not found: ${errorText}`);
+            }
+
+            if (response.status === 401 || response.status === 403) {
+              const errorText = await response.text();
+              throw new AuthenticationError(`Not authorized to view transitions: ${response.status} - ${errorText}`);
+            }
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new NetworkError(`Failed to get transitions: ${response.status} - ${errorText}`);
+            }
+
+            const data = (await response.json()) as {
+              transitions: Array<{ id: string; name: string; to: { name: string } }>;
+            };
+
+            return data.transitions.map((t) => ({ id: t.id, name: t.name }));
+          },
+          catch: (error) => {
+            if (error instanceof ValidationError) return error;
+            if (error instanceof NotFoundError) return error;
+            if (error instanceof AuthenticationError) return error;
+            if (error instanceof NetworkError) return error;
+            return new NetworkError(`Network error while getting transitions: ${error}`);
+          },
+        });
+      }),
+    );
+  }
+
+  /**
+   * Effect-based version of transitioning an issue (e.g., closing/resolving)
+   */
+  transitionIssueEffect(
+    issueKey: string,
+    transitionId: string,
+  ): Effect.Effect<void, ValidationError | NotFoundError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate inputs
+      Effect.sync(() => {
+        if (!issueKey || !issueKey.match(/^[A-Z]+-\d+$/)) {
+          throw new ValidationError('Invalid issue key format. Expected format: PROJECT-123');
+        }
+        if (!transitionId || transitionId.trim().length === 0) {
+          throw new ValidationError('Transition ID cannot be empty');
+        }
+      }),
+      Effect.flatMap(() => {
+        const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}/transitions`;
+
+        return Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: this.getHeaders(),
+              body: JSON.stringify({
+                transition: {
+                  id: transitionId,
+                },
+              }),
+              signal: AbortSignal.timeout(10000),
+            });
+
+            if (response.status === 404) {
+              const errorText = await response.text();
+              throw new NotFoundError(`Issue ${issueKey} not found: ${errorText}`);
+            }
+
+            if (response.status === 401 || response.status === 403) {
+              const errorText = await response.text();
+              throw new AuthenticationError(`Not authorized to transition issue: ${response.status} - ${errorText}`);
+            }
+
+            if (response.status === 400) {
+              const errorText = await response.text();
+              throw new ValidationError(`Invalid transition: ${errorText}`);
+            }
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new NetworkError(`Failed to transition issue: ${response.status} - ${errorText}`);
+            }
+          },
+          catch: (error) => {
+            if (error instanceof ValidationError) return error;
+            if (error instanceof NotFoundError) return error;
+            if (error instanceof AuthenticationError) return error;
+            if (error instanceof NetworkError) return error;
+            return new NetworkError(`Network error while transitioning issue: ${error}`);
+          },
+        });
+      }),
+    );
+  }
+
+  /**
+   * Effect-based version of closing an issue (finds appropriate done transition)
+   */
+  closeIssueEffect(
+    issueKey: string,
+  ): Effect.Effect<void, ValidationError | NotFoundError | NetworkError | AuthenticationError> {
+    return pipe(
+      this.getIssueTransitionsEffect(issueKey),
+      Effect.flatMap((transitions) => {
+        // Prioritize "Done" transition first, then other completion states
+        const doneTransition =
+          transitions.find((t) => t.name.toLowerCase() === 'done') ||
+          transitions.find((t) => t.name.toLowerCase().includes('done')) ||
+          transitions.find((t) => t.name.toLowerCase().includes('complete')) ||
+          transitions.find((t) => t.name.toLowerCase().includes('resolve')) ||
+          transitions.find((t) => t.name.toLowerCase().includes('close'));
+
+        if (!doneTransition) {
+          return Effect.fail(
+            new ValidationError(
+              `No Done/completion transition found. Available transitions: ${transitions.map((t) => t.name).join(', ')}`,
+            ),
+          );
+        }
+
+        return this.transitionIssueEffect(issueKey, doneTransition.id);
+      }),
+    );
+  }
+
+  // Backward compatible versions
+  async getIssueTransitions(issueKey: string): Promise<Array<{ id: string; name: string }>> {
+    return Effect.runPromise(this.getIssueTransitionsEffect(issueKey));
+  }
+
+  async transitionIssue(issueKey: string, transitionId: string): Promise<void> {
+    await Effect.runPromise(this.transitionIssueEffect(issueKey, transitionId));
+  }
+
+  async closeIssue(issueKey: string): Promise<void> {
+    await Effect.runPromise(this.closeIssueEffect(issueKey));
+  }
+
+  /**
    * Effect-based version of getBoards with structured error handling
    */
   getBoardsEffect(options?: {
