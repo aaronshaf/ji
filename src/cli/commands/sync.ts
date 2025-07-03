@@ -371,13 +371,15 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
           }
 
           let totalSynced = 0;
-          const INITIAL_BATCH = 100; // Initial pages to sync
+          const INITIAL_BATCH = 100; // Initial batch size
           const SAVE_BATCH_SIZE = 20; // Pages to save in parallel
+          const FETCH_BATCH_SIZE = 50; // Pages to fetch in parallel
+          let lastSyncTime: Date | null = null;
 
           // Strategy 1: Smart incremental sync
           if (!options.clean) {
             // Check when we last synced
-            const lastSyncTime = await contentManager.getLastSyncTime(spaceKey);
+            lastSyncTime = await contentManager.getLastSyncTime(spaceKey);
 
             if (lastSyncTime) {
               console.log(chalk.dim(`Last sync: ${lastSyncTime.toLocaleString()}`));
@@ -438,11 +440,52 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
             }
           }
 
-          // Strategy 2: Get recent pages (either fresh sync or to fill gaps)
-          if (options.clean || totalSynced === 0) {
-            console.log(chalk.dim(`Fetching ${INITIAL_BATCH} most recent pages...`));
+          // Strategy 2: Full sync for clean or first-time sync
+          if (options.clean) {
+            console.log(chalk.dim('Performing full space sync...'));
 
-            // Use the efficient getRecentlyUpdatedPages method for initial sync
+            // Get ALL pages using the efficient getAllSpacePages method
+            const pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
+              process.stdout.write(`\r${chalk.cyan('Progress:')} ${current}/${total} pages fetched...`);
+            });
+            console.log();
+
+            if (pages.length > 0) {
+              console.log(chalk.dim(`Saving ${pages.length} pages...`));
+
+              // Save pages in batches with parallel processing
+              for (let i = 0; i < pages.length; i += SAVE_BATCH_SIZE) {
+                const batch = pages.slice(i, i + SAVE_BATCH_SIZE);
+
+                await Promise.all(
+                  batch.map(async (page) => {
+                    try {
+                      await contentManager.saveContent({
+                        id: `confluence:${page.id}`,
+                        source: 'confluence',
+                        type: 'page',
+                        title: page.title,
+                        content: page.body?.storage?.value || '',
+                        url: page._links.webui,
+                        spaceKey: page.space.key,
+                        createdAt: new Date(page.version.when).getTime(),
+                        updatedAt: new Date(page.version.when).getTime(),
+                        syncedAt: Date.now(),
+                      });
+                    } catch (error) {
+                      console.error(chalk.red(`Failed to save page ${page.id}: ${error}`));
+                    }
+                  }),
+                );
+                totalSynced += batch.length;
+                process.stdout.write(`\r${chalk.green('Saved:')} ${totalSynced}/${pages.length} pages...`);
+              }
+              console.log();
+            }
+          } else if (!lastSyncTime && totalSynced === 0) {
+            // First-time sync without clean flag - get recent pages to start
+            console.log(chalk.dim(`First-time sync - fetching ${INITIAL_BATCH} most recent pages...`));
+
             const recentSummaries = await confluenceClient.getRecentlyUpdatedPages(spaceKey, INITIAL_BATCH);
 
             if (recentSummaries.length > 0) {
@@ -450,8 +493,8 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
 
               // Fetch full page content in batches
               const pages = [];
-              for (let i = 0; i < recentSummaries.length; i += 20) {
-                const batch = recentSummaries.slice(i, i + 20);
+              for (let i = 0; i < recentSummaries.length; i += FETCH_BATCH_SIZE) {
+                const batch = recentSummaries.slice(i, i + FETCH_BATCH_SIZE);
                 const batchPromises = batch.map((summary) => confluenceClient.getPage(summary.id));
                 const batchPages = await Promise.all(batchPromises);
                 pages.push(...batchPages);
