@@ -4,6 +4,7 @@ import { auth } from './commands/auth.js';
 import { showMyBoards } from './commands/board.js';
 import { addComment } from './commands/comment.js';
 import { showRecentConfluencePages, viewConfluencePage } from './commands/confluence.js';
+import { markIssueDone } from './commands/done.js';
 import { syncToMeilisearch } from './commands/index.js';
 import { viewIssue } from './commands/issue.js';
 import { addMemory, clearMemories, deleteMemory, listMemories, showMemoryStats } from './commands/memory.js';
@@ -230,6 +231,25 @@ ${chalk.yellow('Examples:')}
 `);
 }
 
+function showDoneHelp() {
+  console.log(`
+${chalk.bold('ji done - Mark an issue as Done')}
+
+${chalk.yellow('Usage:')}
+  ji done <issue-key>
+
+${chalk.yellow('Description:')}
+  Moves a Jira issue to "Done" status by finding and applying the appropriate
+  transition (Done, Closed, Resolved, Complete, etc.).
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji done EVAL-123          Mark issue EVAL-123 as Done
+`);
+}
+
 function showAskHelp() {
   console.log(`
 ${chalk.bold('ji ask - Ask questions about your content')}
@@ -395,6 +415,7 @@ ${chalk.yellow('Authentication:')}
 ${chalk.yellow('Issues:')}
   ji mine                              Show your open issues
   ji take <issue-key>                  Assign an issue to yourself
+  ji done <issue-key>                  Mark an issue as Done
   ji comment <issue-key> [comment]     Add a comment to an issue
   ji <issue-key>                       View issue details
   ji issue view <issue-key>            View issue details (alias)
@@ -520,6 +541,19 @@ async function main() {
         }
         // Pass the issue key and optional inline comment (all remaining args)
         await addComment(subArgs[0], subArgs.slice(1).join(' ') || undefined);
+        break;
+
+      case 'done':
+        if (args.includes('--help')) {
+          showDoneHelp();
+          process.exit(0);
+        }
+        if (!subArgs[0]) {
+          console.error('Please specify an issue key');
+          showDoneHelp();
+          process.exit(1);
+        }
+        await markIssueDone(subArgs[0]);
         break;
 
       case 'issue':
