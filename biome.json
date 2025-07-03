@@ -22,6 +22,9 @@
         "noDoubleEquals": "warn",
         "noImplicitAnyLet": "warn",
         "noAssignInExpressions": "warn"
+      },
+      "complexity": {
+        "noStaticOnlyClass": "off"
       }
     }
   },
