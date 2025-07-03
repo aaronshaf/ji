@@ -247,13 +247,14 @@ src/
 - ✅ AI-powered Q&A with `ji ask` (uses Ollama + gemma3n)
 - ✅ Background refresh for instant access
 - ✅ Secure credential storage
-- ✅ `ji mine` command to show your open issues
+- ✅ `ji mine` command to show your open issues (YAML output)
 - ✅ `ji take` command to assign issues to yourself
 - ✅ `--clean` flag for fresh sync
 - ✅ Memory management system (`ji remember`, `ji memories`)
 - ✅ Comprehensive testing framework (`ji test --setup`, `ji test`)
 - ✅ Effect-based error handling and type safety
 - ✅ YAML output for LLM compatibility
+- ✅ `ji sync` now syncs BOTH Jira projects and Confluence spaces
 
 ## Testing Framework
 
