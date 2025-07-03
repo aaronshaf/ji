@@ -341,6 +341,53 @@ export class ConfluenceClient {
     return allPages;
   }
 
+  async getAllPagesMetadata(
+    spaceKey: string,
+    onProgress?: (current: number, total: number) => void,
+  ): Promise<Array<{ id: string; title: string; version: { number: number; when: string } }>> {
+    const allMetadata: Array<{ id: string; title: string; version: { number: number; when: string } }> = [];
+    let start = 0;
+    const limit = 250; // Max for metadata-only requests
+    let hasMore = true;
+    let estimatedTotal = 0;
+
+    while (hasMore) {
+      const response = await this.getSpaceContent(spaceKey, {
+        start,
+        limit,
+        expand: ['version'], // Only get version info, no content
+      });
+
+      if (response.size > 0 && estimatedTotal === 0) {
+        // Estimate total based on first response
+        estimatedTotal = Math.ceil(response.size * 1.1); // Add 10% buffer
+      }
+
+      const metadata = response.results.map((page) => ({
+        id: page.id,
+        title: page.title,
+        version: {
+          number: page.version.number,
+          when: page.version.when,
+        },
+      }));
+
+      allMetadata.push(...metadata);
+
+      if (onProgress) {
+        onProgress(allMetadata.length, estimatedTotal || allMetadata.length);
+      }
+
+      if (response._links?.next) {
+        start += limit;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    return allMetadata;
+  }
+
   async getAllSpacePages(spaceKey: string, onProgress?: (current: number, total: number) => void): Promise<Page[]> {
     const allPages: Page[] = [];
     let start = 0;
