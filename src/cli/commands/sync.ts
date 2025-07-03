@@ -160,17 +160,29 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
             ),
             // Track this project as a workspace
             Effect.tap(() =>
-              Effect.tryPromise({
-                try: () => cacheManager.trackWorkspace('jira_project', projectKey, projectKey),
-                catch: (error) => new Error(`Failed to track workspace: ${error}`),
-              }),
+              pipe(
+                Effect.sync(() => process.stdout.write(chalk.dim('Finalizing workspace tracking...'))),
+                Effect.flatMap(() =>
+                  Effect.tryPromise({
+                    try: () => cacheManager.trackWorkspace('jira_project', projectKey, projectKey),
+                    catch: (error) => new Error(`Failed to track workspace: ${error}`),
+                  }),
+                ),
+                Effect.tap(() => Effect.sync(() => process.stdout.write(' ✓\n'))),
+              ),
             ),
             Effect.tap(() =>
-              Effect.sync(() => {
-                cacheManager.close();
-                contentManager.close();
-                configManager.close();
-              }),
+              pipe(
+                Effect.sync(() => process.stdout.write(chalk.dim('Closing connections...'))),
+                Effect.flatMap(() =>
+                  Effect.sync(() => {
+                    cacheManager.close();
+                    contentManager.close();
+                    configManager.close();
+                  }),
+                ),
+                Effect.tap(() => Effect.sync(() => process.stdout.write(' ✓\n'))),
+              ),
             ),
           ),
         ),
