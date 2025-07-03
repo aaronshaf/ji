@@ -14,3 +14,5 @@ coverage/
 .idea/
 auth.json
 **/auth.json
+test-config.json
+**/test-config.json
