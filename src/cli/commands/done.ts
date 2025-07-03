@@ -60,22 +60,40 @@ const markIssueDoneEffect = (issueKey: string) =>
             Effect.flatMap(() =>
               // First, get available transitions to debug
               pipe(
-                jiraClient.getIssueTransitionsEffect(issueKey),
+                Effect.sync(() => {
+                  spinner.text = 'Getting available transitions...';
+                }),
+                Effect.flatMap(() => jiraClient.getIssueTransitionsEffect(issueKey)),
                 Effect.tap((transitions) =>
                   Effect.sync(() => {
                     spinner.text = `Available transitions: ${transitions.map((t) => t.name).join(', ')}`;
+                    console.log(
+                      `\nDEBUG: Found ${transitions.length} transitions:`,
+                      transitions.map((t) => `${t.name} (${t.id})`),
+                    );
                   }),
                 ),
                 Effect.flatMap(() =>
                   // Move the issue to Done
                   pipe(
-                    jiraClient.closeIssueEffect(issueKey),
+                    Effect.sync(() => {
+                      spinner.text = 'Applying Done transition...';
+                    }),
+                    Effect.flatMap(() => jiraClient.closeIssueEffect(issueKey)),
                     Effect.tap(() =>
                       Effect.sync(() => {
                         spinner.succeed(`Successfully moved ${issueKey} to Done`);
                       }),
                     ),
                   ),
+                ),
+                Effect.catchAll((error) =>
+                  Effect.sync(() => {
+                    const message = error instanceof Error ? error.message : String(error);
+                    console.log(`\nDEBUG: Error during transition: ${message}`);
+                    spinner.fail(`Failed to get transitions or apply Done: ${message}`);
+                    throw error;
+                  }),
                 ),
               ),
             ),
