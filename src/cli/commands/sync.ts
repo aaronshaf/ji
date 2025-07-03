@@ -28,7 +28,7 @@ const getManagersEffect = () =>
   });
 
 // Effect wrapper for syncing a batch of issues
-const syncIssuesBatch = (issues: Issue[], cacheManager: CacheManager, contentManager: ContentManager) =>
+const syncIssuesBatch = (issues: Issue[], cacheManager: CacheManager, _contentManager: ContentManager) =>
   Effect.tryPromise({
     try: async () => {
       // Save issues using batch operation
