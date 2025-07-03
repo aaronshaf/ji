@@ -3,96 +3,186 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
-import { z } from 'zod';
+import { Console, Effect, pipe, Schema } from 'effect';
 import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
 import { OllamaClient } from '../../lib/ollama.js';
 
-// Test configuration schema
-const TestCaseSchema = z.object({
-  id: z.string(),
-  command: z.string(),
-  description: z.string(),
-  expectedPatterns: z.array(z.string()).optional(),
-  llmValidation: z.boolean().optional(),
-  enabled: z.boolean().default(true),
-  lastRun: z.string().optional(),
-  lastResult: z.enum(['pass', 'fail', 'error']).optional(),
+// Error types for test operations
+export class TestConfigError extends Error {
+  readonly _tag = 'TestConfigError';
+}
+
+export class TestExecutionError extends Error {
+  readonly _tag = 'TestExecutionError';
+}
+
+export class ValidationError extends Error {
+  readonly _tag = 'ValidationError';
+}
+
+export class FileOperationError extends Error {
+  readonly _tag = 'FileOperationError';
+}
+
+// Test configuration schema using Effect Schema
+const TestCaseSchema = Schema.Struct({
+  id: Schema.String,
+  command: Schema.String,
+  description: Schema.String,
+  expectedPatterns: Schema.optional(Schema.Array(Schema.String)),
+  llmValidation: Schema.optional(Schema.Boolean),
+  enabled: Schema.optionalWith(Schema.Boolean, { default: () => true }),
+  lastRun: Schema.optional(Schema.String),
+  lastResult: Schema.optional(Schema.Literal('pass', 'fail', 'error')),
 });
 
-const TestConfigSchema = z.object({
-  version: z.string(),
-  lastUpdated: z.string(),
-  environment: z.object({
-    jiraUrl: z.string(),
-    projectKeys: z.array(z.string()),
-    confluenceSpaces: z.array(z.string()),
+const TestConfigSchema = Schema.Struct({
+  version: Schema.String,
+  lastUpdated: Schema.String,
+  environment: Schema.Struct({
+    jiraUrl: Schema.String,
+    projectKeys: Schema.Array(Schema.String),
+    confluenceSpaces: Schema.Array(Schema.String),
   }),
-  tests: z.record(z.string(), z.array(TestCaseSchema)),
+  tests: Schema.Record({ key: Schema.String, value: Schema.Array(TestCaseSchema) }),
 });
 
-type TestConfig = z.infer<typeof TestConfigSchema>;
-type TestCase = z.infer<typeof TestCaseSchema>;
+type TestConfig = Schema.Schema.Type<typeof TestConfigSchema>;
+type TestCase = Schema.Schema.Type<typeof TestCaseSchema>;
+
+// Mutable types for runtime updates
+interface MutableTestCase extends Omit<TestCase, 'lastRun' | 'lastResult'> {
+  lastRun?: string;
+  lastResult?: 'pass' | 'fail' | 'error';
+}
+
+interface MutableTestConfig extends Omit<TestConfig, 'lastUpdated' | 'tests'> {
+  lastUpdated: string;
+  tests: Record<string, MutableTestCase[]>;
+}
 
 const TEST_CONFIG_PATH = join(homedir(), '.ji', 'test-config.json');
 
-// Helper function for user input
-async function getUserInput(question: string): Promise<string> {
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+// Helper function for user input using Effect
+const getUserInputEffect = (question: string): Effect.Effect<string, ValidationError> =>
+  Effect.tryPromise({
+    try: () => {
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
 
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
+      return new Promise<string>((resolve) => {
+        rl.question(question, (answer) => {
+          rl.close();
+          resolve(answer.trim());
+        });
+      });
+    },
+    catch: (error) => new ValidationError(`Failed to get user input: ${error}`),
   });
-}
 
 class TestManager {
   private config: TestConfig | null = null;
 
-  async loadConfig(): Promise<TestConfig | null> {
-    if (!existsSync(TEST_CONFIG_PATH)) {
-      return null;
-    }
+  // Effect-based config loading
+  loadConfigEffect(): Effect.Effect<TestConfig | null, TestConfigError | FileOperationError> {
+    return pipe(
+      Effect.sync(() => existsSync(TEST_CONFIG_PATH)),
+      Effect.flatMap((exists) => {
+        if (!exists) {
+          return Effect.succeed(null);
+        }
 
-    try {
-      const content = readFileSync(TEST_CONFIG_PATH, 'utf-8');
-      const parsed = JSON.parse(content);
-      this.config = TestConfigSchema.parse(parsed);
-      return this.config;
-    } catch (error) {
-      console.error(chalk.red('Failed to load test config:'), error instanceof Error ? error.message : 'Unknown error');
-      return null;
-    }
+        return pipe(
+          Effect.tryPromise({
+            try: () => Promise.resolve(readFileSync(TEST_CONFIG_PATH, 'utf-8')),
+            catch: (error) => new FileOperationError(`Failed to read test config: ${error}`),
+          }),
+          Effect.flatMap((content) =>
+            Effect.try({
+              try: () => JSON.parse(content),
+              catch: (error) => new TestConfigError(`Invalid JSON in test config: ${error}`),
+            }),
+          ),
+          Effect.flatMap((parsed) =>
+            Schema.decodeUnknown(TestConfigSchema)(parsed).pipe(
+              Effect.mapError((error) => new TestConfigError(`Schema validation failed: ${error}`)),
+            ),
+          ),
+          Effect.tap((config) =>
+            Effect.sync(() => {
+              this.config = config;
+            }),
+          ),
+        );
+      }),
+    );
+  }
+
+  // Effect-based config saving
+  saveConfigEffect(config: TestConfig): Effect.Effect<void, FileOperationError | TestConfigError> {
+    return pipe(
+      Effect.try({
+        try: () => JSON.stringify(config, null, 2),
+        catch: (error) => new TestConfigError(`Failed to serialize config: ${error}`),
+      }),
+      Effect.flatMap((content) =>
+        Effect.tryPromise({
+          try: () => Promise.resolve(writeFileSync(TEST_CONFIG_PATH, content, 'utf-8')),
+          catch: (error) => new FileOperationError(`Failed to write test config: ${error}`),
+        }),
+      ),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          this.config = config;
+        }),
+      ),
+    );
+  }
+
+  // Effect-based environment info gathering
+  getEnvironmentInfoEffect(): Effect.Effect<{ projectKeys: string[]; confluenceSpaces: string[] }, TestExecutionError> {
+    return Effect.scoped(
+      pipe(
+        Effect.acquireRelease(
+          Effect.sync(() => new CacheManager()),
+          (cacheManager) => Effect.sync(() => cacheManager.close()),
+        ),
+        Effect.flatMap((cacheManager) =>
+          pipe(
+            Effect.all([
+              Effect.tryPromise({
+                try: () => cacheManager.getAllProjects(),
+                catch: (error) => new TestExecutionError(`Failed to get projects: ${error}`),
+              }),
+              Effect.tryPromise({
+                try: () => cacheManager.getActiveWorkspaces(),
+                catch: (error) => new TestExecutionError(`Failed to get workspaces: ${error}`),
+              }),
+            ]),
+            Effect.map(([projects, workspaces]) => ({
+              projectKeys: projects.map((p) => p.key),
+              confluenceSpaces: workspaces.filter((w) => w.type === 'confluence_space').map((w) => w.keyOrId),
+            })),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Backward compatibility methods
+  async loadConfig(): Promise<TestConfig | null> {
+    return Effect.runPromise(this.loadConfigEffect().pipe(Effect.catchAll(() => Effect.succeed(null))));
   }
 
   async saveConfig(config: TestConfig): Promise<void> {
-    try {
-      const content = JSON.stringify(config, null, 2);
-      writeFileSync(TEST_CONFIG_PATH, content, 'utf-8');
-      this.config = config;
-    } catch (error) {
-      throw new Error(`Failed to save test config: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+    return Effect.runPromise(this.saveConfigEffect(config));
   }
 
   async getEnvironmentInfo(): Promise<{ projectKeys: string[]; confluenceSpaces: string[] }> {
-    const cacheManager = new CacheManager();
-    try {
-      const projects = await cacheManager.getAllProjects();
-      const workspaces = await cacheManager.getActiveWorkspaces();
-
-      const projectKeys = projects.map((p) => p.key);
-      const confluenceSpaces = workspaces.filter((w) => w.type === 'confluence_space').map((w) => w.keyOrId);
-
-      return { projectKeys, confluenceSpaces };
-    } finally {
-      cacheManager.close();
-    }
+    return Effect.runPromise(this.getEnvironmentInfoEffect());
   }
 }
 
@@ -149,124 +239,220 @@ const COMMAND_TYPES = {
   },
 };
 
-async function setupTests(): Promise<void> {
-  console.log(chalk.bold('🧪 Test Setup Wizard\n'));
+// Effect-based setup function
+const setupTestsEffect = (): Effect.Effect<
+  void,
+  TestConfigError | ValidationError | FileOperationError | TestExecutionError
+> =>
+  pipe(
+    Console.log(chalk.bold('🧪 Test Setup Wizard\n')),
+    Effect.flatMap(() =>
+      Effect.scoped(
+        pipe(
+          Effect.all([
+            Effect.acquireRelease(
+              Effect.sync(() => new ConfigManager()),
+              (configManager) => Effect.sync(() => configManager.close()),
+            ),
+            Effect.sync(() => new TestManager()),
+          ]),
+          Effect.flatMap(([configManager, testManager]) =>
+            pipe(
+              // Get configuration
+              Effect.tryPromise({
+                try: () => configManager.getConfig(),
+                catch: (error) => new TestConfigError(`Failed to get config: ${error}`),
+              }),
+              Effect.flatMap((config) => {
+                if (!config) {
+                  return pipe(
+                    Console.error(chalk.red('No configuration found. Please run "ji auth" first.')),
+                    Effect.flatMap(() => Effect.succeed(process.exit(1))),
+                  );
+                }
+                return Effect.succeed(config);
+              }),
+              Effect.flatMap((config) =>
+                pipe(
+                  testManager.getEnvironmentInfoEffect(),
+                  Effect.map((envInfo) => ({ config, envInfo })),
+                ),
+              ),
+              Effect.flatMap(({ config, envInfo }) =>
+                pipe(
+                  Console.log(chalk.cyan('Environment detected:')),
+                  Effect.flatMap(() => Console.log(`  Jira URL: ${config.jiraUrl}`)),
+                  Effect.flatMap(() => Console.log(`  Projects: ${envInfo.projectKeys.join(', ')}`)),
+                  Effect.flatMap(() => Console.log(`  Confluence Spaces: ${envInfo.confluenceSpaces.join(', ')}\n`)),
+                  Effect.map(() => ({ config, envInfo })),
+                ),
+              ),
+              Effect.flatMap(({ config, envInfo }) =>
+                pipe(
+                  setupCommandTestsEffect(envInfo),
+                  Effect.map((tests) => ({
+                    version: '1.0.0',
+                    lastUpdated: new Date().toISOString(),
+                    environment: {
+                      jiraUrl: config.jiraUrl,
+                      projectKeys: envInfo.projectKeys,
+                      confluenceSpaces: envInfo.confluenceSpaces,
+                    },
+                    tests,
+                  })),
+                ),
+              ),
+              Effect.flatMap((testConfig) =>
+                pipe(
+                  testManager.saveConfigEffect(testConfig),
+                  Effect.tap(() => Console.log(chalk.green(`✓ Test configuration saved to ${TEST_CONFIG_PATH}`))),
+                  Effect.tap(() => Console.log(chalk.dim('\nRun "ji test" to execute all configured tests.'))),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 
-  const testManager = new TestManager();
-  const configManager = new ConfigManager();
+// Helper function to setup command tests
+const setupCommandTestsEffect = (envInfo: {
+  projectKeys: string[];
+  confluenceSpaces: string[];
+}): Effect.Effect<Record<string, TestCase[]>, ValidationError> =>
+  pipe(
+    Effect.succeed(Object.entries(COMMAND_TYPES)),
+    Effect.flatMap((commandEntries) =>
+      Effect.all(
+        commandEntries.map(([key, commandType]) =>
+          pipe(
+            Console.log(chalk.yellow(`Setting up ${commandType.name} tests:`)),
+            Effect.flatMap(() => Console.log(chalk.dim(`${commandType.description}\n`))),
+            Effect.flatMap(() => setupCommandTypeTestsEffect(key, commandType, envInfo)),
+            Effect.map((testCases) => [key, testCases] as const),
+          ),
+        ),
+      ),
+    ),
+    Effect.map((entries) => Object.fromEntries(entries.filter(([, testCases]) => testCases.length > 0))),
+  );
 
-  try {
-    // Get configuration and environment info
-    const config = await configManager.getConfig();
-    if (!config) {
-      console.error(chalk.red('No configuration found. Please run "ji auth" first.'));
-      process.exit(1);
+// Helper function to setup tests for a specific command type
+const setupCommandTypeTestsEffect = (
+  key: string,
+  commandType: {
+    name: string;
+    description: string;
+    examples: string[];
+    expectedPatterns: string[];
+    llmValidation: boolean;
+  },
+  envInfo: { projectKeys: string[]; confluenceSpaces: string[] },
+): Effect.Effect<TestCase[], ValidationError> => {
+  if (key === 'issue_view' || key === 'issue_direct') {
+    if (envInfo.projectKeys.length === 0) {
+      return Effect.succeed([]);
     }
 
-    const envInfo = await testManager.getEnvironmentInfo();
-
-    console.log(chalk.cyan('Environment detected:'));
-    console.log(`  Jira URL: ${config.jiraUrl}`);
-    console.log(`  Projects: ${envInfo.projectKeys.join(', ')}`);
-    console.log(`  Confluence Spaces: ${envInfo.confluenceSpaces.join(', ')}\n`);
-
-    // Initialize test config
-    const testConfig: TestConfig = {
-      version: '1.0.0',
-      lastUpdated: new Date().toISOString(),
-      environment: {
-        jiraUrl: config.jiraUrl,
-        projectKeys: envInfo.projectKeys,
-        confluenceSpaces: envInfo.confluenceSpaces,
-      },
-      tests: {},
-    };
-
-    // Setup each command type
-    for (const [key, commandType] of Object.entries(COMMAND_TYPES)) {
-      console.log(chalk.yellow(`Setting up ${commandType.name} tests:`));
-      console.log(chalk.dim(`${commandType.description}\n`));
-
-      const testCases: TestCase[] = [];
-
-      if (key === 'issue_view' || key === 'issue_direct') {
-        // Use real issue keys from environment
-        if (envInfo.projectKeys.length > 0) {
-          const exampleKey = `${envInfo.projectKeys[0]}-1234`;
-          console.log(chalk.dim(`Example: ${key === 'issue_view' ? 'issue view' : ''} ${exampleKey}`));
-
-          const userInput = await getUserInput(`Enter a real issue key from your environment (e.g., ${exampleKey}): `);
-          if (userInput) {
-            const command = key === 'issue_view' ? `issue view ${userInput}` : userInput;
-            testCases.push({
-              id: `${key}_1`,
-              command,
-              description: `Test ${commandType.name} with ${userInput}`,
-              expectedPatterns: commandType.expectedPatterns,
-              enabled: true,
-            });
-          }
-        }
-      } else if (key === 'ask') {
-        // Setup AI question tests
-        console.log(chalk.dim('Enter questions about your environment (empty to skip):'));
-        let questionNum = 1;
-        while (true) {
-          const question = await getUserInput(`Question ${questionNum} (or press Enter to continue): `);
-          if (!question) break;
-
-          const expectedTopicsInput = await getUserInput('Expected topics in answer (comma-separated): ');
-          const expectedTopics = expectedTopicsInput
-            .split(',')
-            .map((t) => t.trim())
-            .filter(Boolean);
-
-          testCases.push({
-            id: `ask_${questionNum}`,
-            command: `ask "${question}"`,
-            description: `Test AI answer for: ${question}`,
-            llmValidation: true,
-            expectedPatterns: expectedTopics,
-            enabled: true,
-          });
-          questionNum++;
-        }
-      } else {
-        // Use predefined examples for other commands
-        commandType.examples.forEach((example, i) => {
-          testCases.push({
-            id: `${key}_${i + 1}`,
-            command: example,
-            description: `Test ${commandType.name}: ${example}`,
+    const exampleKey = `${envInfo.projectKeys[0]}-1234`;
+    return pipe(
+      Console.log(chalk.dim(`Example: ${key === 'issue_view' ? 'issue view' : ''} ${exampleKey}`)),
+      Effect.flatMap(() => getUserInputEffect(`Enter a real issue key from your environment (e.g., ${exampleKey}): `)),
+      Effect.map((userInput) => {
+        if (!userInput) return [];
+        const command = key === 'issue_view' ? `issue view ${userInput}` : userInput;
+        return [
+          {
+            id: `${key}_1`,
+            command,
+            description: `Test ${commandType.name} with ${userInput}`,
             expectedPatterns: commandType.expectedPatterns,
-            llmValidation: commandType.llmValidation,
             enabled: true,
-          });
-        });
-      }
-
-      if (testCases.length > 0) {
-        testConfig.tests[key] = testCases;
-        console.log(chalk.green(`✓ Added ${testCases.length} test(s) for ${commandType.name}\n`));
-      } else {
-        console.log(chalk.yellow(`⚠ No tests configured for ${commandType.name}\n`));
-      }
-    }
-
-    // Save configuration
-    await testManager.saveConfig(testConfig);
-    console.log(chalk.green(`✓ Test configuration saved to ${TEST_CONFIG_PATH}`));
-    console.log(chalk.dim('\nRun "ji test" to execute all configured tests.'));
-  } finally {
-    configManager.close();
+          },
+        ];
+      }),
+    );
   }
+
+  if (key === 'ask') {
+    return pipe(
+      Console.log(chalk.dim('Enter questions about your environment (empty to skip):')),
+      Effect.flatMap(() => collectAskQuestionsEffect()),
+    );
+  }
+
+  // For other command types, use predefined examples
+  return Effect.succeed(
+    commandType.examples.map((example, i) => ({
+      id: `${key}_${i + 1}`,
+      command: example,
+      description: `Test ${commandType.name}: ${example}`,
+      expectedPatterns: commandType.expectedPatterns,
+      llmValidation: commandType.llmValidation,
+      enabled: true,
+    })),
+  );
+};
+
+// Helper function to collect AI questions
+const collectAskQuestionsEffect = (): Effect.Effect<TestCase[], ValidationError> => {
+  const collectQuestion = (questionNum: number): Effect.Effect<TestCase[], ValidationError> =>
+    pipe(
+      getUserInputEffect(`Question ${questionNum} (or press Enter to continue): `),
+      Effect.flatMap((question) => {
+        if (!question) return Effect.succeed([]);
+
+        return pipe(
+          getUserInputEffect('Expected topics in answer (comma-separated): '),
+          Effect.map((expectedTopicsInput) => {
+            const expectedTopics = expectedTopicsInput
+              .split(',')
+              .map((t) => t.trim())
+              .filter(Boolean);
+
+            const testCase: TestCase = {
+              id: `ask_${questionNum}`,
+              command: `ask "${question}"`,
+              description: `Test AI answer for: ${question}`,
+              llmValidation: true,
+              expectedPatterns: expectedTopics,
+              enabled: true,
+            };
+
+            return [testCase];
+          }),
+          Effect.flatMap((currentCase) =>
+            pipe(
+              collectQuestion(questionNum + 1),
+              Effect.map((nextCases) => [...currentCase, ...nextCases]),
+            ),
+          ),
+        );
+      }),
+    );
+
+  return collectQuestion(1);
+};
+
+async function setupTests(): Promise<void> {
+  await Effect.runPromise(
+    setupTestsEffect().pipe(
+      Effect.catchAll((error) =>
+        pipe(
+          Console.error(chalk.red('Setup failed:'), error.message),
+          Effect.flatMap(() => Effect.succeed(process.exit(1))),
+        ),
+      ),
+    ),
+  );
 }
 
 async function runTests(): Promise<void> {
   console.log(chalk.bold('🧪 Running Tests\n'));
 
   const testManager = new TestManager();
-  const config = await testManager.loadConfig();
+  const config = (await testManager.loadConfig()) as MutableTestConfig | null;
 
   if (!config) {
     console.log(chalk.yellow('No test configuration found.'));
@@ -284,7 +470,7 @@ async function runTests(): Promise<void> {
     const categoryInfo = COMMAND_TYPES[category as keyof typeof COMMAND_TYPES];
     console.log(chalk.cyan(`\n${categoryInfo?.name || category} Tests:`));
 
-    for (const test of tests) {
+    for (const test of tests as MutableTestCase[]) {
       if (!test.enabled) {
         console.log(chalk.dim(`  ⏭ Skipped: ${test.description}`));
         continue;

@@ -105,6 +105,19 @@ ji sprint unassigned   # Unassigned issues
 ji board PROJ          # View project board
 ```
 
+### 🧪 Testing Framework
+Built-in testing for environment-specific commands:
+```bash
+ji test --setup        # Configure tests for your environment
+ji test                # Run all configured tests
+```
+
+Features:
+- Environment-specific test cases (real issue keys, projects)
+- LLM-based validation for `ji ask` responses
+- Comprehensive coverage of all commands
+- Pass/fail reporting with statistics
+
 ## Tips & Tricks
 
 1. **Speed up searches** with source filters:
@@ -157,6 +170,10 @@ ji ask "question"            # AI Q&A
 # Maintenance
 ji sync                      # Sync all workspaces
 ji index                     # Rebuild search index
+
+# Testing
+ji test --setup              # Configure environment tests
+ji test                      # Run all tests
 ```
 
 ## License
