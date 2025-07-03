@@ -130,6 +130,233 @@ ${chalk.yellow('Examples:')}
 `);
 }
 
+function showBoardHelp() {
+  console.log(`
+${chalk.bold('ji board - Show Jira boards')}
+
+${chalk.yellow('Usage:')}
+  ji board [project-key]
+
+${chalk.yellow('Description:')}
+  Shows boards for a specific project or all boards if no project is specified.
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji board                  Show all boards
+  ji board EVAL             Show boards for EVAL project
+`);
+}
+
+function showSprintHelp() {
+  console.log(`
+${chalk.bold('ji sprint - Show active sprint')}
+
+${chalk.yellow('Usage:')}
+  ji sprint [project-key]
+
+${chalk.yellow('Description:')}
+  Shows the active sprint for a project. If no project is specified,
+  shows sprints for all projects.
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji sprint                 Show all active sprints
+  ji sprint EVAL            Show active sprint for EVAL project
+`);
+}
+
+function showMineHelp() {
+  console.log(`
+${chalk.bold('ji mine - Show your open issues')}
+
+${chalk.yellow('Usage:')}
+  ji mine
+
+${chalk.yellow('Description:')}
+  Shows all issues assigned to you that are not closed.
+  Output is in YAML format for easy parsing.
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji mine
+`);
+}
+
+function showTakeHelp() {
+  console.log(`
+${chalk.bold('ji take - Assign an issue to yourself')}
+
+${chalk.yellow('Usage:')}
+  ji take <issue-key>
+
+${chalk.yellow('Description:')}
+  Assigns the specified issue to yourself.
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji take EVAL-123
+`);
+}
+
+function showAskHelp() {
+  console.log(`
+${chalk.bold('ji ask - Ask questions about your content')}
+
+${chalk.yellow('Usage:')}
+  ji ask "<question>"
+
+${chalk.yellow('Description:')}
+  Uses AI to answer questions based on your synced Jira and Confluence content.
+  Requires Ollama to be installed and running.
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji ask "What are the deployment steps?"
+  ji ask "How do I configure authentication?"
+  ji ask "What issues are blocking the release?"
+`);
+}
+
+function showRememberHelp() {
+  console.log(`
+${chalk.bold('ji remember - Add a fact to memory')}
+
+${chalk.yellow('Usage:')}
+  ji remember "<fact>"
+
+${chalk.yellow('Description:')}
+  Stores a fact or piece of information that will be used as context
+  when answering questions with 'ji ask'.
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji remember "Our staging environment is at staging.example.com"
+  ji remember "The API key is stored in AWS Secrets Manager"
+  ji remember "Deployments happen every Tuesday and Thursday"
+`);
+}
+
+function showAuthHelp() {
+  console.log(`
+${chalk.bold('ji auth - Set up authentication')}
+
+${chalk.yellow('Usage:')}
+  ji auth
+
+${chalk.yellow('Description:')}
+  Interactive setup for Jira and Confluence authentication.
+  Stores credentials securely in ~/.ji/auth.json
+
+${chalk.yellow('Required Information:')}
+  - Jira URL (e.g., https://company.atlassian.net)
+  - Email address
+  - API token (create at https://id.atlassian.com/manage/api-tokens)
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji auth
+`);
+}
+
+function showInitHelp() {
+  console.log(`
+${chalk.bold('ji init - Interactive setup wizard')}
+
+${chalk.yellow('Usage:')}
+  ji init
+
+${chalk.yellow('Description:')}
+  Comprehensive setup wizard that guides you through:
+  - Authentication setup
+  - AI model configuration
+  - Initial project/space sync
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji init
+`);
+}
+
+function showModelsHelp() {
+  console.log(`
+${chalk.bold('ji models - Configure AI models')}
+
+${chalk.yellow('Usage:')}
+  ji models
+
+${chalk.yellow('Description:')}
+  Configure which AI models to use for different features:
+  - Chat model for answering questions
+  - Embedding model for semantic search
+
+${chalk.yellow('Requirements:')}
+  - Ollama must be installed and running
+  - Models must be pulled with 'ollama pull <model>'
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji models
+`);
+}
+
+function showIndexHelp() {
+  console.log(`
+${chalk.bold('ji index - Rebuild search index')}
+
+${chalk.yellow('Usage:')}
+  ji index
+
+${chalk.yellow('Description:')}
+  Rebuilds the Meilisearch index from the local SQLite database.
+  Use this if search results seem out of date or after major syncs.
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji index
+`);
+}
+
+function showTestHelp() {
+  console.log(`
+${chalk.bold('ji test - Testing framework')}
+
+${chalk.yellow('Usage:')}
+  ji test [options]
+
+${chalk.yellow('Options:')}
+  --setup                   Configure environment-specific tests
+  --help                    Show this help message
+
+${chalk.yellow('Description:')}
+  Comprehensive testing framework that validates all CLI commands.
+  Use --setup to configure tests with real data from your environment.
+
+${chalk.yellow('Examples:')}
+  ji test --setup           Configure tests
+  ji test                   Run all tests
+`);
+}
+
 // Helper function to show usage
 function showHelp() {
   console.log(`
@@ -177,6 +404,10 @@ ${chalk.yellow('Testing:')}
   ji test                              Run all configured tests
   ji test --setup                      Configure environment-specific tests
 
+${chalk.yellow('Help:')}
+  ji help                              Show this help message
+  ji [command] --help                  Show help for a specific command
+
 ${chalk.gray('Examples:')}
   ji ABC-123                           View issue ABC-123
   ji mine                              Show your assigned issues
@@ -213,20 +444,37 @@ async function main() {
     // Main commands
     switch (command) {
       case 'auth':
+        if (args.includes('--help')) {
+          showAuthHelp();
+          process.exit(0);
+        }
         await auth();
         break;
 
       case 'init':
+        if (args.includes('--help')) {
+          showInitHelp();
+          process.exit(0);
+        }
         await initializeSetup();
         break;
 
       case 'mine':
+        if (args.includes('--help')) {
+          showMineHelp();
+          process.exit(0);
+        }
         await showMyIssues();
         break;
 
       case 'take':
+        if (args.includes('--help')) {
+          showTakeHelp();
+          process.exit(0);
+        }
         if (!subArgs[0]) {
           console.error('Please specify an issue key');
+          showTakeHelp();
           process.exit(1);
         }
         await takeIssue(subArgs[0]);
@@ -250,10 +498,18 @@ async function main() {
         break;
 
       case 'board':
+        if (args.includes('--help')) {
+          showBoardHelp();
+          process.exit(0);
+        }
         await showMyBoards(subArgs[0]);
         break;
 
       case 'sprint':
+        if (args.includes('--help')) {
+          showSprintHelp();
+          process.exit(0);
+        }
         await showSprint(subArgs[0]);
         break;
 
@@ -341,8 +597,13 @@ async function main() {
       }
 
       case 'ask': {
+        if (args.includes('--help')) {
+          showAskHelp();
+          process.exit(0);
+        }
         if (!subArgs[0]) {
           console.error('Please provide a question');
+          showAskHelp();
           process.exit(1);
         }
         const question = subArgs.join(' ');
@@ -351,8 +612,13 @@ async function main() {
       }
 
       case 'remember': {
+        if (args.includes('--help')) {
+          showRememberHelp();
+          process.exit(0);
+        }
         if (!subArgs[0]) {
           console.error('Please provide a fact to remember');
+          showRememberHelp();
           process.exit(1);
         }
         const fact = subArgs.join(' ');
@@ -382,14 +648,26 @@ async function main() {
         break;
 
       case 'models':
+        if (args.includes('--help')) {
+          showModelsHelp();
+          process.exit(0);
+        }
         await configureModels();
         break;
 
       case 'index':
+        if (args.includes('--help')) {
+          showIndexHelp();
+          process.exit(0);
+        }
         await syncToMeilisearch();
         break;
 
       case 'test':
+        if (args.includes('--help')) {
+          showTestHelp();
+          process.exit(0);
+        }
         await testCommand({ setup: args.includes('--setup') });
         break;
 
