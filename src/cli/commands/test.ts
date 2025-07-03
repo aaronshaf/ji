@@ -289,7 +289,11 @@ const setupTestsEffect = (): Effect.Effect<
               ),
               Effect.flatMap(({ config, envInfo }) =>
                 pipe(
-                  setupCommandTestsEffect(envInfo),
+                  // Load existing test config for defaults
+                  testManager
+                    .loadConfigEffect()
+                    .pipe(Effect.catchAll(() => Effect.succeed(null))),
+                  Effect.flatMap((existingConfig) => setupCommandTestsEffect(envInfo, existingConfig)),
                   Effect.map((tests) => ({
                     version: '1.0.0',
                     lastUpdated: new Date().toISOString(),
@@ -317,10 +321,10 @@ const setupTestsEffect = (): Effect.Effect<
   );
 
 // Helper function to setup command tests
-const setupCommandTestsEffect = (envInfo: {
-  projectKeys: string[];
-  confluenceSpaces: string[];
-}): Effect.Effect<Record<string, TestCase[]>, ValidationError> =>
+const setupCommandTestsEffect = (
+  envInfo: { projectKeys: string[]; confluenceSpaces: string[] },
+  existingConfig?: TestConfig | null,
+): Effect.Effect<Record<string, TestCase[]>, ValidationError> =>
   pipe(
     Effect.succeed(Object.entries(COMMAND_TYPES)),
     Effect.flatMap((commandEntries) =>
@@ -329,7 +333,7 @@ const setupCommandTestsEffect = (envInfo: {
           pipe(
             Console.log(chalk.yellow(`Setting up ${commandType.name} tests:`)),
             Effect.flatMap(() => Console.log(chalk.dim(`${commandType.description}\n`))),
-            Effect.flatMap(() => setupCommandTypeTestsEffect(key, commandType, envInfo)),
+            Effect.flatMap(() => setupCommandTypeTestsEffect(key, commandType, envInfo, existingConfig)),
             Effect.map((testCases) => [key, testCases] as const),
           ),
         ),
@@ -349,19 +353,38 @@ const setupCommandTypeTestsEffect = (
     llmValidation: boolean;
   },
   envInfo: { projectKeys: string[]; confluenceSpaces: string[] },
+  existingConfig?: TestConfig | null,
 ): Effect.Effect<TestCase[], ValidationError> => {
+  // Get existing tests for this command type as defaults
+  const existingTests = existingConfig?.tests[key] || [];
   if (key === 'issue_view' || key === 'issue_direct') {
     if (envInfo.projectKeys.length === 0) {
       return Effect.succeed([]);
     }
 
     const exampleKey = `${envInfo.projectKeys[0]}-1234`;
+    const exampleCommand = key === 'issue_view' ? `issue view ${exampleKey}` : exampleKey;
+
+    // Get existing issue key as default
+    const existingIssueKey =
+      existingTests.length > 0
+        ? key === 'issue_view'
+          ? existingTests[0].command.replace('issue view ', '')
+          : existingTests[0].command
+        : null;
+
+    const promptText = existingIssueKey
+      ? `Enter a real issue key (current: ${existingIssueKey}, press Enter to keep): `
+      : `Enter a real issue key from your environment (e.g., ${exampleKey}): `;
+
     return pipe(
-      Console.log(chalk.dim(`Example: ${key === 'issue_view' ? 'issue view' : ''} ${exampleKey}`)),
-      Effect.flatMap(() => getUserInputEffect(`Enter a real issue key from your environment (e.g., ${exampleKey}): `)),
+      Console.log(chalk.dim(`Example: ${exampleCommand}`)),
+      Effect.flatMap(() => getUserInputEffect(promptText)),
       Effect.map((userInput) => {
-        if (!userInput) return [];
-        const command = key === 'issue_view' ? `issue view ${userInput}` : userInput;
+        // Use existing value if user pressed Enter with no input
+        const issueKey = userInput || existingIssueKey;
+        if (!issueKey) return [];
+        const command = key === 'issue_view' ? `issue view ${issueKey}` : issueKey;
         return [
           {
             id: `${key}_1`,
@@ -378,7 +401,7 @@ const setupCommandTypeTestsEffect = (
   if (key === 'ask') {
     return pipe(
       Console.log(chalk.dim('Enter questions about your environment (empty to skip):')),
-      Effect.flatMap(() => collectAskQuestionsEffect()),
+      Effect.flatMap(() => collectAskQuestionsEffect(existingConfig)),
     );
   }
 
@@ -395,26 +418,45 @@ const setupCommandTypeTestsEffect = (
   );
 };
 
-// Helper function to collect AI questions
-const collectAskQuestionsEffect = (): Effect.Effect<TestCase[], ValidationError> => {
-  const collectQuestion = (questionNum: number): Effect.Effect<TestCase[], ValidationError> =>
-    pipe(
-      getUserInputEffect(`Question ${questionNum} (or press Enter to continue): `),
+// Helper function to collect AI questions with defaults support
+const collectAskQuestionsEffect = (existingConfig?: TestConfig | null): Effect.Effect<TestCase[], ValidationError> => {
+  const existingAskTests = existingConfig?.tests.ask || [];
+
+  const collectQuestion = (questionNum: number): Effect.Effect<TestCase[], ValidationError> => {
+    const existingTest = existingAskTests[questionNum - 1];
+
+    const questionPrompt = existingTest
+      ? `Question ${questionNum} (current: "${existingTest.command.replace('ask "', '').replace('"', '')}", press Enter to keep or type new): `
+      : `Question ${questionNum} (or press Enter to continue): `;
+
+    return pipe(
+      getUserInputEffect(questionPrompt),
       Effect.flatMap((question) => {
-        if (!question) return Effect.succeed([]);
+        // Use existing question if user pressed Enter with no input
+        const finalQuestion =
+          question || (existingTest ? existingTest.command.replace('ask "', '').replace('"', '') : '');
+
+        if (!finalQuestion) return Effect.succeed([]);
+
+        const topicsPrompt = existingTest?.expectedPatterns?.length
+          ? `Expected topics in answer (current: ${existingTest.expectedPatterns.join(', ')}, press Enter to keep): `
+          : 'Expected topics in answer (comma-separated): ';
 
         return pipe(
-          getUserInputEffect('Expected topics in answer (comma-separated): '),
+          getUserInputEffect(topicsPrompt),
           Effect.map((expectedTopicsInput) => {
-            const expectedTopics = expectedTopicsInput
+            // Use existing topics if user pressed Enter with no input
+            const finalTopicsInput = expectedTopicsInput || existingTest?.expectedPatterns?.join(', ') || '';
+
+            const expectedTopics = finalTopicsInput
               .split(',')
               .map((t) => t.trim())
               .filter(Boolean);
 
             const testCase: TestCase = {
               id: `ask_${questionNum}`,
-              command: `ask "${question}"`,
-              description: `Test AI answer for: ${question}`,
+              command: `ask "${finalQuestion}"`,
+              description: `Test AI answer for: ${finalQuestion}`,
               llmValidation: true,
               expectedPatterns: expectedTopics,
               enabled: true,
@@ -431,6 +473,7 @@ const collectAskQuestionsEffect = (): Effect.Effect<TestCase[], ValidationError>
         );
       }),
     );
+  };
 
   return collectQuestion(1);
 };
@@ -477,7 +520,8 @@ async function runTests(): Promise<void> {
       }
 
       totalTests++;
-      console.log(chalk.dim(`  Running: ${test.description}`));
+      const commandDisplay = `ji ${test.command}`;
+      console.log(chalk.dim(`  Running: ${commandDisplay}`));
 
       try {
         const result = await executeTest(test);
