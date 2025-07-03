@@ -12,6 +12,7 @@ import { ask, search } from './commands/search.js';
 import { initializeSetup } from './commands/setup.js';
 import { showSprint } from './commands/sprint.js';
 import { syncConfluence, syncJiraProject, syncWorkspaces } from './commands/sync.js';
+import { testCommand } from './commands/test.js';
 import { refreshInBackground, refreshSprintInBackground } from './utils/background.js';
 
 // Helper function to show usage
@@ -56,6 +57,10 @@ ${chalk.yellow('Sync & Index:')}
 ${chalk.yellow('Setup:')}
   ji init                              Interactive setup wizard
   ji models                            Configure AI models
+
+${chalk.yellow('Testing:')}
+  ji test                              Run all configured tests
+  ji test --setup                      Configure environment-specific tests
 
 ${chalk.gray('Examples:')}
   ji ABC-123                           View issue ABC-123
@@ -203,6 +208,10 @@ async function main() {
 
       case 'index':
         await syncToMeilisearch();
+        break;
+
+      case 'test':
+        await testCommand({ setup: args.includes('--setup') });
         break;
 
       default:
