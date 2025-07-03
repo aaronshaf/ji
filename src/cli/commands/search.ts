@@ -60,6 +60,7 @@ function displaySearchResults(
       id: string;
       title?: string;
       source: string;
+      createdAt?: string | number;
       updatedAt?: string | number;
       metadata?: Record<string, unknown>;
     };
@@ -86,10 +87,21 @@ function displaySearchResults(
       updated = formatSmartDate(dateValue);
     }
 
+    let created = null;
+    if (content.createdAt) {
+      const timestamp = typeof content.createdAt === 'string' ? parseInt(content.createdAt) : content.createdAt;
+      // If timestamp is in milliseconds (>= year 2001), use as is, otherwise multiply by 1000
+      const dateValue = timestamp >= 978307200000 ? timestamp : timestamp * 1000;
+      created = formatSmartDate(dateValue);
+    }
+
     // YAML output with color
     console.log(`${chalk.cyan('- type:')} ${type}`);
     console.log(`${chalk.cyan('  key:')} ${chalk.bold(key)}`);
     console.log(`${chalk.cyan('  title:')} ${title}`);
+    if (created) {
+      console.log(`${chalk.cyan('  created:')} ${chalk.dim(created)}`);
+    }
     if (updated) {
       console.log(`${chalk.cyan('  updated:')} ${chalk.dim(updated)}`);
     }
