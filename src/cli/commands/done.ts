@@ -58,13 +58,24 @@ const markIssueDoneEffect = (issueKey: string) =>
               }),
             ),
             Effect.flatMap(() =>
-              // Move the issue to Done
+              // First, get available transitions to debug
               pipe(
-                jiraClient.closeIssueEffect(issueKey),
-                Effect.tap(() =>
+                jiraClient.getIssueTransitionsEffect(issueKey),
+                Effect.tap((transitions) =>
                   Effect.sync(() => {
-                    spinner.succeed(`Successfully moved ${issueKey} to Done`);
+                    spinner.text = `Available transitions: ${transitions.map((t) => t.name).join(', ')}`;
                   }),
+                ),
+                Effect.flatMap(() =>
+                  // Move the issue to Done
+                  pipe(
+                    jiraClient.closeIssueEffect(issueKey),
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        spinner.succeed(`Successfully moved ${issueKey} to Done`);
+                      }),
+                    ),
+                  ),
                 ),
               ),
             ),
