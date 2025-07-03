@@ -2,6 +2,7 @@
 import chalk from 'chalk';
 import { auth } from './commands/auth.js';
 import { showMyBoards } from './commands/board.js';
+import { addComment } from './commands/comment.js';
 import { showRecentConfluencePages, viewConfluencePage } from './commands/confluence.js';
 import { syncToMeilisearch } from './commands/index.js';
 import { viewIssue } from './commands/issue.js';
@@ -206,6 +207,29 @@ ${chalk.yellow('Examples:')}
 `);
 }
 
+function showCommentHelp() {
+  console.log(`
+${chalk.bold('ji comment - Add a comment to an issue')}
+
+${chalk.yellow('Usage:')}
+  ji comment <issue-key> [comment]
+
+${chalk.yellow('Description:')}
+  Add a comment to a Jira issue. Supports three modes:
+  1. Inline: ji comment EVAL-123 "Fixed the issue"
+  2. Editor: ji comment EVAL-123 (opens $EDITOR)
+  3. Pipe: echo "Fixed" | ji comment EVAL-123
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji comment EVAL-123 "Deployed the fix to staging"
+  ji comment EVAL-123                              # Opens editor
+  cat notes.md | ji comment EVAL-123               # From pipe
+`);
+}
+
 function showAskHelp() {
   console.log(`
 ${chalk.bold('ji ask - Ask questions about your content')}
@@ -368,6 +392,7 @@ ${chalk.yellow('Authentication:')}
 ${chalk.yellow('Issues:')}
   ji mine                              Show your open issues
   ji take <issue-key>                  Assign an issue to yourself
+  ji comment <issue-key> [comment]     Add a comment to an issue
   ji <issue-key>                       View issue details
   ji issue view <issue-key>            View issue details (alias)
   ji issue sync <project-key>          Sync all issues from a project
@@ -478,6 +503,20 @@ async function main() {
           process.exit(1);
         }
         await takeIssue(subArgs[0]);
+        break;
+
+      case 'comment':
+        if (args.includes('--help')) {
+          showCommentHelp();
+          process.exit(0);
+        }
+        if (!subArgs[0]) {
+          console.error('Please specify an issue key');
+          showCommentHelp();
+          process.exit(1);
+        }
+        // Pass the issue key and optional inline comment (all remaining args)
+        await addComment(subArgs[0], subArgs.slice(1).join(' ') || undefined);
         break;
 
       case 'issue':

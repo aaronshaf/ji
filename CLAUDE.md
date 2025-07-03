@@ -219,16 +219,27 @@ src/
 │       ├── search.ts         # Search and AI (Effect-based)
 │       ├── sync.ts           # Data synchronization (Effect-based)
 │       ├── memory.ts         # Memory management
+│       ├── comment.ts        # Add comments to issues (Effect-based)
 │       └── test.ts           # Testing framework (comprehensive Effect usage)
 └── lib/                      # Shared libraries
     ├── cache.ts              # SQLite caching layer (partial Effect integration)
     ├── config.ts             # Configuration & auth management (Effect-based)
     ├── content-manager.ts    # Unified content storage (Effect-based)
     ├── ollama.ts             # Ollama integration for LLM
-    ├── jira-client.ts        # Jira API client
+    ├── jira-client.ts        # Jira API client (LARGE FILE - needs splitting)
     ├── confluence-client.ts  # Confluence API client
     └── confluence-converter.ts # Convert storage format to text
 ```
+
+### Code Organization Guidelines
+
+**File Size Management**: When files grow too large (>500 lines), split them into smaller, focused modules:
+- `jira-client.ts` is getting large and should be split into:
+  - `jira-client-core.ts` - Basic API methods
+  - `jira-client-effects.ts` - Effect-based implementations
+  - `jira-client-types.ts` - Schemas and type definitions
+- Keep related functionality together but separate concerns
+- Use barrel exports (`index.ts`) to maintain clean imports
 
 ## Important Security Notes
 
