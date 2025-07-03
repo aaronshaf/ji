@@ -560,6 +560,84 @@ export class JiraClient {
   }
 
   /**
+   * Effect-based version of addComment with structured error handling
+   */
+  addCommentEffect(
+    issueKey: string,
+    comment: string,
+  ): Effect.Effect<void, ValidationError | NotFoundError | NetworkError | AuthenticationError> {
+    return pipe(
+      // Validate inputs
+      Effect.sync(() => {
+        if (!issueKey || !issueKey.match(/^[A-Z]+-\d+$/)) {
+          throw new ValidationError('Invalid issue key format. Expected format: PROJECT-123');
+        }
+        if (!comment || comment.trim().length === 0) {
+          throw new ValidationError('Comment cannot be empty');
+        }
+      }),
+      Effect.flatMap(() => {
+        const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}/comment`;
+
+        return Effect.tryPromise({
+          try: async () => {
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: this.getHeaders(),
+              body: JSON.stringify({
+                body: {
+                  type: 'doc',
+                  version: 1,
+                  content: [
+                    {
+                      type: 'paragraph',
+                      content: [
+                        {
+                          type: 'text',
+                          text: comment,
+                        },
+                      ],
+                    },
+                  ],
+                },
+              }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+
+              if (response.status === 404) {
+                throw new NotFoundError(`Issue ${issueKey} not found`);
+              }
+
+              if (response.status === 401 || response.status === 403) {
+                throw new AuthenticationError('Not authorized to add comments to this issue');
+              }
+
+              throw new NetworkError(`Failed to add comment: ${response.status} - ${errorText}`);
+            }
+          },
+          catch: (error) => {
+            if (
+              error instanceof NotFoundError ||
+              error instanceof AuthenticationError ||
+              error instanceof NetworkError
+            ) {
+              return error;
+            }
+            return new NetworkError(`Network error: ${error}`);
+          },
+        });
+      }),
+    );
+  }
+
+  // Backward compatible version
+  async addComment(issueKey: string, comment: string): Promise<void> {
+    await Effect.runPromise(this.addCommentEffect(issueKey, comment));
+  }
+
+  /**
    * Effect-based version of getBoards with structured error handling
    */
   getBoardsEffect(options?: {
