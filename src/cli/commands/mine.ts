@@ -94,24 +94,43 @@ const showMyIssuesEffect = () =>
           // Display by project in YAML format
           const projectEntries = Object.entries(byProject);
           const displayEffect = Effect.sync(() => {
+            // Add a summary header
+            const totalIssues = issues.length;
+            const totalProjects = projectEntries.length;
+            console.log(chalk.dim('─'.repeat(60)));
+            console.log(
+              `${chalk.bold('📋 My Open Issues')} ${chalk.dim('·')} ${chalk.yellow(totalIssues)} issue${totalIssues !== 1 ? 's' : ''} across ${chalk.yellow(totalProjects)} project${totalProjects !== 1 ? 's' : ''}`,
+            );
+            console.log(chalk.dim('─'.repeat(60)));
+            console.log();
+
             // Start with projects list
-            console.log(`${chalk.cyan('projects:')}`);
+            console.log(`${chalk.bold.cyan('projects:')}`);
 
             projectEntries.forEach(([projectKey, projectIssues]) => {
-              console.log(`${chalk.cyan('- name:')} ${projectKey}`);
-              console.log(`  ${chalk.cyan('issue_count:')} ${projectIssues.length}`);
+              console.log(`${chalk.cyan('- name:')} ${chalk.bold.white(projectKey)}`);
+              console.log(`  ${chalk.cyan('issue_count:')} ${chalk.yellow(projectIssues.length)}`);
               console.log(`  ${chalk.cyan('issues:')}`);
 
               projectIssues.forEach((issue) => {
-                const updated = new Date(issue.updated);
-                const daysAgo = Math.floor((Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24));
-                const timeStr = daysAgo === 0 ? 'today' : daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`;
+                // Color code status
+                let statusColor = chalk.white;
+                const statusLower = issue.status.toLowerCase();
+                if (statusLower.includes('progress') || statusLower.includes('development')) {
+                  statusColor = chalk.blue;
+                } else if (statusLower.includes('review') || statusLower.includes('feedback')) {
+                  statusColor = chalk.magenta;
+                } else if (statusLower.includes('done') || statusLower.includes('complete')) {
+                  statusColor = chalk.green;
+                } else if (statusLower.includes('blocked')) {
+                  statusColor = chalk.red;
+                } else if (statusLower.includes('todo') || statusLower.includes('open')) {
+                  statusColor = chalk.yellow;
+                }
 
-                console.log(`  ${chalk.cyan('- key:')} ${issue.key}`);
+                console.log(`  ${chalk.cyan('- key:')} ${chalk.bold(issue.key)}`);
                 console.log(`    ${chalk.cyan('title:')} ${issue.summary}`);
-                console.log(`    ${chalk.cyan('status:')} ${issue.status}`);
-                console.log(`    ${chalk.cyan('updated:')} ${timeStr}`);
-                console.log(`    ${chalk.cyan('priority:')} ${issue.priority || 'None'}`);
+                console.log(`    ${chalk.cyan('status:')} ${statusColor(issue.status)}`);
               });
             });
           });
