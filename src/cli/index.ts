@@ -407,21 +407,21 @@ ${chalk.yellow('Examples:')}
 
 function showConfigHelp() {
   console.log(`
-${chalk.bold('ji config - Configure custom fields')}
+${chalk.bold('ji config - Discover available custom fields')}
 
 ${chalk.yellow('Usage:')}
   ji config
 
 ${chalk.yellow('Description:')}
-  Discover and configure custom fields from your Jira instance.
-  Helps identify acceptance criteria, story points, and other custom
-  fields that you want to display in issue views.
+  Discover custom fields available in your Jira instance.
+  Shows acceptance criteria, story points, and other useful fields.
+  All fields are automatically included in issue views - no configuration needed.
 
 ${chalk.yellow('Options:')}
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
-  ji config                 Discover and configure custom fields
+  ji config                 Discover available custom fields
 `);
 }
 
@@ -468,7 +468,7 @@ ${chalk.yellow('Sync & Index:')}
 
 ${chalk.yellow('Setup:')}
   ji init                              Interactive setup wizard
-  ji config                            Configure custom fields  
+  ji config                            Discover available custom fields  
   ji models                            Configure AI models
 
 ${chalk.yellow('Testing:')}

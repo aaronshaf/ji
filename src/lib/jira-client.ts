@@ -94,41 +94,8 @@ export class ValidationError extends Error {
   readonly _tag = 'ValidationError';
 }
 
-// Standard fields to fetch for issues including sprint information
-export const ISSUE_FIELDS = [
-  'summary',
-  'description',
-  'status',
-  'assignee',
-  'reporter',
-  'priority',
-  'created',
-  'updated',
-  'labels',
-  'components',
-  // Common sprint custom fields
-  'customfield_10020', // Most common sprint field
-  'customfield_10021', // Alternative sprint field
-  'customfield_10016', // Another common sprint field
-  'customfield_10018', // Sometimes used
-  'customfield_10019', // Sometimes used
-  // Common acceptance criteria custom fields
-  'customfield_10014', // Common acceptance criteria field
-  'customfield_10015', // Alternative acceptance criteria field
-  'customfield_10001', // Another common one
-  'customfield_10002', // Another common one
-  'customfield_10003', // Another common one
-  'customfield_10004', // Another common one
-  'customfield_10005', // Another common one
-  'customfield_10006', // Another common one
-  'customfield_10007', // Another common one
-  'customfield_10008', // Another common one
-  'customfield_10009', // Another common one
-  'customfield_10010', // Another common one
-  'customfield_10011', // Another common one
-  'customfield_10012', // Another common one
-  'customfield_10013', // Another common one
-];
+// Standard fields to fetch for issues - we'll fetch ALL fields by using '*'
+export const ISSUE_FIELDS = ['*'];
 
 export class JiraClient {
   private config: Config;
