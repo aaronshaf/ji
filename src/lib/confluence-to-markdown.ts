@@ -87,7 +87,7 @@ function convertTablesToMarkdown(html: string): string {
 
     // Extract rows
     const rowRegex = /<tr[^>]*>(.*?)<\/tr>/gis;
-    let rowMatch;
+    let rowMatch: RegExpExecArray | null;
 
     while ((rowMatch = rowRegex.exec(tableContent)) !== null) {
       const rowContent = rowMatch[1];
@@ -95,7 +95,7 @@ function convertTablesToMarkdown(html: string): string {
 
       // Extract cells (th or td)
       const cellRegex = /<t[hd][^>]*>(.*?)<\/t[hd]>/gis;
-      let cellMatch;
+      let cellMatch: RegExpExecArray | null;
 
       while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
         // Clean cell content

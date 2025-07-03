@@ -106,12 +106,16 @@ export class InfrastructureManager {
         const performanceLogger = new PerformanceLogger(logger);
         const auditLogger = new AuditLogger(logger);
 
+        if (!cache || !jobQueue || !search) {
+          throw new Error('Failed to initialize infrastructure services');
+        }
+
         const infrastructure: AppInfrastructure = {
           logger,
           config,
-          cache: cache!,
-          jobQueue: jobQueue!,
-          search: search!,
+          cache,
+          jobQueue,
+          search,
           performanceLogger,
           auditLogger,
         };

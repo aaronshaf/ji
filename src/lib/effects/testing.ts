@@ -240,7 +240,7 @@ export class TestMocks {
    * Create a mock cache service
    */
   static createMockCache(): CacheService {
-    const cache = new Map<string, any>();
+    const cache = new Map<string, unknown>();
 
     return {
       get: <T>(key: string) => Effect.succeed(cache.has(key) ? Option.some(cache.get(key) as T) : Option.none<T>()),
@@ -299,7 +299,7 @@ export class TestMocks {
       }),
       exec: (_sql: string) => undefined,
       close: () => undefined,
-      transaction: (fn: Function) => fn(),
+      transaction: (fn: () => unknown) => fn(),
       getTables: () => Array.from(tables.keys()),
       getTable: (name: string) => tables.get(name) || [],
       setTable: (name: string, data: unknown[]) => tables.set(name, data),
@@ -405,15 +405,15 @@ export class PropertyGenerators {
  * Test fixture manager
  */
 export class TestFixtureManager {
-  private fixtures = new Map<string, TestFixture<any>>();
-  private activeResources = new Map<string, any>();
+  private fixtures = new Map<string, TestFixture<unknown>>();
+  private activeResources = new Map<string, unknown>();
 
   /**
    * Register a test fixture
    */
   register<T>(fixture: TestFixture<T>): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      this.fixtures.set(fixture.name, fixture as any);
+      this.fixtures.set(fixture.name, fixture as TestFixture<unknown>);
     });
   }
 

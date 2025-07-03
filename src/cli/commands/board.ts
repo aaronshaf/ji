@@ -85,7 +85,7 @@ const displaySingleBoardEffect = (
       // Display by status
       const statusDisplayEffect = Effect.all(
         allStatuses.map((status) => {
-          const statusIssues = statusGroups.get(status)!;
+          const statusIssues = statusGroups.get(status) || [];
           return Effect.sync(() => {
             console.log(chalk.bold(`${status} (${statusIssues.length})`));
 

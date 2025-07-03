@@ -312,7 +312,7 @@ export class ContentManager {
             const meilisearch = new MeilisearchAdapter();
             await meilisearch.indexContent(content);
           },
-          catch: (error) => {
+          catch: (_error) => {
             if (!this.meilisearchErrorShown) {
               console.error('Meilisearch is not available. Continuing with SQLite search only.');
               this.meilisearchErrorShown = true;
@@ -370,7 +370,7 @@ export class ContentManager {
     try {
       const meilisearch = new MeilisearchAdapter();
       await meilisearch.indexContent(content);
-    } catch (error) {
+    } catch (_error) {
       // Log but don't fail if Meilisearch is unavailable
       if (!this.meilisearchErrorShown) {
         console.error('Meilisearch is not available. Continuing with SQLite search only.');
