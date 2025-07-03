@@ -15,6 +15,121 @@ import { syncConfluence, syncJiraProject, syncWorkspaces } from './commands/sync
 import { testCommand } from './commands/test.js';
 import { refreshInBackground, refreshSprintInBackground } from './utils/background.js';
 
+// Command-specific help functions
+function showSearchHelp() {
+  console.log(`
+${chalk.bold('ji search - Search across Jira and Confluence')}
+
+${chalk.yellow('Usage:')}
+  ji search <query> [options]
+
+${chalk.yellow('Options:')}
+  --limit=N, --limit N      Limit number of results (default: 10)
+  --jira                    Search only Jira content
+  --confluence              Search only Confluence content
+  --all                     Include all results
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji search "login bug"
+  ji search "deployment" --limit=5
+  ji search "API documentation" --confluence
+  ji search "EVAL-123"
+`);
+}
+
+function showIssueHelp() {
+  console.log(`
+${chalk.bold('ji issue - Jira issue commands')}
+
+${chalk.yellow('Usage:')}
+  ji issue <subcommand> [options]
+
+${chalk.yellow('Subcommands:')}
+  view <issue-key>          View issue details
+  sync <project-key>        Sync all issues from a project
+
+${chalk.yellow('Options:')}
+  --json                    Output in JSON format (for view)
+  --clean                   Clean sync - remove existing issues first
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji issue view EVAL-123
+  ji issue view EVAL-123 --json
+  ji issue sync EVAL --clean
+`);
+}
+
+function showSyncHelp() {
+  console.log(`
+${chalk.bold('ji sync - Synchronize Jira and Confluence data')}
+
+${chalk.yellow('Usage:')}
+  ji sync [options]
+
+${chalk.yellow('Options:')}
+  --clean                   Clean sync - remove existing data first
+  --help                    Show this help message
+
+${chalk.yellow('Description:')}
+  Syncs all active workspaces (both Jira projects and Confluence spaces).
+  Use --clean to perform a fresh sync, removing all existing data first.
+
+${chalk.yellow('Examples:')}
+  ji sync
+  ji sync --clean
+`);
+}
+
+function showConfluenceHelp() {
+  console.log(`
+${chalk.bold('ji confluence - Confluence commands')}
+
+${chalk.yellow('Usage:')}
+  ji confluence <subcommand> [options]
+
+${chalk.yellow('Subcommands:')}
+  sync <space-key>          Sync Confluence space
+  recent <space-key> [N]    Show N recent pages (default: 10)
+  view <page-id>            View a Confluence page
+
+${chalk.yellow('Options:')}
+  --clean                   Clean sync - remove existing pages first
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji confluence sync ENG
+  ji confluence sync ENG --clean
+  ji confluence recent ENG 20
+  ji confluence view 12345
+`);
+}
+
+function showMemoriesHelp() {
+  console.log(`
+${chalk.bold('ji memories - Memory management commands')}
+
+${chalk.yellow('Usage:')}
+  ji memories <subcommand> [options]
+
+${chalk.yellow('Subcommands:')}
+  list                      List all memories
+  delete <id>               Delete a specific memory
+  stats                     Show memory statistics
+  clear [--all]             Clear memories (--all for complete reset)
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji memories list
+  ji memories delete mem_12345
+  ji memories stats
+  ji memories clear --all
+`);
+}
+
 // Helper function to show usage
 function showHelp() {
   console.log(`
@@ -118,12 +233,18 @@ async function main() {
         break;
 
       case 'issue':
+        if (args.includes('--help') || !subArgs[0]) {
+          showIssueHelp();
+          process.exit(0);
+        }
+
         if (subArgs[0] === 'view' && subArgs[1]) {
           await viewIssue(subArgs[1], { json: args.includes('--json') });
         } else if (subArgs[0] === 'sync' && subArgs[1]) {
           await syncJiraProject(subArgs[1], { clean: args.includes('--clean') });
         } else {
           console.error('Invalid issue command. Use "ji issue view <key>" or "ji issue sync <project>"');
+          showIssueHelp();
           process.exit(1);
         }
         break;
@@ -137,6 +258,11 @@ async function main() {
         break;
 
       case 'confluence':
+        if (args.includes('--help') || !subArgs[0]) {
+          showConfluenceHelp();
+          process.exit(0);
+        }
+
         if (subArgs[0] === 'sync' && subArgs[1]) {
           await syncConfluence(subArgs[1], { clean: args.includes('--clean') });
         } else if (subArgs[0] === 'recent' && subArgs[1]) {
@@ -146,15 +272,25 @@ async function main() {
           await viewConfluencePage(subArgs[1]);
         } else {
           console.error('Invalid confluence command');
+          showConfluenceHelp();
           process.exit(1);
         }
         break;
 
       case 'sync':
+        if (args.includes('--help')) {
+          showSyncHelp();
+          process.exit(0);
+        }
         await syncWorkspaces({ clean: args.includes('--clean') });
         break;
 
       case 'search': {
+        if (args.includes('--help')) {
+          showSearchHelp();
+          process.exit(0);
+        }
+
         if (!subArgs[0]) {
           console.error('Please provide a search query');
           process.exit(1);
@@ -225,6 +361,11 @@ async function main() {
       }
 
       case 'memories':
+        if (args.includes('--help') || !subArgs[0]) {
+          showMemoriesHelp();
+          process.exit(0);
+        }
+
         if (subArgs[0] === 'list') {
           await listMemories();
         } else if (subArgs[0] === 'delete' && subArgs[1]) {
@@ -235,6 +376,7 @@ async function main() {
           await clearMemories(args.includes('--all'));
         } else {
           console.error('Invalid memories command');
+          showMemoriesHelp();
           process.exit(1);
         }
         break;
