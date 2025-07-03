@@ -255,6 +255,8 @@ src/
 - ✅ Effect-based error handling and type safety
 - ✅ YAML output for LLM compatibility
 - ✅ `ji sync` now syncs BOTH Jira projects and Confluence spaces
+- ✅ Metadata-first sync strategy for --clean flag (fast 250 pages/batch)
+- ✅ Incremental sync with version tracking to avoid re-fetching unchanged pages
 
 ## Testing Framework
 
