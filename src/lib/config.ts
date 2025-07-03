@@ -34,6 +34,7 @@ export interface Settings {
   askModel?: string;
   embeddingModel?: string; // Model for generating embeddings for hybrid search
   analysisModel?: string; // Smaller, faster model for source selection and query generation
+  meilisearchIndexPrefix?: string; // Prefix for Meilisearch indexes to avoid conflicts
 }
 
 export class ConfigManager {
@@ -414,12 +415,39 @@ export class ConfigManager {
     const askModel = await this.getSetting('askModel');
     const embeddingModel = await this.getSetting('embeddingModel');
     const analysisModel = await this.getSetting('analysisModel');
+    const meilisearchIndexPrefix = await this.getSetting('meilisearchIndexPrefix');
 
     return {
       askModel: askModel || undefined,
       embeddingModel: embeddingModel || undefined,
       analysisModel: analysisModel || undefined,
+      meilisearchIndexPrefix: meilisearchIndexPrefix || undefined,
     };
+  }
+
+  /**
+   * Get the Meilisearch index prefix with default fallback
+   * Returns user's email local part (before @) as default to ensure uniqueness
+   */
+  async getMeilisearchIndexPrefix(): Promise<string> {
+    const customPrefix = await this.getSetting('meilisearchIndexPrefix');
+    if (customPrefix) {
+      return customPrefix;
+    }
+
+    // Use email local part as default prefix for uniqueness
+    try {
+      const config = await this.getConfig();
+      if (config) {
+        const emailLocal = config.email.split('@')[0];
+        // Sanitize for Meilisearch (alphanumeric + hyphen/underscore only)
+        return emailLocal.replace(/[^a-zA-Z0-9_-]/g, '_');
+      }
+    } catch {
+      // Fallback if no config
+    }
+
+    return 'ji'; // Final fallback
   }
 
   close() {

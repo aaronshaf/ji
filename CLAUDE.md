@@ -250,6 +250,18 @@ src/
 - `.gitignore` configured to exclude all sensitive files including test configs
 - All sensitive configuration files use 600 permissions for security
 
+## Meilisearch Configuration
+
+ji automatically handles index naming to avoid conflicts in shared Meilisearch environments:
+
+- **Automatic prefixes**: Uses your email username (e.g., `john_doe` from `john.doe@company.com`)
+- **Zero configuration**: Works out of the box in shared environments
+- **Index isolation**: `{prefix}-jira-issues` and `{prefix}-confluence-pages`
+- **User data separation**: Each user gets their own isolated search indexes
+- **Optional customization**: Advanced users can override prefix if needed
+
+See `MEILISEARCH.md` for detailed information about shared environment usage.
+
 ## Current Features
 
 - ✅ Jira issue viewing with caching (Effect-based)

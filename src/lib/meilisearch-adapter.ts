@@ -68,27 +68,31 @@ export class MeilisearchAdapter {
   async initialize() {
     if (this.initialized) return;
 
-    // Get configured embedding model
+    // Get configured embedding model and index prefix
     const configManager = new ConfigManager();
     const settings = await configManager.getSettings();
     const embeddingModel = settings.embeddingModel || 'mxbai-embed-large';
+    const indexPrefix = await configManager.getMeilisearchIndexPrefix();
     configManager.close();
 
-    // Get or create indexes
-    this.jiraIndex = this.client.index('jira-issues');
-    this.confluenceIndex = this.client.index('confluence-pages');
+    // Get or create indexes with prefix
+    const jiraIndexName = `${indexPrefix}-jira-issues`;
+    const confluenceIndexName = `${indexPrefix}-confluence-pages`;
+
+    this.jiraIndex = this.client.index(jiraIndexName);
+    this.confluenceIndex = this.client.index(confluenceIndexName);
 
     // Create indexes if they don't exist
     try {
       await this.jiraIndex.getStats();
     } catch {
-      await this.client.createIndex('jira-issues', { primaryKey: 'id' });
+      await this.client.createIndex(jiraIndexName, { primaryKey: 'id' });
     }
 
     try {
       await this.confluenceIndex.getStats();
     } catch {
-      await this.client.createIndex('confluence-pages', { primaryKey: 'id' });
+      await this.client.createIndex(confluenceIndexName, { primaryKey: 'id' });
     }
 
     // Wait for indexes to be created
