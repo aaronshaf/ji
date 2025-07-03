@@ -35,6 +35,7 @@ const syncIssuesBatch = (issues: Issue[], cacheManager: CacheManager, contentMan
       await cacheManager.saveIssuesBatchEffect(issues).pipe(Effect.runPromise);
 
       // Also update search index for each issue
+      // TODO: Implement batch content saving for better performance
       for (const issue of issues) {
         await contentManager.saveJiraIssue(issue);
       }
@@ -102,7 +103,7 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
             }),
             Effect.flatMap(() => {
               let totalSynced = 0;
-              const batchSize = 50;
+              const batchSize = 100; // Increased batch size for better performance
 
               return pipe(
                 jiraClient.getAllProjectIssuesEffect(projectKey, {
@@ -116,6 +117,7 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
                   pipe(
                     Effect.sync(() => {
                       console.log(); // New line after progress
+                      console.log(chalk.cyan(`Fetched ${issues.length} issues. Now saving...`));
                       return issues;
                     }),
                     Effect.flatMap((issues) => {
