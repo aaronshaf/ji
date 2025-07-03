@@ -4,8 +4,6 @@ import { Effect } from 'effect';
 import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
 import { JiraClient } from '../../lib/jira-client.js';
-import { getJiraStatusIcon } from '../formatters/issue.js';
-import { createProgressBar } from '../formatters/progress.js';
 
 export async function showSprint(projectFilter?: string, options: { unassigned?: boolean } = {}) {
   const configManager = new ConfigManager();
@@ -161,75 +159,58 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
           continue;
         }
 
-        // Sprint header with subtle coloring
-        console.log(`\n${chalk.bold(sprint.sprintName)} ${chalk.dim(`(${sprint.projectKey})`)}`);
-
+        // YAML format output
         if (options.unassigned) {
-          // Show only unassigned issues
-          if (unassignedIssues.length === 0) {
-            console.log(chalk.dim('  No unassigned issues'));
-          } else {
-            console.log(
-              chalk.dim(`  ${unassignedIssues.length} unassigned issue${unassignedIssues.length !== 1 ? 's' : ''}:`),
-            );
+          // Show only unassigned issues in YAML
+          console.log(`${chalk.cyan('sprint:')} ${sprint.sprintName}`);
+          console.log(`${chalk.cyan('project:')} ${sprint.projectKey}`);
+          console.log(`${chalk.cyan('unassigned_count:')} ${unassignedIssues.length}`);
 
+          if (unassignedIssues.length > 0) {
+            console.log(`${chalk.cyan('unassigned_issues:')}`);
             unassignedIssues.forEach((issue) => {
               const priorityName = issue.fields.priority?.name || 'None';
-              const priorityColor =
-                priorityName === 'High' || priorityName === 'Highest'
-                  ? chalk.red
-                  : priorityName === 'Medium'
-                    ? chalk.yellow
-                    : chalk.dim;
-
-              console.log(`  ${chalk.cyan(issue.key)}: ${issue.fields.summary}`);
-              console.log(
-                `    ${priorityColor(`Priority: ${priorityName}`)} ${chalk.dim('|')} ${chalk.dim(`Type: ${issue.fields.status.name}`)}`,
-              );
+              console.log(`${chalk.cyan('- key:')} ${issue.key}`);
+              console.log(`  ${chalk.cyan('title:')} ${issue.fields.summary}`);
+              console.log(`  ${chalk.cyan('status:')} ${issue.fields.status.name}`);
+              console.log(`  ${chalk.cyan('priority:')} ${priorityName}`);
             });
           }
         } else {
-          // Show full sprint stats and my issues
+          // Show full sprint stats in YAML
           const todoIssues = allIssues.filter((i) => ['To Do', 'Open', 'New'].includes(i.fields.status.name));
           const inProgressIssues = allIssues.filter((i) =>
             ['In Progress', 'In Development'].includes(i.fields.status.name),
           );
           const doneIssues = allIssues.filter((i) => ['Done', 'Closed', 'Resolved'].includes(i.fields.status.name));
 
-          // Progress bar
-          const progressBar = createProgressBar(doneIssues.length, allIssues.length);
-
-          console.log(`  ${progressBar} ${doneIssues.length}/${allIssues.length} completed`);
-
-          // Sprint stats
-          console.log(
-            chalk.dim(
-              `  Todo: ${todoIssues.length} | In Progress: ${inProgressIssues.length} | Done: ${doneIssues.length}`,
-            ),
-          );
-
-          // Show my issues in the sprint
           const myEmail = config.email;
           const myIssues = allIssues.filter(
             (i) => i.fields.assignee?.emailAddress === myEmail || i.fields.assignee?.displayName === myEmail,
           );
 
+          console.log(`${chalk.cyan('sprint:')} ${sprint.sprintName}`);
+          console.log(`${chalk.cyan('project:')} ${sprint.projectKey}`);
+          console.log(`${chalk.cyan('total_issues:')} ${allIssues.length}`);
+          console.log(`${chalk.cyan('completed:')} ${doneIssues.length}`);
+          console.log(
+            `${chalk.cyan('completion_percentage:')} ${Math.round((doneIssues.length / allIssues.length) * 100)}%`,
+          );
+          console.log(`${chalk.cyan('todo:')} ${todoIssues.length}`);
+          console.log(`${chalk.cyan('in_progress:')} ${inProgressIssues.length}`);
+          console.log(`${chalk.cyan('done:')} ${doneIssues.length}`);
+          console.log(`${chalk.cyan('my_issues_count:')} ${myIssues.length}`);
+
           if (myIssues.length > 0) {
-            console.log(`\n  ${chalk.bold(`My issues (${myIssues.length}):`)}`);
+            console.log(`${chalk.cyan('my_issues:')}`);
             myIssues.forEach((issue) => {
-              const statusIcon = getJiraStatusIcon(issue.fields.status.name);
-              console.log(`    ${statusIcon} ${chalk.cyan(issue.key)}: ${issue.fields.summary}`);
+              console.log(`${chalk.cyan('- key:')} ${issue.key}`);
+              console.log(`  ${chalk.cyan('title:')} ${issue.fields.summary}`);
+              console.log(`  ${chalk.cyan('status:')} ${issue.fields.status.name}`);
             });
           }
 
-          // Show unassigned count if any
-          if (unassignedIssues.length > 0) {
-            console.log(
-              chalk.yellow(
-                `\n  ${unassignedIssues.length} unassigned issue${unassignedIssues.length !== 1 ? 's' : ''}`,
-              ),
-            );
-          }
+          console.log(`${chalk.cyan('unassigned_count:')} ${unassignedIssues.length}`);
         }
       }
     },
