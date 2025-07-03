@@ -424,6 +424,7 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                           createdAt: new Date(page.version.when).getTime(),
                           updatedAt: new Date(page.version.when).getTime(),
                           syncedAt: Date.now(),
+                          metadata: { version: page.version.number },
                         });
                       } catch (error) {
                         console.error(chalk.red(`Failed to save page ${page.id}: ${error}`));
@@ -468,8 +469,10 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
               for (const page of localPages) {
                 try {
                   const metadata = JSON.parse(page.metadata || '{}');
-                  if (metadata.version) {
-                    localVersions.set(page.id.replace('confluence:', ''), metadata.version);
+                  // Extract version from metadata object structure
+                  const version = metadata.version?.number || metadata.version || null;
+                  if (version) {
+                    localVersions.set(page.id.replace('confluence:', ''), version);
                   }
                 } catch {}
               }
@@ -483,6 +486,7 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                 }
               }
 
+              console.log(chalk.dim(`Found ${localVersions.size} local pages, ${allMetadata.length} remote pages`));
               console.log(chalk.dim(`${pagesToFetch.length} pages need updating`));
 
               if (pagesToFetch.length > 0) {
@@ -568,6 +572,7 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                         createdAt: new Date(page.version.when).getTime(),
                         updatedAt: new Date(page.version.when).getTime(),
                         syncedAt: Date.now(),
+                        metadata: { version: page.version.number },
                       });
                     } catch (error) {
                       console.error(chalk.red(`Failed to save page ${page.id}: ${error}`));
