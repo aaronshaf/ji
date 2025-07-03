@@ -225,9 +225,9 @@ const COMMAND_TYPES = {
   },
   mine: {
     name: 'My Issues',
-    description: 'Show assigned issues',
+    description: 'Show assigned issues from main project',
     examples: ['mine'],
-    expectedPatterns: ['- type: issue', 'assignee:'],
+    expectedPatterns: [], // Will be populated with main project key
     llmValidation: false,
   },
 };
@@ -396,6 +396,25 @@ const setupCommandTypeTestsEffect = (
       Console.log(chalk.dim('Enter questions about your environment (empty to skip):')),
       Effect.flatMap(() => collectAskQuestionsEffect(existingConfig)),
     );
+  }
+
+  if (key === 'mine') {
+    // For mine command, set expected patterns to include the main project key
+    const mainProjectKey = envInfo.projectKeys[0];
+    const expectedPatterns = mainProjectKey
+      ? ['- type: issue', 'assignee:', `key: ${mainProjectKey}-`]
+      : ['- type: issue', 'assignee:'];
+
+    return Effect.succeed([
+      {
+        id: 'mine_1',
+        command: 'mine',
+        description: `Test My Issues from ${mainProjectKey || 'main project'}`,
+        expectedPatterns,
+        llmValidation: false,
+        enabled: true,
+      },
+    ]);
   }
 
   // For other command types, use predefined examples
