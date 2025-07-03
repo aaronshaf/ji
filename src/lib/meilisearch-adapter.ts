@@ -141,36 +141,55 @@ export class MeilisearchAdapter {
   }
 
   async indexContent(content: SearchableContent) {
-    await this.initialize();
+    // Check circuit breaker
+    if (this.isCircuitOpen) {
+      const now = Date.now();
+      if (now - this.lastFailureTime < this.circuitOpenDuration) {
+        // Circuit is still open, skip indexing
+        return;
+      } else {
+        // Try to close the circuit
+        this.isCircuitOpen = false;
+      }
+    }
 
-    const doc = {
-      id: content.id.replace(':', '_'), // Replace colon with underscore for Meilisearch compatibility
-      originalId: content.id, // Keep original ID for reference
-      key: content.id.replace(/^(jira|confluence):/, ''),
-      title: content.title,
-      content: content.content.substring(0, 50000), // Meilisearch has a 100KB limit per field
-      source: content.source,
-      url: content.url,
-      spaceKey: content.spaceKey,
-      projectKey: content.projectKey,
-      updatedAt: content.updatedAt || Date.now(),
-      createdAt: content.createdAt || Date.now(),
-      syncedAt: content.syncedAt,
-      // Flatten metadata for filtering
-      status: content.metadata?.status,
-      priority: content.metadata?.priority,
-      assignee: content.metadata?.assignee,
-      reporter: content.metadata?.reporter,
-      type: content.type,
-      // Add description and summary for Jira issues
-      description: content.type === 'issue' ? content.content.split('\n')[0] : undefined,
-      summary: content.title.includes(':') ? content.title.split(': ')[1] : content.title,
-    };
+    try {
+      await this.initialize();
 
-    if (content.source === 'jira') {
-      await this.jiraIndex.addDocuments([doc], { primaryKey: 'id' });
-    } else {
-      await this.confluenceIndex.addDocuments([doc], { primaryKey: 'id' });
+      const doc = {
+        id: content.id.replace(':', '_'), // Replace colon with underscore for Meilisearch compatibility
+        originalId: content.id, // Keep original ID for reference
+        key: content.id.replace(/^(jira|confluence):/, ''),
+        title: content.title,
+        content: content.content.substring(0, 50000), // Meilisearch has a 100KB limit per field
+        source: content.source,
+        url: content.url,
+        spaceKey: content.spaceKey,
+        projectKey: content.projectKey,
+        updatedAt: content.updatedAt || Date.now(),
+        createdAt: content.createdAt || Date.now(),
+        syncedAt: content.syncedAt,
+        // Flatten metadata for filtering
+        status: content.metadata?.status,
+        priority: content.metadata?.priority,
+        assignee: content.metadata?.assignee,
+        reporter: content.metadata?.reporter,
+        type: content.type,
+        // Add description and summary for Jira issues
+        description: content.type === 'issue' ? content.content.split('\n')[0] : undefined,
+        summary: content.title.includes(':') ? content.title.split(': ')[1] : content.title,
+      };
+
+      if (content.source === 'jira') {
+        await this.jiraIndex.addDocuments([doc], { primaryKey: 'id' });
+      } else {
+        await this.confluenceIndex.addDocuments([doc], { primaryKey: 'id' });
+      }
+    } catch (error) {
+      // Open circuit breaker on failure
+      this.isCircuitOpen = true;
+      this.lastFailureTime = Date.now();
+      throw error;
     }
   }
 
@@ -210,16 +229,32 @@ export class MeilisearchAdapter {
       }
     }
 
+    // Batch documents to avoid overwhelming Meilisearch
+    const BATCH_SIZE = 100;
     const tasks = [];
-    if (jiraDocs.length > 0) {
-      tasks.push(this.jiraIndex.addDocuments(jiraDocs, { primaryKey: 'id' }));
-    }
-    if (confluenceDocs.length > 0) {
-      tasks.push(this.confluenceIndex.addDocuments(confluenceDocs, { primaryKey: 'id' }));
+
+    // Process Jira documents in batches
+    for (let i = 0; i < jiraDocs.length; i += BATCH_SIZE) {
+      const batch = jiraDocs.slice(i, i + BATCH_SIZE);
+      tasks.push(this.jiraIndex.addDocuments(batch, { primaryKey: 'id' }));
     }
 
-    await Promise.all(tasks);
-    // Removed unnecessary 1-second delay - Meilisearch handles queuing internally
+    // Process Confluence documents in batches
+    for (let i = 0; i < confluenceDocs.length; i += BATCH_SIZE) {
+      const batch = confluenceDocs.slice(i, i + BATCH_SIZE);
+      tasks.push(this.confluenceIndex.addDocuments(batch, { primaryKey: 'id' }));
+    }
+
+    // Process batches with controlled concurrency
+    const CONCURRENT_BATCHES = 3;
+    for (let i = 0; i < tasks.length; i += CONCURRENT_BATCHES) {
+      const batch = tasks.slice(i, i + CONCURRENT_BATCHES);
+      await Promise.all(batch);
+      // Small delay between batch groups to avoid overwhelming Meilisearch
+      if (i + CONCURRENT_BATCHES < tasks.length) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
   }
 
   async search(
