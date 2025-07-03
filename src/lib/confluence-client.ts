@@ -358,9 +358,13 @@ export class ConfluenceClient {
         expand: ['version'], // Only get version info, no content
       });
 
-      if (response.size > 0 && estimatedTotal === 0) {
-        // Estimate total based on first response
-        estimatedTotal = Math.ceil(response.size * 1.1); // Add 10% buffer
+      // Confluence doesn't provide total count, so we estimate based on pagination
+      if (response.results.length === limit) {
+        // If we got a full page, assume there are more pages
+        estimatedTotal = allMetadata.length + limit;
+      } else {
+        // This is the last page
+        estimatedTotal = allMetadata.length + response.results.length;
       }
 
       const metadata = response.results.map((page) => ({
