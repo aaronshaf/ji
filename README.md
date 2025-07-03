@@ -1,5 +1,8 @@
 # ji - Jira & Confluence CLI
 
+[![CI](https://github.com/aaronshaf/ji/actions/workflows/ci.yml/badge.svg)](https://github.com/aaronshaf/ji/actions/workflows/ci.yml)
+[![Code Quality](https://img.shields.io/badge/warnings-0-brightgreen)](https://github.com/aaronshaf/ji/actions/workflows/ci.yml)
+
 A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Features local caching with instant search and AI-powered Q&A.
 
 **Key benefits:**

@@ -1,0 +1,115 @@
+name: PR Quality Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  quality-check:
+    name: Quality Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Fetch full history for better diff analysis
+        fetch-depth: 0
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Install dependencies
+      run: bun install
+
+    - name: TypeScript Check
+      id: typecheck
+      run: |
+        echo "### 🔍 TypeScript Check" >> $GITHUB_STEP_SUMMARY
+        if bun run typecheck; then
+          echo "✅ TypeScript check passed" >> $GITHUB_STEP_SUMMARY
+          echo "result=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ TypeScript check failed" >> $GITHUB_STEP_SUMMARY
+          echo "result=failure" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Formatting Check
+      id: format
+      run: |
+        echo "### 🎨 Formatting Check" >> $GITHUB_STEP_SUMMARY
+        if bun run biome format . --check; then
+          echo "✅ Code is properly formatted" >> $GITHUB_STEP_SUMMARY
+          echo "result=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Code needs formatting. Run \`bun run format\` locally." >> $GITHUB_STEP_SUMMARY
+          echo "```diff" >> $GITHUB_STEP_SUMMARY
+          bun run biome format . --check --diff >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          echo "result=failure" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Linting Check
+      id: lint
+      run: |
+        echo "### 🧹 Linting Check" >> $GITHUB_STEP_SUMMARY
+        bun run biome check . 2>&1 | tee biome-output.txt
+        BIOME_EXIT_CODE=$?
+        
+        # Count warnings and errors
+        WARNINGS=$(grep -o "Found [0-9]* warning" biome-output.txt | grep -o "[0-9]*" || echo "0")
+        ERRORS=$(grep -o "Found [0-9]* error" biome-output.txt | grep -o "[0-9]*" || echo "0")
+        
+        if [ "$WARNINGS" != "0" ] || [ "$ERRORS" != "0" ]; then
+          echo "❌ Linting failed" >> $GITHUB_STEP_SUMMARY
+          echo "- Errors: $ERRORS" >> $GITHUB_STEP_SUMMARY
+          echo "- Warnings: $WARNINGS (must be 0)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>View full output</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          cat biome-output.txt >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "result=failure" >> $GITHUB_OUTPUT
+          exit 1
+        else
+          echo "✅ Linting passed with zero warnings" >> $GITHUB_STEP_SUMMARY
+          echo "result=success" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Summary
+      if: always()
+      run: |
+        echo "### 📊 Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+        
+        # TypeScript
+        if [ "${{ steps.typecheck.outputs.result }}" == "success" ]; then
+          echo "| TypeScript | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| TypeScript | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Formatting
+        if [ "${{ steps.format.outputs.result }}" == "success" ]; then
+          echo "| Formatting | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Formatting | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Linting
+        if [ "${{ steps.lint.outputs.result }}" == "success" ]; then
+          echo "| Linting | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Linting | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Policy**: This project enforces zero warnings. All checks must pass before merging." >> $GITHUB_STEP_SUMMARY
