@@ -325,9 +325,12 @@ ${chalk.yellow('Usage:')}
   ji models
 
 ${chalk.yellow('Description:')}
-  Configure which AI models to use for different features:
-  - Chat model for answering questions
-  - Embedding model for semantic search
+  View and configure AI model settings:
+  - Ask Model: Model used for 'ji ask' questions
+  - Embedding Model: Model for semantic search
+  - Analysis Model: Model for query analysis
+  
+  Shows current configuration and provides guidance for making changes.
 
 ${chalk.yellow('Requirements:')}
   - Ollama must be installed and running
@@ -337,7 +340,7 @@ ${chalk.yellow('Options:')}
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
-  ji models
+  ji models                 View current AI model settings
 `);
 }
 
