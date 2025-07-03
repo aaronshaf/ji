@@ -65,6 +65,7 @@ function escapeFTS5Query(query: string): string {
 
 export class ContentManager {
   public db: Database;
+  private meilisearchErrorShown = false;
 
   constructor() {
     const dbPath = join(homedir(), '.ji', 'data.db');
@@ -312,7 +313,10 @@ export class ContentManager {
             await meilisearch.indexContent(content);
           },
           catch: (error) => {
-            console.error('Failed to index to Meilisearch:', error);
+            if (!this.meilisearchErrorShown) {
+              console.error('Meilisearch is not available. Continuing with SQLite search only.');
+              this.meilisearchErrorShown = true;
+            }
             return undefined; // Don't fail the operation
           },
         }).pipe(Effect.catchAll(() => Effect.succeed(undefined))),
@@ -368,7 +372,10 @@ export class ContentManager {
       await meilisearch.indexContent(content);
     } catch (error) {
       // Log but don't fail if Meilisearch is unavailable
-      console.error('Failed to index to Meilisearch:', error);
+      if (!this.meilisearchErrorShown) {
+        console.error('Meilisearch is not available. Continuing with SQLite search only.');
+        this.meilisearchErrorShown = true;
+      }
     }
   }
 
