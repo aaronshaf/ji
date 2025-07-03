@@ -440,47 +440,94 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
             }
           }
 
-          // Strategy 2: Full sync for clean or first-time sync
+          // Strategy 2: Metadata-first full sync for clean
           if (options.clean) {
-            console.log(chalk.dim('Performing full space sync...'));
+            console.log(chalk.dim('Performing metadata-first full sync...'));
 
-            // Get ALL pages using the efficient getAllSpacePages method
-            const pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
-              process.stdout.write(`\r${chalk.cyan('Progress:')} ${current}/${total} pages fetched...`);
+            // Step 1: Get ALL page metadata (fast!)
+            console.log(chalk.dim('Fetching page metadata...'));
+            const allMetadata = await confluenceClient.getAllPagesMetadata(spaceKey, (current, total) => {
+              process.stdout.write(`\r${chalk.cyan('Metadata:')} ${current}/${total} pages...`);
             });
             console.log();
+            console.log(chalk.green(`✓ Found ${allMetadata.length} pages`));
 
-            if (pages.length > 0) {
-              console.log(chalk.dim(`Saving ${pages.length} pages...`));
+            if (allMetadata.length > 0) {
+              // Step 2: Check what we already have locally
+              console.log(chalk.dim('Comparing with local data...'));
+              const localVersions = new Map<string, number>();
 
-              // Save pages in batches with parallel processing
-              for (let i = 0; i < pages.length; i += SAVE_BATCH_SIZE) {
-                const batch = pages.slice(i, i + SAVE_BATCH_SIZE);
+              // Get local page versions
+              const stmt = contentManager.db.prepare(`
+                SELECT id, metadata
+                FROM searchable_content
+                WHERE space_key = ? AND source = 'confluence'
+              `);
+              const localPages = stmt.all(spaceKey) as Array<{ id: string; metadata: string }>;
 
-                await Promise.all(
-                  batch.map(async (page) => {
-                    try {
-                      await contentManager.saveContent({
-                        id: `confluence:${page.id}`,
-                        source: 'confluence',
-                        type: 'page',
-                        title: page.title,
-                        content: page.body?.storage?.value || '',
-                        url: page._links.webui,
-                        spaceKey: page.space.key,
-                        createdAt: new Date(page.version.when).getTime(),
-                        updatedAt: new Date(page.version.when).getTime(),
-                        syncedAt: Date.now(),
-                      });
-                    } catch (error) {
-                      console.error(chalk.red(`Failed to save page ${page.id}: ${error}`));
-                    }
-                  }),
-                );
-                totalSynced += batch.length;
-                process.stdout.write(`\r${chalk.green('Saved:')} ${totalSynced}/${pages.length} pages...`);
+              for (const page of localPages) {
+                try {
+                  const metadata = JSON.parse(page.metadata || '{}');
+                  if (metadata.version) {
+                    localVersions.set(page.id.replace('confluence:', ''), metadata.version);
+                  }
+                } catch {}
               }
-              console.log();
+
+              // Step 3: Determine which pages need updating
+              const pagesToFetch: string[] = [];
+              for (const page of allMetadata) {
+                const localVersion = localVersions.get(page.id);
+                if (!localVersion || localVersion < page.version.number) {
+                  pagesToFetch.push(page.id);
+                }
+              }
+
+              console.log(chalk.dim(`${pagesToFetch.length} pages need updating`));
+
+              if (pagesToFetch.length > 0) {
+                // Step 4: Fetch and save only changed pages in parallel batches
+                console.log(chalk.dim('Fetching updated pages...'));
+
+                for (let i = 0; i < pagesToFetch.length; i += FETCH_BATCH_SIZE) {
+                  const batchIds = pagesToFetch.slice(i, i + FETCH_BATCH_SIZE);
+
+                  // Fetch pages in parallel
+                  const batchPromises = batchIds.map((id) => confluenceClient.getPage(id));
+                  const pages = await Promise.all(batchPromises);
+
+                  process.stdout.write(
+                    `\r${chalk.cyan('Fetched:')} ${Math.min(i + FETCH_BATCH_SIZE, pagesToFetch.length)}/${pagesToFetch.length} pages...`,
+                  );
+
+                  // Save pages in parallel
+                  await Promise.all(
+                    pages.map(async (page) => {
+                      try {
+                        await contentManager.saveContent({
+                          id: `confluence:${page.id}`,
+                          source: 'confluence',
+                          type: 'page',
+                          title: page.title,
+                          content: page.body?.storage?.value || '',
+                          url: page._links.webui,
+                          spaceKey: page.space.key,
+                          createdAt: new Date(page.version.when).getTime(),
+                          updatedAt: new Date(page.version.when).getTime(),
+                          syncedAt: Date.now(),
+                          metadata: { version: page.version.number },
+                        });
+                      } catch (error) {
+                        console.error(chalk.red(`Failed to save page ${page.id}: ${error}`));
+                      }
+                    }),
+                  );
+                  totalSynced += pages.length;
+                }
+                console.log();
+              } else {
+                console.log(chalk.dim('All pages are up to date!'));
+              }
             }
           } else if (!lastSyncTime && totalSynced === 0) {
             // First-time sync without clean flag - get recent pages to start
