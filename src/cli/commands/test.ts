@@ -438,12 +438,21 @@ const collectAskQuestionsEffect = (existingConfig?: TestConfig | null): Effect.E
     const existingTest = existingAskTests[questionNum - 1];
 
     const questionPrompt = existingTest
-      ? `Question ${questionNum} (current: "${existingTest.command.replace('ask "', '').replace('"', '')}", press Enter to keep or type new): `
+      ? `Question ${questionNum} (current: "${existingTest.command.replace('ask "', '').replace('"', '')}", press Enter to keep, type "clear" to delete, or type new): `
       : `Question ${questionNum} (or press Enter to continue): `;
 
     return pipe(
       getUserInputEffect(questionPrompt),
       Effect.flatMap((question) => {
+        // Handle special commands
+        if (question?.toLowerCase() === 'clear' || question?.toLowerCase() === 'delete') {
+          // Skip this question and continue to the next
+          return pipe(
+            collectQuestion(questionNum + 1),
+            Effect.map((nextCases) => nextCases),
+          );
+        }
+
         // Use existing question if user pressed Enter with no input
         const finalQuestion =
           question || (existingTest ? existingTest.command.replace('ask "', '').replace('"', '') : '');

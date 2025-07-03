@@ -594,7 +594,7 @@ export class ContentManager {
       WHERE content_fts MATCH ?
     `;
 
-    const params: (string | number)[] = [query];
+    const params: (string | number)[] = [escapeFTS5Query(query)];
 
     if (options?.source) {
       sql += ' AND sc.source = ?';
