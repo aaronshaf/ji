@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { auth } from './commands/auth.js';
 import { showMyBoards } from './commands/board.js';
 import { addComment } from './commands/comment.js';
+import { configureCustomFields } from './commands/config.js';
 import { showRecentConfluencePages, viewConfluencePage } from './commands/confluence.js';
 import { markIssueDone } from './commands/done.js';
 import { syncToMeilisearch } from './commands/index.js';
@@ -404,6 +405,26 @@ ${chalk.yellow('Examples:')}
 `);
 }
 
+function showConfigHelp() {
+  console.log(`
+${chalk.bold('ji config - Configure custom fields')}
+
+${chalk.yellow('Usage:')}
+  ji config
+
+${chalk.yellow('Description:')}
+  Discover and configure custom fields from your Jira instance.
+  Helps identify acceptance criteria, story points, and other custom
+  fields that you want to display in issue views.
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji config                 Discover and configure custom fields
+`);
+}
+
 // Helper function to show usage
 function showHelp() {
   console.log(`
@@ -447,6 +468,7 @@ ${chalk.yellow('Sync & Index:')}
 
 ${chalk.yellow('Setup:')}
   ji init                              Interactive setup wizard
+  ji config                            Configure custom fields  
   ji models                            Configure AI models
 
 ${chalk.yellow('Testing:')}
@@ -721,6 +743,14 @@ async function main() {
           showMemoriesHelp();
           process.exit(1);
         }
+        break;
+
+      case 'config':
+        if (args.includes('--help')) {
+          showConfigHelp();
+          process.exit(0);
+        }
+        await configureCustomFields();
         break;
 
       case 'models':

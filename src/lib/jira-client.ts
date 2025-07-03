@@ -104,12 +104,30 @@ export const ISSUE_FIELDS = [
   'priority',
   'created',
   'updated',
+  'labels',
+  'components',
   // Common sprint custom fields
   'customfield_10020', // Most common sprint field
   'customfield_10021', // Alternative sprint field
   'customfield_10016', // Another common sprint field
   'customfield_10018', // Sometimes used
   'customfield_10019', // Sometimes used
+  // Common acceptance criteria custom fields
+  'customfield_10014', // Common acceptance criteria field
+  'customfield_10015', // Alternative acceptance criteria field
+  'customfield_10001', // Another common one
+  'customfield_10002', // Another common one
+  'customfield_10003', // Another common one
+  'customfield_10004', // Another common one
+  'customfield_10005', // Another common one
+  'customfield_10006', // Another common one
+  'customfield_10007', // Another common one
+  'customfield_10008', // Another common one
+  'customfield_10009', // Another common one
+  'customfield_10010', // Another common one
+  'customfield_10011', // Another common one
+  'customfield_10012', // Another common one
+  'customfield_10013', // Another common one
 ];
 
 export class JiraClient {
@@ -803,6 +821,64 @@ export class JiraClient {
 
   async closeIssue(issueKey: string): Promise<void> {
     await Effect.runPromise(this.closeIssueEffect(issueKey));
+  }
+
+  /**
+   * Effect-based version of getting custom fields to help identify acceptance criteria
+   */
+  getCustomFieldsEffect(): Effect.Effect<
+    Array<{ id: string; name: string; description?: string; type: string }>,
+    NetworkError | AuthenticationError
+  > {
+    const url = `${this.config.jiraUrl}/rest/api/3/field`;
+
+    return Effect.tryPromise({
+      try: async () => {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: this.getHeaders(),
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (response.status === 401 || response.status === 403) {
+          const errorText = await response.text();
+          throw new AuthenticationError(`Authentication failed: ${response.status} - ${errorText}`);
+        }
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new NetworkError(`Failed to get custom fields: ${response.status} - ${errorText}`);
+        }
+
+        const fields = (await response.json()) as Array<{
+          id: string;
+          name: string;
+          description?: string;
+          schema?: { type: string; custom?: string };
+          custom: boolean;
+        }>;
+
+        // Filter to custom fields only and return relevant info
+        return fields
+          .filter((field) => field.custom)
+          .map((field) => ({
+            id: field.id,
+            name: field.name,
+            description: field.description,
+            type: field.schema?.type || 'unknown',
+          }));
+      },
+      catch: (error) => {
+        if (error instanceof AuthenticationError) return error;
+        if (error instanceof NetworkError) return error;
+        return new NetworkError(`Network error while getting custom fields: ${error}`);
+      },
+    });
+  }
+
+  // Backward compatible version
+  async getCustomFields(): Promise<Array<{ id: string; name: string; description?: string; type: string }>> {
+    return Effect.runPromise(this.getCustomFieldsEffect());
   }
 
   /**
