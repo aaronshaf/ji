@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import chalk from 'chalk';
 import { Effect, pipe } from 'effect';
 import { ContentError, ContentTooLargeError, QueryError, ValidationError } from './effects/errors.js';
 import type { Issue } from './jira-client.js';
@@ -960,6 +961,30 @@ export class ContentManager {
     }
 
     return null;
+  }
+
+  /**
+   * Delete all content for a specific Confluence space
+   */
+  async deleteSpaceContent(spaceKey: string): Promise<void> {
+    // Delete from FTS table first
+    const deleteFtsStmt = this.db.prepare(`
+      DELETE FROM content_fts 
+      WHERE id IN (
+        SELECT id FROM searchable_content 
+        WHERE space_key = ? AND source = 'confluence'
+      )
+    `);
+    deleteFtsStmt.run(spaceKey);
+
+    // Then delete from main table
+    const deleteStmt = this.db.prepare(`
+      DELETE FROM searchable_content 
+      WHERE space_key = ? AND source = 'confluence'
+    `);
+    const result = deleteStmt.run(spaceKey);
+
+    console.log(chalk.dim(`Deleted ${result.changes} Confluence pages from ${spaceKey}`));
   }
 
   close() {

@@ -35,11 +35,11 @@ export async function listMemories() {
       memories.forEach((memory, index) => {
         const isManual = memory.id.startsWith('manual_');
         const type = isManual ? 'manual' : 'extracted';
-        console.log(chalk.cyan('- id:') + ` ${memory.id}`);
-        console.log(chalk.cyan('  type:') + ` ${type}`);
-        console.log(chalk.cyan('  fact:') + ` ${memory.keyFacts}`);
-        console.log(chalk.cyan('  confidence:') + ` ${memory.confidence}`);
-        console.log(chalk.cyan('  created:') + ` ${chalk.dim(formatSmartDate(memory.createdAt))}`);
+        console.log(`${chalk.cyan('- id:')} ${memory.id}`);
+        console.log(`${chalk.cyan('  type:')} ${type}`);
+        console.log(`${chalk.cyan('  fact:')} ${memory.keyFacts}`);
+        console.log(`${chalk.cyan('  confidence:')} ${memory.confidence}`);
+        console.log(`${chalk.cyan('  created:')} ${chalk.dim(formatSmartDate(memory.createdAt))}`);
         console.log(
           chalk.cyan('  accessed:') +
             ` ${chalk.dim(formatSmartDate(memory.lastAccessed))} (${memory.accessCount} times)`,
@@ -82,12 +82,12 @@ export async function showMemoryStats() {
       const stats = memoryManager.getMemoryStats();
 
       // YAML output
-      console.log(chalk.cyan('total_memories:') + ` ${stats.total}`);
-      console.log(chalk.cyan('recent_memories:') + ` ${stats.recent} (accessed in last week)`);
+      console.log(`${chalk.cyan('total_memories:')} ${stats.total}`);
+      console.log(`${chalk.cyan('recent_memories:')} ${stats.recent} (accessed in last week)`);
 
       if (stats.total > 0) {
         const recentPercentage = Math.round((stats.recent / stats.total) * 100);
-        console.log(chalk.cyan('recent_percentage:') + ` ${recentPercentage}%`);
+        console.log(`${chalk.cyan('recent_percentage:')} ${recentPercentage}%`);
       }
     } finally {
       memoryManager.close();
