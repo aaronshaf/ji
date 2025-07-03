@@ -34,11 +34,11 @@ const syncIssuesBatch = (issues: Issue[], cacheManager: CacheManager, contentMan
       // Save issues using batch operation
       await cacheManager.saveIssuesBatchEffect(issues).pipe(Effect.runPromise);
 
-      // Also update search index for each issue
+      // Skip content manager for now - it's too slow for large syncs
       // TODO: Implement batch content saving for better performance
-      for (const issue of issues) {
-        await contentManager.saveJiraIssue(issue);
-      }
+      // for (const issue of issues) {
+      //   await contentManager.saveJiraIssue(issue);
+      // }
 
       return issues.length;
     },
