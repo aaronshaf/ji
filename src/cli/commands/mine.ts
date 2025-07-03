@@ -93,32 +93,28 @@ const showMyIssuesEffect = () =>
 
           // Display by project in YAML format
           const projectEntries = Object.entries(byProject);
-          const displayEffect = Effect.all(
-            projectEntries.map(([projectKey, projectIssues], index) => {
-              return Effect.sync(() => {
-                console.log(`${chalk.cyan('project:')} ${projectKey}`);
-                console.log(`${chalk.cyan('issue_count:')} ${projectIssues.length}`);
-                console.log(`${chalk.cyan('issues:')}`);
+          const displayEffect = Effect.sync(() => {
+            // Start with projects list
+            console.log(`${chalk.cyan('projects:')}`);
 
-                projectIssues.forEach((issue) => {
-                  const updated = new Date(issue.updated);
-                  const daysAgo = Math.floor((Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24));
-                  const timeStr = daysAgo === 0 ? 'today' : daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`;
+            projectEntries.forEach(([projectKey, projectIssues]) => {
+              console.log(`${chalk.cyan('- name:')} ${projectKey}`);
+              console.log(`  ${chalk.cyan('issue_count:')} ${projectIssues.length}`);
+              console.log(`  ${chalk.cyan('issues:')}`);
 
-                  console.log(`${chalk.cyan('- key:')} ${issue.key}`);
-                  console.log(`  ${chalk.cyan('title:')} ${issue.summary}`);
-                  console.log(`  ${chalk.cyan('status:')} ${issue.status}`);
-                  console.log(`  ${chalk.cyan('updated:')} ${timeStr}`);
-                  console.log(`  ${chalk.cyan('priority:')} ${issue.priority || 'None'}`);
-                });
+              projectIssues.forEach((issue) => {
+                const updated = new Date(issue.updated);
+                const daysAgo = Math.floor((Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24));
+                const timeStr = daysAgo === 0 ? 'today' : daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`;
 
-                // Add blank line between projects (but not after the last one)
-                if (index < projectEntries.length - 1) {
-                  console.log();
-                }
+                console.log(`  ${chalk.cyan('- key:')} ${issue.key}`);
+                console.log(`    ${chalk.cyan('title:')} ${issue.summary}`);
+                console.log(`    ${chalk.cyan('status:')} ${issue.status}`);
+                console.log(`    ${chalk.cyan('updated:')} ${timeStr}`);
+                console.log(`    ${chalk.cyan('priority:')} ${issue.priority || 'None'}`);
               });
-            }),
-          );
+            });
+          });
 
           return pipe(
             displayEffect,
