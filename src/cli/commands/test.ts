@@ -223,13 +223,6 @@ const COMMAND_TYPES = {
     expectedPatterns: [],
     llmValidation: true,
   },
-  memory: {
-    name: 'Memory Operations',
-    description: 'Manage manual memories',
-    examples: ['remember "Test fact"', 'memories list', 'memories stats'],
-    expectedPatterns: ['✓ Memory added', 'total_memories:', '- id:'],
-    llmValidation: false,
-  },
   mine: {
     name: 'My Issues',
     description: 'Show assigned issues',
