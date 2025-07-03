@@ -54,6 +54,7 @@ const markIssueDoneEffect = (issueKey: string) =>
                 console.log(`${chalk.bold(issue.key)}: ${issue.fields.summary}`);
                 console.log(`${chalk.dim('Current Status:')} ${issue.fields.status.name}`);
                 console.log('');
+                console.log('DEBUG: About to start transition process...');
                 spinner.start(`Moving ${issueKey} to Done...`);
               }),
             ),
@@ -135,6 +136,11 @@ const markIssueDoneEffect = (issueKey: string) =>
               pipe(
                 Effect.sync(() => {
                   const message = error instanceof Error ? error.message : String(error);
+                  console.log(`\nDEBUG: Main error handler caught: ${message}`);
+                  console.log(`DEBUG: Error type: ${error?.constructor?.name || typeof error}`);
+                  if (error instanceof Error && error.stack) {
+                    console.log(`DEBUG: Stack trace: ${error.stack}`);
+                  }
                   spinner.fail(`Failed to mark issue as done: ${message}`);
                   configManager.close();
                 }),
