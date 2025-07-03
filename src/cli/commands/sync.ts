@@ -261,24 +261,75 @@ const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
         }),
         Effect.flatMap(() => {
           // Auto-sync without prompting
-          return pipe(
-            Console.log(chalk.cyan('\nSyncing all Jira projects...')),
-            Effect.flatMap(() =>
-              Effect.all(
-                jiraProjects.map((project, index) =>
-                  pipe(
-                    Console.log(chalk.dim(`\n[${index + 1}/${jiraProjects.length}] Syncing ${project.keyOrId}...`)),
-                    Effect.flatMap(() => {
-                      // Close current cache manager before syncing each project
-                      cacheManager.close();
-                      return syncJiraProjectEffect(project.keyOrId, options);
-                    }),
+          const syncEffects: Effect.Effect<void, Error>[] = [];
+
+          // Sync Jira projects
+          if (jiraProjects.length > 0) {
+            syncEffects.push(
+              pipe(
+                Console.log(chalk.cyan('\nSyncing all Jira projects...')),
+                Effect.flatMap(() =>
+                  Effect.all(
+                    jiraProjects.map((project, index) =>
+                      pipe(
+                        Console.log(chalk.dim(`\n[${index + 1}/${jiraProjects.length}] Syncing ${project.keyOrId}...`)),
+                        Effect.flatMap(() => {
+                          // Close current cache manager before syncing each project
+                          cacheManager.close();
+                          return pipe(
+                            syncJiraProjectEffect(project.keyOrId, options),
+                            Effect.mapBoth({
+                              onFailure: (error) => new Error(error instanceof Error ? error.message : String(error)),
+                              onSuccess: () => undefined,
+                            }),
+                          );
+                        }),
+                      ),
+                    ),
+                    { concurrency: 1 }, // Sync one at a time
                   ),
                 ),
-                { concurrency: 1 }, // Sync one at a time
+                Effect.tap(() => Console.log(chalk.green('\n✓ All Jira projects synced successfully!'))),
+                Effect.map(() => undefined), // Convert to void
               ),
-            ),
-            Effect.tap(() => Console.log(chalk.green('\n✓ All projects synced successfully!'))),
+            );
+          }
+
+          // Sync Confluence spaces
+          if (confluenceSpaces.length > 0) {
+            syncEffects.push(
+              pipe(
+                Console.log(chalk.cyan('\nSyncing all Confluence spaces...')),
+                Effect.flatMap(() =>
+                  Effect.all(
+                    confluenceSpaces.map((space, index) =>
+                      pipe(
+                        Console.log(
+                          chalk.dim(`\n[${index + 1}/${confluenceSpaces.length}] Syncing ${space.keyOrId}...`),
+                        ),
+                        Effect.flatMap(() =>
+                          pipe(
+                            syncConfluenceSpaceEffect(space.keyOrId, options),
+                            Effect.mapBoth({
+                              onFailure: (error) => new Error(error instanceof Error ? error.message : String(error)),
+                              onSuccess: () => undefined,
+                            }),
+                          ),
+                        ),
+                      ),
+                    ),
+                    { concurrency: 1 }, // Sync one at a time
+                  ),
+                ),
+                Effect.tap(() => Console.log(chalk.green('\n✓ All Confluence spaces synced successfully!'))),
+                Effect.map(() => undefined), // Convert to void
+              ),
+            );
+          }
+
+          return pipe(
+            Effect.all(syncEffects, { concurrency: 1 }),
+            Effect.tap(() => Console.log(chalk.green('\n✓ All workspaces synced successfully!'))),
           );
         }),
         Effect.tap(() => Effect.sync(() => cacheManager.close())),
@@ -300,7 +351,89 @@ export async function syncWorkspaces(options: { clean?: boolean } = {}) {
   }
 }
 
-export async function syncConfluence(spaceKey: string, _options: { clean?: boolean } = {}) {
-  console.log(chalk.yellow(`syncConfluence ${spaceKey} - Not yet implemented`));
-  console.log(chalk.dim('Confluence sync functionality coming soon.'));
+// Effect wrapper for syncing Confluence space
+const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean } = {}) =>
+  pipe(
+    getManagersEffect(),
+    Effect.flatMap(({ config, configManager, contentManager }) =>
+      Effect.tryPromise({
+        try: async () => {
+          const { ConfluenceClient } = await import('../../lib/confluence-client.js');
+          const confluenceClient = new ConfluenceClient(config);
+
+          // If clean flag is set, delete existing pages first
+          if (options.clean) {
+            console.log(chalk.yellow('Cleaning existing Confluence pages...'));
+            await contentManager.deleteSpaceContent(spaceKey);
+          }
+
+          console.log(chalk.cyan(`Syncing Confluence space ${spaceKey}...`));
+          let syncedCount = 0;
+
+          const pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
+            process.stdout.write(`\r${chalk.cyan('Progress:')} ${current}/${total} pages fetched...`);
+          });
+
+          console.log(); // New line after progress
+
+          // Save pages in batches
+          const batchSize = 50;
+          for (let i = 0; i < pages.length; i += batchSize) {
+            const batch = pages.slice(i, i + batchSize);
+
+            for (const page of batch) {
+              await contentManager.saveContent({
+                id: `confluence:${page.id}`,
+                source: 'confluence',
+                type: 'page',
+                title: page.title,
+                content: page.body?.storage?.value || '',
+                url: page._links.webui,
+                spaceKey: page.space.key,
+                createdAt: new Date(page.version.when).getTime(),
+                updatedAt: new Date(page.version.when).getTime(),
+                syncedAt: Date.now(),
+              });
+              syncedCount++;
+              process.stdout.write(`\r${chalk.green('Saved:')} ${syncedCount}/${pages.length} pages...`);
+            }
+          }
+
+          console.log(); // New line after progress
+          console.log(chalk.green(`✓ Successfully synced ${pages.length} pages from ${spaceKey}`));
+
+          // Track this space as a workspace
+          const cacheManager = new CacheManager();
+          try {
+            await cacheManager.trackWorkspace('confluence_space', spaceKey, spaceKey);
+          } finally {
+            cacheManager.close();
+          }
+
+          return pages.length;
+        },
+        catch: (error) => new Error(`Failed to sync Confluence space: ${error}`),
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            contentManager.close();
+            configManager.close();
+          }),
+        ),
+      ),
+    ),
+    Effect.catchAll((error) =>
+      pipe(
+        Console.error(chalk.red('Confluence sync failed:'), error instanceof Error ? error.message : String(error)),
+        Effect.flatMap(() => Effect.fail(error)),
+      ),
+    ),
+  );
+
+export async function syncConfluence(spaceKey: string, options: { clean?: boolean } = {}) {
+  try {
+    await Effect.runPromise(syncConfluenceSpaceEffect(spaceKey, options));
+  } catch (_error) {
+    process.exit(1);
+  }
 }

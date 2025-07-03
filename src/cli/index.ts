@@ -169,20 +169,20 @@ async function main() {
             // Format: --limit=3
             const limitValue = limitArg.split('=')[1];
             const parsed = parseInt(limitValue);
-            if (!isNaN(parsed) && parsed > 0) {
+            if (!Number.isNaN(parsed) && parsed > 0) {
               limit = parsed;
             }
           } else if (limitIndex + 1 < args.length) {
             // Format: --limit 3
             const parsed = parseInt(args[limitIndex + 1]);
-            if (!isNaN(parsed) && parsed > 0) {
+            if (!Number.isNaN(parsed) && parsed > 0) {
               limit = parsed;
             }
           }
         }
 
         // Filter out --limit and its value from the query
-        const queryArgs = subArgs.filter((arg, index) => {
+        const queryArgs = subArgs.filter((arg, _index) => {
           const argIndex = subArgs.indexOf(arg);
           const prevArg = argIndex > 0 ? subArgs[argIndex - 1] : '';
 
