@@ -412,7 +412,7 @@ export class SprintCommand extends BaseCommand<unknown> {
             const jiraClient = new JiraClient(_config);
             const cache = new CacheManager();
 
-            let sprints;
+            let sprints: Array<{ id: number; name: string }>;
 
             if (sprintId) {
               // Get specific sprint
@@ -455,7 +455,7 @@ export class SprintCommand extends BaseCommand<unknown> {
 
             const results = [];
 
-            for (const sprint of sprints) {
+            for (const sprint of sprints as Array<{ id: number; name: string }>) {
               const sprintResult = await jiraClient.getSprintIssues(sprint.id);
               let issues = sprintResult.issues;
 

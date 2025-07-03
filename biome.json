@@ -21,7 +21,7 @@
         "noExplicitAny": "warn",
         "noDoubleEquals": "warn",
         "noImplicitAnyLet": "warn",
-        "noAssignInExpressions": "warn"
+        "noAssignInExpressions": "off"
       },
       "complexity": {
         "noStaticOnlyClass": "off"

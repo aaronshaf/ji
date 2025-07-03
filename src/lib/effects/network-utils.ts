@@ -432,7 +432,10 @@ class NetworkUtilsServiceImpl implements NetworkUtilsService {
         }
 
         return Effect.sync(() => {
-          const limiter = this.rateLimiters.get(key)!;
+          const limiter = this.rateLimiters.get(key);
+          if (!limiter) {
+            throw new Error(`Rate limiter not found for key: ${key}`);
+          }
           limiter.tokens--;
         });
       }),
@@ -636,7 +639,8 @@ class NetworkUtilsServiceImpl implements NetworkUtilsService {
 
   private processQueue(): void {
     if (this.requestQueue.length > 0 && this.activeRequests < this.config.requestPool.maxConcurrentRequests) {
-      const next = this.requestQueue.shift()!;
+      const next = this.requestQueue.shift();
+      if (!next) return;
       this.activeRequests++;
 
       next
@@ -759,7 +763,7 @@ class NetworkUtilsServiceImpl implements NetworkUtilsService {
       const total = this.metrics.length;
       const totalResponseTime = this.metrics
         .filter((m) => m.endTime)
-        .reduce((sum, m) => sum + (m.endTime! - m.startTime), 0);
+        .reduce((sum, m) => sum + ((m.endTime || 0) - m.startTime), 0);
 
       const errors = this.metrics.filter((m) => m.error || (m.status && m.status >= 400)).length;
       const successes = this.metrics.filter((m) => !m.error && m.status && m.status < 400).length;

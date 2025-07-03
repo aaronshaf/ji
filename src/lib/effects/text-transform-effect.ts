@@ -162,7 +162,7 @@ export const extractCodeBlocks = (
     const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
     const blocks: Array<{ language: string; code: string }> = [];
 
-    let match;
+    let match: RegExpExecArray | null;
     while ((match = codeBlockRegex.exec(markdown)) !== null) {
       blocks.push({
         language: match[1] || 'plaintext',
