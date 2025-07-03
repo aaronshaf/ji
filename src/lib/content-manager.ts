@@ -904,6 +904,22 @@ export class ContentManager {
     return null;
   }
 
+  async getOldestPageModifiedDate(spaceKey: string): Promise<Date | null> {
+    const stmt = this.db.prepare(`
+      SELECT MIN(updated_at) as oldest_modified 
+      FROM searchable_content 
+      WHERE space_key = ? AND source = 'confluence'
+    `);
+
+    const result = stmt.get(spaceKey) as { oldest_modified: number | null } | undefined;
+
+    if (result?.oldest_modified) {
+      return new Date(result.oldest_modified);
+    }
+
+    return null;
+  }
+
   private extractSprintInfo(issue: Issue): { id: string; name: string } | null {
     // Sprint information is typically stored in customfield_10020 or similar
     // The format is usually an array of sprint strings

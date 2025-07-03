@@ -351,7 +351,7 @@ export async function syncWorkspaces(options: { clean?: boolean } = {}) {
   }
 }
 
-// Effect wrapper for syncing Confluence space
+// Smart incremental sync with gap-filling strategy
 const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean } = {}) =>
   pipe(
     getManagersEffect(),
@@ -365,42 +365,133 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
           if (options.clean) {
             console.log(chalk.yellow('Cleaning existing Confluence pages...'));
             await contentManager.deleteSpaceContent(spaceKey);
+            console.log(chalk.cyan(`Starting fresh sync of Confluence space ${spaceKey}...`));
+          } else {
+            console.log(chalk.cyan(`Starting smart incremental sync of Confluence space ${spaceKey}...`));
           }
 
-          console.log(chalk.cyan(`Syncing Confluence space ${spaceKey}...`));
-          let syncedCount = 0;
+          let totalSynced = 0;
+          const INITIAL_BATCH = 100; // Initial pages to sync
+          const SAVE_BATCH_SIZE = 20; // Pages to save in parallel
 
-          const pages = await confluenceClient.getAllSpacePages(spaceKey, (current, total) => {
-            process.stdout.write(`\r${chalk.cyan('Progress:')} ${current}/${total} pages fetched...`);
-          });
+          // Strategy 1: Smart incremental sync
+          if (!options.clean) {
+            // Check when we last synced
+            const lastSyncTime = await contentManager.getLastSyncTime(spaceKey);
 
-          console.log(); // New line after progress
+            if (lastSyncTime) {
+              console.log(chalk.dim(`Last sync: ${lastSyncTime.toLocaleString()}`));
+              console.log(chalk.dim('Checking for updates since last sync...'));
 
-          // Save pages in batches
-          const batchSize = 50;
-          for (let i = 0; i < pages.length; i += batchSize) {
-            const batch = pages.slice(i, i + batchSize);
-
-            for (const page of batch) {
-              await contentManager.saveContent({
-                id: `confluence:${page.id}`,
-                source: 'confluence',
-                type: 'page',
-                title: page.title,
-                content: page.body?.storage?.value || '',
-                url: page._links.webui,
-                spaceKey: page.space.key,
-                createdAt: new Date(page.version.when).getTime(),
-                updatedAt: new Date(page.version.when).getTime(),
-                syncedAt: Date.now(),
+              // Get pages that have been updated since last sync
+              const pageIds = await confluenceClient.getPagesSince(spaceKey, lastSyncTime, (count) => {
+                process.stdout.write(`\r${chalk.cyan('Updated pages found:')} ${count}`);
               });
-              syncedCount++;
-              process.stdout.write(`\r${chalk.green('Saved:')} ${syncedCount}/${pages.length} pages...`);
+              console.log();
+
+              if (pageIds.length > 0) {
+                console.log(chalk.dim(`Fetching ${pageIds.length} updated pages...`));
+
+                // Fetch pages in batches
+                const pages = [];
+                for (let i = 0; i < pageIds.length; i += 50) {
+                  const batchIds = pageIds.slice(i, i + 50);
+                  const batchPromises = batchIds.map((id) => confluenceClient.getPage(id));
+                  const batchPages = await Promise.all(batchPromises);
+                  pages.push(...batchPages);
+                  process.stdout.write(`\r${chalk.cyan('Fetched:')} ${pages.length}/${pageIds.length} pages...`);
+                }
+                console.log();
+
+                // Save pages
+                console.log(chalk.dim('Saving updated pages...'));
+                for (let i = 0; i < pages.length; i += SAVE_BATCH_SIZE) {
+                  const batch = pages.slice(i, i + SAVE_BATCH_SIZE);
+
+                  await Promise.all(
+                    batch.map(async (page) => {
+                      try {
+                        await contentManager.saveContent({
+                          id: `confluence:${page.id}`,
+                          source: 'confluence',
+                          type: 'page',
+                          title: page.title,
+                          content: page.body?.storage?.value || '',
+                          url: page._links.webui,
+                          spaceKey: page.space.key,
+                          createdAt: new Date(page.version.when).getTime(),
+                          updatedAt: new Date(page.version.when).getTime(),
+                          syncedAt: Date.now(),
+                        });
+                      } catch (error) {
+                        console.error(chalk.red(`Failed to save page ${page.id}: ${error}`));
+                      }
+                    }),
+                  );
+                  totalSynced += batch.length;
+                  process.stdout.write(`\r${chalk.green('Saved:')} ${totalSynced} pages...`);
+                }
+                console.log();
+              } else {
+                console.log(chalk.dim('No updates found since last sync.'));
+              }
             }
           }
 
-          console.log(); // New line after progress
-          console.log(chalk.green(`✓ Successfully synced ${pages.length} pages from ${spaceKey}`));
+          // Strategy 2: Get recent pages (either fresh sync or to fill gaps)
+          if (options.clean || totalSynced === 0) {
+            console.log(chalk.dim(`Fetching ${INITIAL_BATCH} most recent pages...`));
+
+            // Use the efficient getRecentlyUpdatedPages method for initial sync
+            const recentSummaries = await confluenceClient.getRecentlyUpdatedPages(spaceKey, INITIAL_BATCH);
+
+            if (recentSummaries.length > 0) {
+              console.log(chalk.dim(`Fetching full content for ${recentSummaries.length} pages...`));
+
+              // Fetch full page content in batches
+              const pages = [];
+              for (let i = 0; i < recentSummaries.length; i += 20) {
+                const batch = recentSummaries.slice(i, i + 20);
+                const batchPromises = batch.map((summary) => confluenceClient.getPage(summary.id));
+                const batchPages = await Promise.all(batchPromises);
+                pages.push(...batchPages);
+                process.stdout.write(`\r${chalk.cyan('Fetched:')} ${pages.length}/${recentSummaries.length} pages...`);
+              }
+              console.log();
+
+              // Save pages
+              console.log(chalk.dim('Saving pages...'));
+              for (let i = 0; i < pages.length; i += SAVE_BATCH_SIZE) {
+                const batch = pages.slice(i, i + SAVE_BATCH_SIZE);
+
+                await Promise.all(
+                  batch.map(async (page) => {
+                    try {
+                      await contentManager.saveContent({
+                        id: `confluence:${page.id}`,
+                        source: 'confluence',
+                        type: 'page',
+                        title: page.title,
+                        content: page.body?.storage?.value || '',
+                        url: page._links.webui,
+                        spaceKey: page.space.key,
+                        createdAt: new Date(page.version.when).getTime(),
+                        updatedAt: new Date(page.version.when).getTime(),
+                        syncedAt: Date.now(),
+                      });
+                    } catch (error) {
+                      console.error(chalk.red(`Failed to save page ${page.id}: ${error}`));
+                    }
+                  }),
+                );
+                totalSynced += batch.length;
+                process.stdout.write(`\r${chalk.green('Saved:')} ${totalSynced} pages...`);
+              }
+              console.log();
+            }
+          }
+
+          console.log(chalk.green(`✓ Successfully synced ${totalSynced} pages from ${spaceKey}`));
 
           // Track this space as a workspace
           const cacheManager = new CacheManager();
@@ -410,7 +501,7 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
             cacheManager.close();
           }
 
-          return pages.length;
+          return totalSynced;
         },
         catch: (error) => new Error(`Failed to sync Confluence space: ${error}`),
       }).pipe(
