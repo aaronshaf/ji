@@ -212,7 +212,7 @@ const COMMAND_TYPES = {
   sync: {
     name: 'Sync Operations',
     description: 'Sync workspaces and projects',
-    examples: ['sync', 'sync --clean'],
+    examples: ['sync'],
     expectedPatterns: ['✓ Successfully synced', 'issues from'],
     llmValidation: false,
   },
