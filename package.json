@@ -15,7 +15,7 @@
     "format": "biome format --write",
     "typecheck": "tsc --noEmit",
     "ji": "bun run src/cli.ts",
-    "pre-commit": "bun run typecheck && biome check --write",
+    "pre-commit": "bun run typecheck && biome check",
     "prepare": "node scripts/install-hooks.cjs"
   },
   "keywords": [
