@@ -193,9 +193,6 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
           console.log(`${chalk.cyan('project:')} ${sprint.projectKey}`);
           console.log(`${chalk.cyan('total_issues:')} ${allIssues.length}`);
           console.log(`${chalk.cyan('completed:')} ${doneIssues.length}`);
-          console.log(
-            `${chalk.cyan('completion_percentage:')} ${Math.round((doneIssues.length / allIssues.length) * 100)}%`,
-          );
           console.log(`${chalk.cyan('todo:')} ${todoIssues.length}`);
           console.log(`${chalk.cyan('in_progress:')} ${inProgressIssues.length}`);
           console.log(`${chalk.cyan('done:')} ${doneIssues.length}`);
