@@ -4,6 +4,7 @@ import { Console, Effect, pipe } from 'effect';
 import ora from 'ora';
 import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
+import { ContentManager } from '../../lib/content-manager.js';
 import { JiraClient } from '../../lib/jira-client.js';
 
 // Effect wrapper for getting configuration
@@ -194,12 +195,17 @@ const updateCacheEffect = (jiraClient: JiraClient, issueKey: string) =>
   Effect.tryPromise({
     try: async () => {
       const cacheManager = new CacheManager();
+      const contentManager = new ContentManager();
       try {
         const updatedIssue = await jiraClient.getIssue(issueKey);
         await cacheManager.saveIssue(updatedIssue);
-        return cacheManager;
+        await contentManager.saveJiraIssue(updatedIssue);
+        cacheManager.close();
+        contentManager.close();
+        return { cacheManager, contentManager };
       } catch (error) {
         cacheManager.close();
+        contentManager.close();
         throw error;
       }
     },
@@ -220,7 +226,7 @@ const takeIssueEffect = (issueKey: string) =>
           pipe(
             getIssueEffect(jiraClient, issueKey),
             Effect.flatMap((issue) => {
-              if (issue.fields.assignee?.displayName === currentUser.displayName) {
+              if (issue.fields?.assignee?.displayName === currentUser.displayName) {
                 return pipe(
                   Effect.sync(() => {
                     spinner.warn(`You already own ${issueKey}`);
@@ -235,9 +241,9 @@ const takeIssueEffect = (issueKey: string) =>
                   Effect.sync(() => {
                     spinner.succeed(`Successfully assigned ${issueKey} to ${currentUser.displayName}`);
 
-                    console.log(`\n${chalk.bold(issue.key)}: ${issue.fields.summary}`);
-                    console.log(`${chalk.dim('Status:')} ${issue.fields.status.name}`);
-                    if (issue.fields.assignee) {
+                    console.log(`\n${chalk.bold(issue.key)}: ${issue.fields?.summary || 'No summary'}`);
+                    console.log(`${chalk.dim('Status:')} ${issue.fields?.status?.name || 'Unknown'}`);
+                    if (issue.fields?.assignee) {
                       console.log(`${chalk.dim('Previous assignee:')} ${issue.fields.assignee.displayName}`);
                     }
                     console.log(`${chalk.dim('Now assigned to:')} ${chalk.green(currentUser.displayName)}`);
@@ -246,10 +252,9 @@ const takeIssueEffect = (issueKey: string) =>
                   }),
                 ),
                 Effect.flatMap(() => updateCacheEffect(jiraClient, issueKey)),
-                Effect.tap((cacheManager) =>
+                Effect.tap(() =>
                   Effect.sync(() => {
-                    cacheManager.close();
-                    spinner.succeed('Local cache, search index, and embeddings updated');
+                    spinner.succeed('Local cache and search index updated');
                   }),
                 ),
                 Effect.catchAll(() =>
@@ -278,7 +283,8 @@ const takeIssueEffect = (issueKey: string) =>
 export async function takeIssue(issueKey: string) {
   try {
     await Effect.runPromise(takeIssueEffect(issueKey));
-  } catch (_error) {
+  } catch (error) {
+    console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error');
     process.exit(1);
   }
 }
