@@ -8,6 +8,7 @@ import { showRecentConfluencePages, viewConfluencePage } from './commands/conflu
 import { markIssueDone } from './commands/done.js';
 import { syncToMeilisearch } from './commands/index.js';
 import { viewIssue } from './commands/issue.js';
+import { showIssueLog } from './commands/log.js';
 import { addMemory, clearMemories, deleteMemory, listMemories, showMemoryStats } from './commands/memory.js';
 import { showMyIssues, takeIssue } from './commands/mine.js';
 import { configureModels } from './commands/models.js';
@@ -251,6 +252,32 @@ ${chalk.yellow('Examples:')}
 `);
 }
 
+function showLogHelp() {
+  console.log(`
+${chalk.bold('ji log - Interactive comment viewer and editor')}
+
+${chalk.yellow('Usage:')}
+  ji log <issue-key>
+
+${chalk.yellow('Description:')}
+  Shows all comments for an issue and enters interactive mode for adding new comments.
+  Auto-refreshes every 2 minutes to show new comments from other users.
+  Supports multi-line comments - paste or type content, then press Enter to submit.
+
+${chalk.yellow('Interactive Commands:')}
+  Type or paste comment and press Enter to post
+  Type 'exit' to quit
+  Type 'r' or 'refresh' to refresh comments
+  Press Ctrl+C to quit
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji log EVAL-123           View and add comments to EVAL-123
+`);
+}
+
 function showAskHelp() {
   console.log(`
 ${chalk.bold('ji ask - Ask questions about your content')}
@@ -438,6 +465,7 @@ ${chalk.yellow('Issues:')}
   ji take <issue-key>                  Assign an issue to yourself
   ji done <issue-key>                  Mark an issue as Done
   ji comment <issue-key> [comment]     Add a comment to an issue
+  ji log <issue-key>                   Interactive comment viewer/editor
   ji <issue-key>                       View issue details
   ji issue view <issue-key>            View issue details (alias)
   ji issue sync <project-key>          Sync all issues from a project
@@ -576,6 +604,19 @@ async function main() {
           process.exit(1);
         }
         await markIssueDone(subArgs[0]);
+        break;
+
+      case 'log':
+        if (args.includes('--help')) {
+          showLogHelp();
+          process.exit(0);
+        }
+        if (!subArgs[0]) {
+          console.error('Please specify an issue key');
+          showLogHelp();
+          process.exit(1);
+        }
+        await showIssueLog(subArgs[0]);
         break;
 
       case 'issue':
