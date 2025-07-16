@@ -158,7 +158,7 @@ const addCommentEffect = (issueKey: string, comment: string) =>
                 cacheManager.close();
               }
             },
-            catch: () => Effect.succeed(undefined), // Don't fail if cache update fails
+            catch: () => undefined, // Don't fail if cache update fails
           }),
         ),
         Effect.tap(() => Effect.sync(() => configManager.close())),
