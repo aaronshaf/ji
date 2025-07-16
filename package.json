@@ -32,6 +32,8 @@
     "chalk": "^5.3.0",
     "date-fns": "^4.1.0",
     "effect": "^3.16.10",
+    "ink": "^6.0.1",
+    "ink-text-input": "^6.0.0",
     "meilisearch": "latest",
     "ora": "^8.2.0",
     "turndown": "^7.2.0",
@@ -39,6 +41,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.6",
+    "@types/react": "^19.1.8",
     "@types/turndown": "^5.0.5",
     "bun-types": "^1.0.20",
     "typescript": "^5.3.3"
