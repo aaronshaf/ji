@@ -147,20 +147,22 @@ const addCommentEffect = (issueKey: string, comment: string) =>
           }),
         ),
         Effect.tap(() =>
-          Effect.tryPromise({
-            try: async () => {
-              // Update local cache
-              const cacheManager = new CacheManager();
-              try {
-                const issue = await jiraClient.getIssue(issueKey);
-                await cacheManager.saveIssue(issue);
-                return true; // Return a value to indicate success
-              } finally {
-                cacheManager.close();
-              }
-            },
-            catch: () => false, // Don't fail if cache update fails
-          }),
+          pipe(
+            Effect.tryPromise({
+              try: async () => {
+                // Update local cache
+                const cacheManager = new CacheManager();
+                try {
+                  const issue = await jiraClient.getIssue(issueKey);
+                  await cacheManager.saveIssue(issue);
+                } finally {
+                  cacheManager.close();
+                }
+              },
+              catch: (error) => new Error(`Cache update failed: ${error}`),
+            }),
+            Effect.ignore, // Silently ignore any cache update errors
+          ),
         ),
         Effect.tap(() => Effect.sync(() => configManager.close())),
       );
