@@ -154,11 +154,12 @@ const addCommentEffect = (issueKey: string, comment: string) =>
               try {
                 const issue = await jiraClient.getIssue(issueKey);
                 await cacheManager.saveIssue(issue);
+                return true; // Return a value to indicate success
               } finally {
                 cacheManager.close();
               }
             },
-            catch: () => undefined, // Don't fail if cache update fails
+            catch: () => false, // Don't fail if cache update fails
           }),
         ),
         Effect.tap(() => Effect.sync(() => configManager.close())),
