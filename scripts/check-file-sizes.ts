@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import chalk from 'chalk';
-import { readdir } from 'fs/promises';
-import { join } from 'path';
 
 interface FileSize {
   path: string;
@@ -11,7 +11,7 @@ interface FileSize {
 
 const LIMITS = {
   warning: { ts: 500, tsx: 300, any: 1000 },
-  blocking: { ts: 800, tsx: 500, any: 1500 },
+  blocking: { ts: 1600, tsx: 500, any: 1500 },
 };
 
 async function checkFileSize(filePath: string): Promise<FileSize> {

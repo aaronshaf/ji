@@ -15,13 +15,11 @@ export function captureConsoleOutput() {
   const originalError = console.error;
 
   console.log = (...args: any[]) => {
-    output +=
-      args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg))).join(' ') + '\n';
+    output += `${args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg))).join(' ')}\n`;
   };
 
   console.error = (...args: any[]) => {
-    errorOutput +=
-      args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg))).join(' ') + '\n';
+    errorOutput += `${args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg))).join(' ')}\n`;
   };
 
   return {

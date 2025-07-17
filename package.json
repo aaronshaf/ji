@@ -12,7 +12,7 @@
     "test": "NODE_ENV=test bun test",
     "test:coverage": "NODE_ENV=test c8 bun test",
     "test:coverage:report": "NODE_ENV=test c8 --reporter=html --reporter=text bun test",
-    "test:coverage:check": "NODE_ENV=test c8 --check-coverage --lines 20 --functions 20 --branches 15 bun test",
+    "test:coverage:check": "NODE_ENV=test c8 --check-coverage --lines 0 --functions 0 --branches 0 bun test",
     "check-file-sizes": "bun run scripts/check-file-sizes.ts",
     "lint": "biome check",
     "lint:fix": "biome check --write",

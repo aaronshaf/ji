@@ -41,13 +41,13 @@ jobs:
       id: format
       run: |
         echo "### 🎨 Formatting Check" >> $GITHUB_STEP_SUMMARY
-        if bun run biome format . --check; then
+        if biome format . --check; then
           echo "✅ Code is properly formatted" >> $GITHUB_STEP_SUMMARY
           echo "result=success" >> $GITHUB_OUTPUT
         else
           echo "❌ Code needs formatting. Run \`bun run format\` locally." >> $GITHUB_STEP_SUMMARY
           echo "```diff" >> $GITHUB_STEP_SUMMARY
-          bun run biome format . --check --diff >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          biome format . --check --diff >> $GITHUB_STEP_SUMMARY 2>&1 || true
           echo "```" >> $GITHUB_STEP_SUMMARY
           echo "result=failure" >> $GITHUB_OUTPUT
           exit 1
@@ -57,7 +57,7 @@ jobs:
       id: lint
       run: |
         echo "### 🧹 Linting Check" >> $GITHUB_STEP_SUMMARY
-        bun run biome check . 2>&1 | tee biome-output.txt
+        biome check . 2>&1 | tee biome-output.txt
         BIOME_EXIT_CODE=$?
         
         # Count warnings and errors
