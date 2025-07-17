@@ -11,7 +11,7 @@ interface FileSize {
 
 const LIMITS = {
   warning: { ts: 500, tsx: 300, any: 1000 },
-  blocking: { ts: 800, tsx: 500, any: 1500 },
+  blocking: { ts: 700, tsx: 500, any: 1500 },
 };
 
 async function checkFileSize(filePath: string): Promise<FileSize> {

@@ -1,14 +1,14 @@
 import { Effect, pipe, Schema } from 'effect';
 import { JiraClientBase } from './jira-client-base.js';
 import {
-  Issue,
-  IssueSchema,
-  SearchResultSchema,
-  ISSUE_FIELDS,
-  ValidationError,
-  NotFoundError,
-  NetworkError,
   AuthenticationError,
+  ISSUE_FIELDS,
+  type Issue,
+  IssueSchema,
+  NetworkError,
+  NotFoundError,
+  SearchResultSchema,
+  ValidationError,
 } from './jira-client-types.js';
 
 export class JiraClientIssues extends JiraClientBase {

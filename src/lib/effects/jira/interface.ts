@@ -3,10 +3,10 @@
  * Defines the contract for all Jira operations
  */
 
-import { Context, Effect, Option, Stream } from 'effect';
-import {
+import { Context, type Effect, type Option, type Stream } from 'effect';
+import type {
   AuthenticationError,
-  type ConfigError,
+  ConfigError,
   NetworkError,
   NotFoundError,
   ParseError,
@@ -15,14 +15,14 @@ import {
   ValidationError,
 } from '../errors.js';
 import type {
-  Issue,
   Board,
-  Sprint,
-  Project,
-  JiraUser,
-  SearchOptions,
-  IssueSearchResult,
   BoardSearchResult,
+  Issue,
+  IssueSearchResult,
+  JiraUser,
+  Project,
+  SearchOptions,
+  Sprint,
   SprintSearchResult,
 } from './types.js';
 

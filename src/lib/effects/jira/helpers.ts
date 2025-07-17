@@ -3,7 +3,7 @@
  * Utility functions for validation, authentication, and error handling
  */
 
-import { Duration, Effect, Schedule, pipe } from 'effect';
+import { Duration, Effect, pipe, Schedule } from 'effect';
 import {
   AuthenticationError,
   type ConfigError,

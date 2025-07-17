@@ -3,11 +3,11 @@
  * Contains all issue-related operations extracted from jira-client-service.ts
  */
 
-import { Effect, Option, pipe, Schedule, Stream, Duration } from 'effect';
+import { Duration, Effect, Option, pipe, Schedule, Stream } from 'effect';
 import { z } from 'zod';
 import {
   AuthenticationError,
-  ConfigError,
+  type ConfigError,
   NetworkError,
   NotFoundError,
   ParseError,
@@ -15,11 +15,7 @@ import {
   TimeoutError,
   ValidationError,
 } from '../errors.js';
-import type {
-  ConfigService,
-  HttpClientService,
-  LoggerService,
-} from '../layers.js';
+import type { ConfigService, HttpClientService, LoggerService } from '../layers.js';
 
 // ============= Issue Schema =============
 export const IssueSchema = z.object({
@@ -564,61 +560,60 @@ export class IssueOperationsImpl {
 }
 
 // ============= Batch Operations =============
-export const batchGetIssues = (
-  issueOperations: Pick<IssueOperations, 'getIssue'>,
-  logger: LoggerService,
-) => (
-  issueKeys: string[],
-): Stream.Stream<
-  Issue,
-  | ValidationError
-  | NotFoundError
-  | NetworkError
-  | AuthenticationError
-  | ParseError
-  | TimeoutError
-  | RateLimitError
-  | ConfigError
-> => {
-  return pipe(
-    Stream.fromIterable(issueKeys),
-    Stream.mapEffect((issueKey) =>
-      pipe(
-        issueOperations.getIssue(issueKey),
-        Effect.catchAll((error) => {
-          // Log the error but don't fail the entire stream
-          return pipe(
-            logger.warn('Failed to fetch issue in batch', { issueKey, error: error.message }),
-            Effect.flatMap(() => Effect.fail(error)),
-          );
-        }),
-      ),
-    ),
-    Stream.rechunk(10), // Process in chunks of 10
-  );
-};
-
-export const batchAssignIssues = (
-  issueOperations: Pick<IssueOperations, 'assignIssue'>,
-) => (
-  assignments: Array<{ issueKey: string; accountId: string }>,
-): Effect.Effect<
-  Array<{ issueKey: string; success: boolean; error?: string }>,
-  ValidationError | NetworkError | AuthenticationError
-> => {
-  return pipe(
-    Effect.forEach(assignments, ({ issueKey, accountId }) =>
-      pipe(
-        issueOperations.assignIssue(issueKey, accountId),
-        Effect.map(() => ({ issueKey, success: true as const })),
-        Effect.catchAll((error) =>
-          Effect.succeed({
-            issueKey,
-            success: false as const,
-            error: error.message,
+export const batchGetIssues =
+  (issueOperations: Pick<IssueOperations, 'getIssue'>, logger: LoggerService) =>
+  (
+    issueKeys: string[],
+  ): Stream.Stream<
+    Issue,
+    | ValidationError
+    | NotFoundError
+    | NetworkError
+    | AuthenticationError
+    | ParseError
+    | TimeoutError
+    | RateLimitError
+    | ConfigError
+  > => {
+    return pipe(
+      Stream.fromIterable(issueKeys),
+      Stream.mapEffect((issueKey) =>
+        pipe(
+          issueOperations.getIssue(issueKey),
+          Effect.catchAll((error) => {
+            // Log the error but don't fail the entire stream
+            return pipe(
+              logger.warn('Failed to fetch issue in batch', { issueKey, error: error.message }),
+              Effect.flatMap(() => Effect.fail(error)),
+            );
           }),
         ),
       ),
-    ),
-  );
-};
+      Stream.rechunk(10), // Process in chunks of 10
+    );
+  };
+
+export const batchAssignIssues =
+  (issueOperations: Pick<IssueOperations, 'assignIssue'>) =>
+  (
+    assignments: Array<{ issueKey: string; accountId: string }>,
+  ): Effect.Effect<
+    Array<{ issueKey: string; success: boolean; error?: string }>,
+    ValidationError | NetworkError | AuthenticationError
+  > => {
+    return pipe(
+      Effect.forEach(assignments, ({ issueKey, accountId }) =>
+        pipe(
+          issueOperations.assignIssue(issueKey, accountId),
+          Effect.map(() => ({ issueKey, success: true as const })),
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              issueKey,
+              success: false as const,
+              error: error.message,
+            }),
+          ),
+        ),
+      ),
+    );
+  };

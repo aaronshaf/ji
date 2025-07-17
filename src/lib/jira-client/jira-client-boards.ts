@@ -2,13 +2,13 @@ import { Effect, pipe, Schema } from 'effect';
 import { JiraClientBase } from './jira-client-base.js';
 import { JiraClientIssues } from './jira-client-issues.js';
 import {
-  Board,
-  BoardsResponseSchema,
-  Issue,
-  IssueSchema,
-  ValidationError,
-  NetworkError,
   AuthenticationError,
+  type Board,
+  BoardsResponseSchema,
+  type Issue,
+  IssueSchema,
+  NetworkError,
+  ValidationError,
 } from './jira-client-types.js';
 
 export class JiraClientBoards extends JiraClientBase {
