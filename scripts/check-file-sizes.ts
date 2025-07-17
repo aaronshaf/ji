@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import chalk from 'chalk';
-import { readdir } from 'fs/promises';
-import { join } from 'path';
 
 interface FileSize {
   path: string;

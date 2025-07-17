@@ -14,6 +14,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "isolatedDeclarations": false, // TODO: Enable after adding explicit return types to all exported functions
     "types": ["bun-types"],
     "jsx": "react-jsx",
     "jsxImportSource": "react"

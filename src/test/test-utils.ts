@@ -15,9 +15,9 @@ export function ensureMSWActive() {
 /**
  * Add a temporary mock for a specific test
  */
-export function mockAPI(method: 'get' | 'post' | 'put' | 'delete', url: string, response: any, status = 200) {
+export function mockAPI(method: 'get' | 'post' | 'put' | 'delete', url: string, response: unknown, status = 200) {
   const handler = http[method](url, () => {
-    return HttpResponse.json(response, { status });
+    return HttpResponse.json(response as Record<string, unknown>, { status });
   });
 
   server.use(handler);
@@ -47,7 +47,7 @@ export function mockJiraError(issueKey: string, status: number, message?: string
 /**
  * Mock a successful Jira issue response
  */
-export function mockJiraIssue(issueKey: string, fields: Partial<any> = {}) {
+export function mockJiraIssue(issueKey: string, fields: Record<string, unknown> = {}) {
   // Use more specific URL pattern
   server.use(
     http.get('https://example.atlassian.net/rest/api/3/issue/:issueKey', ({ params }) => {
