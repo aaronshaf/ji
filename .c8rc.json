@@ -1,0 +1,21 @@
+{
+  "reporter": ["text", "html", "lcov"],
+  "reports-dir": "coverage",
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/test/**",
+    "**/tests/**",
+    "**/coverage/**",
+    "src/cli.ts",
+    "scripts/**",
+    "dist/**"
+  ],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "check-coverage": true,
+  "lines": 20,
+  "functions": 20,
+  "branches": 15,
+  "statements": 20,
+  "all": true
+}

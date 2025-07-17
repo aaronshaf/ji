@@ -271,7 +271,6 @@ export class CacheManager {
       SELECT key, project_key, summary, status, priority, assignee_name, updated
       FROM issues
       WHERE assignee_email = ? AND LOWER(status) NOT IN ('closed', 'done', 'resolved', 'cancelled', 'canceled', 'rejected', 'won''t do', 'duplicate', 'invalid')
-      ORDER BY updated DESC
     `);
     return stmt.all(assigneeEmail) as Array<{
       key: string;

@@ -111,6 +111,14 @@ export class ConfluenceClient {
   private retrySchedule = Schedule.exponential('100 millis').pipe(Schedule.intersect(Schedule.recurs(3)));
 
   constructor(config: Config) {
+    // Prevent real API calls in test environment unless explicitly allowed
+    if (process.env.NODE_ENV === 'test' && !process.env.ALLOW_REAL_API_CALLS) {
+      throw new Error(
+        'Real API calls detected in test environment! ' +
+          'Tests must use mocks to avoid making real Confluence API calls. ' +
+          'If you really need to make real calls, set ALLOW_REAL_API_CALLS=true',
+      );
+    }
     this.config = config;
     // Confluence uses the same base URL as Jira
     this.baseUrl = `${config.jiraUrl}/wiki/rest/api`;

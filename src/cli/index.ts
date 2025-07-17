@@ -178,17 +178,19 @@ function showMineHelp() {
 ${chalk.bold('ji mine - Show your open issues')}
 
 ${chalk.yellow('Usage:')}
-  ji mine
+  ji mine [options]
 
 ${chalk.yellow('Description:')}
   Shows all issues assigned to you that are not closed.
-  Output is in YAML format for easy parsing.
+  Displays cached data immediately, then updates with fresh data.
 
 ${chalk.yellow('Options:')}
+  --project <key>           Filter by project key (e.g., CFA, EVAL)
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
-  ji mine
+  ji mine                   Show all your open issues
+  ji mine --project CFA     Show only issues from project CFA
 `);
 }
 
@@ -558,13 +560,29 @@ async function main() {
         await initializeSetup();
         break;
 
-      case 'mine':
+      case 'mine': {
         if (args.includes('--help')) {
           showMineHelp();
           process.exit(0);
         }
-        await showMyIssues();
+
+        // Parse project filter
+        let projectFilter: string | undefined;
+        const projectIndex = args.findIndex((arg) => arg.startsWith('--project'));
+        if (projectIndex !== -1) {
+          const projectArg = args[projectIndex];
+          if (projectArg.includes('=')) {
+            // Format: --project=CFA
+            projectFilter = projectArg.split('=')[1];
+          } else if (projectIndex + 1 < args.length) {
+            // Format: --project CFA
+            projectFilter = args[projectIndex + 1];
+          }
+        }
+
+        await showMyIssues(projectFilter);
         break;
+      }
 
       case 'take':
         if (args.includes('--help')) {
