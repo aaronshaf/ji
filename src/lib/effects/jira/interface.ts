@@ -23,7 +23,6 @@ import type {
   Project,
   SearchOptions,
   Sprint,
-  SprintSearchResult,
 } from './types.js';
 
 // ============= Jira Client Service Interface =============
