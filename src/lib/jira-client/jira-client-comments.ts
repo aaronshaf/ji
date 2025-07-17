@@ -1,6 +1,6 @@
 import { Effect, pipe } from 'effect';
 import { JiraClientBase } from './jira-client-base.js';
-import { ValidationError, NotFoundError, NetworkError, AuthenticationError } from './jira-client-types.js';
+import { AuthenticationError, NetworkError, NotFoundError, ValidationError } from './jira-client-types.js';
 
 export class JiraClientComments extends JiraClientBase {
   /**

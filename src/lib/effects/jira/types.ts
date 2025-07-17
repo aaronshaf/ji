@@ -3,7 +3,7 @@
  * All type definitions and configuration constants for Jira operations
  */
 
-import type { Issue, Board, Sprint, Project, JiraUser } from './schemas.js';
+import type { Board, Issue, JiraUser, Project, Sprint } from './schemas.js';
 
 // ============= Interface Definitions =============
 export interface SearchOptions {
@@ -45,4 +45,4 @@ export const ISSUE_FIELDS = [
 ];
 
 // Re-export types from schemas for convenience
-export type { Issue, Board, Sprint, Project, JiraUser } from './schemas.js';
+export type { Board, Issue, JiraUser, Project, Sprint } from './schemas.js';

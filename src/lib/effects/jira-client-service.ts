@@ -4,7 +4,7 @@
  * Handles all Jira API interactions with proper error handling and retry strategies
  */
 
-import { Context, Duration, Effect, Layer, Option, pipe, Schedule, Stream } from 'effect';
+import { Context, Duration, Effect, Layer, Option, pipe, Schedule, type Stream } from 'effect';
 import { z } from 'zod';
 import {
   AuthenticationError,
@@ -17,6 +17,17 @@ import {
   ValidationError,
 } from './errors.js';
 import {
+  batchAssignIssues,
+  batchGetIssues,
+  ISSUE_FIELDS,
+  type Issue,
+  IssueOperationsImpl,
+  IssueSchema,
+  type IssueSearchResult,
+  type SearchOptions,
+  SearchResultSchema,
+} from './jira/issue-operations.js';
+import {
   type ConfigService,
   ConfigServiceTag,
   type HttpClientService,
@@ -24,17 +35,6 @@ import {
   type LoggerService,
   LoggerServiceTag,
 } from './layers.js';
-import {
-  IssueSchema,
-  SearchResultSchema,
-  ISSUE_FIELDS,
-  type Issue,
-  type SearchOptions,
-  type IssueSearchResult,
-  IssueOperationsImpl,
-  batchGetIssues,
-  batchAssignIssues,
-} from './jira/issue-operations.js';
 
 // ============= Jira API Schemas (non-issue related) =============
 
@@ -103,7 +103,7 @@ export type Sprint = z.infer<typeof SprintSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
 export type JiraUser = z.infer<typeof UserSchema>;
 // Re-export Issue type and interfaces from issue-operations
-export type { Issue, SearchOptions, IssueSearchResult } from './jira/issue-operations.js';
+export type { Issue, IssueSearchResult, SearchOptions } from './jira/issue-operations.js';
 
 export interface PaginatedResult<T> {
   values: T[];
@@ -1198,7 +1198,6 @@ class JiraClientServiceImpl implements JiraClientService {
     return pipe(Schedule.exponential(Duration.millis(100)), Schedule.intersect(Schedule.recurs(3)), Schedule.jittered);
   }
 
-
   private validateProjectKey(projectKey: string): Effect.Effect<void, ValidationError> {
     return Effect.sync(() => {
       if (!projectKey || projectKey.length === 0) {
@@ -1241,8 +1240,6 @@ class JiraClientServiceImpl implements JiraClientService {
       }
     });
   }
-
-
 }
 
 // ============= Service Layer =============

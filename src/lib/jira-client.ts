@@ -1,9 +1,9 @@
 import { Effect } from 'effect';
 import type { Config } from './config.js';
 import { JiraClientBase } from './jira-client/jira-client-base.js';
-import { JiraClientIssues } from './jira-client/jira-client-issues.js';
-import { JiraClientComments } from './jira-client/jira-client-comments.js';
 import { JiraClientBoards } from './jira-client/jira-client-boards.js';
+import { JiraClientComments } from './jira-client/jira-client-comments.js';
+import { JiraClientIssues } from './jira-client/jira-client-issues.js';
 import { JiraClientSprints } from './jira-client/jira-client-sprints.js';
 import { JiraClientUsers } from './jira-client/jira-client-users.js';
 

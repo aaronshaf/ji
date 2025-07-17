@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
 import { JiraClientBase } from './jira-client-base.js';
-import { NetworkError, AuthenticationError } from './jira-client-types.js';
+import { AuthenticationError, NetworkError } from './jira-client-types.js';
 
 export class JiraClientUsers extends JiraClientBase {
   // Effect-based get current user
