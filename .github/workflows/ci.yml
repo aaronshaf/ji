@@ -48,14 +48,13 @@ jobs:
         
         echo "✅ Linting and formatting check passed with zero warnings"
 
-    - name: Run full quality check
+    - name: Check file sizes
       run: |
-        echo "Running comprehensive quality check..."
-        bun run pre-commit
-        echo "✅ All quality checks passed"
+        echo "Checking file sizes..."
+        bun run check-file-sizes
 
   test:
-    name: Test
+    name: Test & Coverage
     runs-on: ubuntu-latest
     needs: quality
     
@@ -71,9 +70,52 @@ jobs:
     - name: Install dependencies
       run: bun install
 
-    - name: Run tests
-      run: bun test
+    - name: Run tests with coverage
+      run: |
+        echo "Running tests with coverage..."
+        bun run test:coverage:report
       continue-on-error: true  # Tests don't exist yet, but we want to show they run
+
+    - name: Check test coverage thresholds
+      run: |
+        echo "Checking test coverage thresholds..."
+        bun run test:coverage:check
+      continue-on-error: true  # Low coverage for now
 
     - name: Check CLI can run
       run: bun run src/cli.ts --help
+
+  all-checks:
+    name: All Checks Summary
+    runs-on: ubuntu-latest
+    needs: [quality, test]
+    if: always()
+    
+    steps:
+    - name: Summary
+      run: |
+        echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+        
+        # Quality checks
+        if [ "${{ needs.quality.result }}" == "success" ]; then
+          echo "| Quality (TypeScript, Linting, File Sizes) | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Quality (TypeScript, Linting, File Sizes) | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Test checks
+        if [ "${{ needs.test.result }}" == "success" ]; then
+          echo "| Tests & Coverage | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Tests & Coverage | ⚠️ Failed (allowed) |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Enforcement Policy:**" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ TypeScript type checking: Required" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Zero biome warnings: Required" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ File size limits: Required" >> $GITHUB_STEP_SUMMARY
+        echo "- ⚠️ Test coverage: Currently 0% threshold (will increase)" >> $GITHUB_STEP_SUMMARY
