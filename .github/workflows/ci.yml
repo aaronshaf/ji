@@ -80,7 +80,6 @@ jobs:
       run: |
         echo "Checking test coverage thresholds..."
         bun run test:coverage:check
-      continue-on-error: true  # Low coverage for now
 
     - name: Check CLI can run
       run: bun run src/cli.ts --help
@@ -118,4 +117,4 @@ jobs:
         echo "- ✅ TypeScript type checking: Required" >> $GITHUB_STEP_SUMMARY
         echo "- ✅ Zero biome warnings: Required" >> $GITHUB_STEP_SUMMARY
         echo "- ✅ File size limits: Required" >> $GITHUB_STEP_SUMMARY
-        echo "- ⚠️ Test coverage: Currently 0% threshold (will increase)" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Test coverage: 1% threshold (using Bun native coverage)" >> $GITHUB_STEP_SUMMARY
