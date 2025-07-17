@@ -19,13 +19,11 @@ import {
 import {
   batchAssignIssues,
   batchGetIssues,
-  ISSUE_FIELDS,
   type Issue,
   IssueOperationsImpl,
   IssueSchema,
   type IssueSearchResult,
   type SearchOptions,
-  SearchResultSchema,
 } from './jira/issue-operations.js';
 import {
   type ConfigService,

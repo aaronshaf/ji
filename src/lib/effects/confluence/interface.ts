@@ -4,7 +4,7 @@
  */
 
 import { Context, type Effect, type Option, type Stream } from 'effect';
-import type { ConfigError, NotFoundError, ValidationError } from '../errors.js';
+import type { NotFoundError, ValidationError } from '../errors.js';
 import type { Attachment, Page, Space } from './schemas.js';
 import type {
   AllErrors,

@@ -3,7 +3,7 @@
  * All type definitions and configuration constants for Jira operations
  */
 
-import type { Board, Issue, JiraUser, Project, Sprint } from './schemas.js';
+import type { Board, Issue, Sprint } from './schemas.js';
 
 // ============= Interface Definitions =============
 export interface SearchOptions {

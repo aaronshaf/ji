@@ -1,4 +1,3 @@
-import { Effect } from 'effect';
 import type { Config } from './config.js';
 import { JiraClientBase } from './jira-client/jira-client-base.js';
 import { JiraClientBoards } from './jira-client/jira-client-boards.js';

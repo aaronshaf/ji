@@ -17,7 +17,14 @@ import {
 import type { ConfigService, HttpClientService, LoggerService } from '../layers.js';
 import { createRetrySchedule, getAuthHeaders, validateSpaceKey } from './helpers.js';
 import { type Space, SpaceListResponseSchema, SpaceSchema } from './schemas.js';
-import type { CommonErrors, SearchOptions, SpaceSearchResult } from './types.js';
+import type {
+  CommonErrors,
+  PageSearchResult,
+  PageSummary,
+  SearchOptions,
+  SpaceContentOptions,
+  SpaceSearchResult,
+} from './types.js';
 
 export class SpaceOperations {
   constructor(
@@ -130,8 +137,14 @@ export class SpaceOperations {
 
   getSpaceAnalytics(
     spaceKey: string,
-    getSpaceContent: (spaceKey: string, options?: any) => Effect.Effect<any, any>,
-    getRecentlyUpdatedPages: (spaceKey: string, limit?: number) => Effect.Effect<any[], any>,
+    getSpaceContent: (
+      spaceKey: string,
+      options?: SpaceContentOptions,
+    ) => Effect.Effect<PageSearchResult, ValidationError | CommonErrors | NotFoundError>,
+    getRecentlyUpdatedPages: (
+      spaceKey: string,
+      limit?: number,
+    ) => Effect.Effect<PageSummary[], ValidationError | CommonErrors | NotFoundError>,
   ): Effect.Effect<
     { pageCount: number; recentActivity: number; lastModified?: Date },
     ValidationError | CommonErrors | NotFoundError

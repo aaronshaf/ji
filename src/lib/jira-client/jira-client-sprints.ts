@@ -1,4 +1,5 @@
 import { Effect, pipe, Schema } from 'effect';
+import type { Config } from '../config.js';
 import { JiraClientBase } from './jira-client-base.js';
 import { JiraClientBoards } from './jira-client-boards.js';
 import {
@@ -14,7 +15,7 @@ import {
 export class JiraClientSprints extends JiraClientBase {
   private boardsClient: JiraClientBoards;
 
-  constructor(config: any) {
+  constructor(config: Config) {
     super(config);
     this.boardsClient = new JiraClientBoards(config);
   }

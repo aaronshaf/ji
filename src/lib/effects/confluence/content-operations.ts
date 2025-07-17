@@ -31,6 +31,8 @@ import type {
   ContentCreationOptions,
   ContentUpdateOptions,
   PageSearchResult,
+  PageSummary,
+  SearchOptions,
   SpaceContentOptions,
 } from './types.js';
 
@@ -40,7 +42,7 @@ export class ContentOperations {
     private config: ConfigService,
     private logger: LoggerService,
     private baseUrl: string,
-    private searchContent: (cql: string, options?: any) => Effect.Effect<any[], any>,
+    private searchContent: (cql: string, options?: SearchOptions) => Effect.Effect<PageSummary[], AllErrors>,
   ) {}
 
   // ============= Content Retrieval =============

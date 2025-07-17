@@ -1,4 +1,5 @@
 import { Effect, pipe, Schema } from 'effect';
+import type { Config } from '../config.js';
 import { JiraClientBase } from './jira-client-base.js';
 import { JiraClientIssues } from './jira-client-issues.js';
 import {
@@ -6,7 +7,6 @@ import {
   type Board,
   BoardsResponseSchema,
   type Issue,
-  IssueSchema,
   NetworkError,
   ValidationError,
 } from './jira-client-types.js';
@@ -14,7 +14,7 @@ import {
 export class JiraClientBoards extends JiraClientBase {
   private issuesClient: JiraClientIssues;
 
-  constructor(config: any) {
+  constructor(config: Config) {
     super(config);
     this.issuesClient = new JiraClientIssues(config);
   }
