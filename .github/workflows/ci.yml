@@ -26,19 +26,9 @@ jobs:
     - name: Run type checking
       run: bun run typecheck
 
-    - name: Check formatting
+    - name: Run linting and formatting check with zero warnings policy
       run: |
-        echo "Checking code formatting..."
-        bunx biome format . --check
-        if [ $? -ne 0 ]; then
-          echo "❌ Code is not properly formatted. Run 'bun run format' locally."
-          exit 1
-        fi
-        echo "✅ Code formatting check passed"
-
-    - name: Run linting with zero warnings policy
-      run: |
-        echo "Running linting with zero warnings policy..."
+        echo "Running linting and formatting check..."
         bunx biome check . 2>&1 | tee biome-output.txt
         BIOME_EXIT_CODE=$?
         
@@ -50,12 +40,13 @@ jobs:
         fi
         
         if [ $BIOME_EXIT_CODE -ne 0 ]; then
-          echo "❌ Biome found errors."
+          echo "❌ Biome found errors or formatting issues."
+          echo "Run 'bun run lint:fix' locally to fix issues."
           cat biome-output.txt
           exit 1
         fi
         
-        echo "✅ Linting passed with zero warnings"
+        echo "✅ Linting and formatting check passed with zero warnings"
 
     - name: Run full quality check
       run: |
