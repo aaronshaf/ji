@@ -29,7 +29,7 @@ jobs:
     - name: Check formatting
       run: |
         echo "Checking code formatting..."
-        bun run biome format . --check
+        biome format . --check
         if [ $? -ne 0 ]; then
           echo "❌ Code is not properly formatted. Run 'bun run format' locally."
           exit 1
@@ -39,7 +39,7 @@ jobs:
     - name: Run linting with zero warnings policy
       run: |
         echo "Running linting with zero warnings policy..."
-        bun run biome check . 2>&1 | tee biome-output.txt
+        biome check . 2>&1 | tee biome-output.txt
         BIOME_EXIT_CODE=$?
         
         # Check for warnings
