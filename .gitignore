@@ -10,6 +10,7 @@ dist/
 ji-data/
 *.log
 coverage/
+.nyc_output/
 .vscode/
 .idea/
 auth.json
