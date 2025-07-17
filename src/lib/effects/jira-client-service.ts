@@ -4,7 +4,7 @@
  * Handles all Jira API interactions with proper error handling and retry strategies
  */
 
-import { Context, Duration, Effect, Layer, Option, pipe, Schedule, Stream } from 'effect';
+import { Context, Duration, Effect, Layer, Option, pipe, Schedule, type Stream } from 'effect';
 import { z } from 'zod';
 import {
   AuthenticationError,
@@ -17,6 +17,15 @@ import {
   ValidationError,
 } from './errors.js';
 import {
+  batchAssignIssues,
+  batchGetIssues,
+  type Issue,
+  IssueOperationsImpl,
+  IssueSchema,
+  type IssueSearchResult,
+  type SearchOptions,
+} from './jira/issue-operations.js';
+import {
   type ConfigService,
   ConfigServiceTag,
   type HttpClientService,
@@ -25,58 +34,7 @@ import {
   LoggerServiceTag,
 } from './layers.js';
 
-// ============= Jira API Schemas =============
-const IssueSchema = z.object({
-  key: z.string(),
-  self: z.string(),
-  fields: z
-    .object({
-      summary: z.string(),
-      description: z.any().nullable(),
-      status: z.object({
-        name: z.string(),
-      }),
-      assignee: z
-        .object({
-          displayName: z.string(),
-          emailAddress: z.string().email().optional(),
-          accountId: z.string(),
-        })
-        .nullable(),
-      reporter: z.object({
-        displayName: z.string(),
-        emailAddress: z.string().email().optional(),
-        accountId: z.string(),
-      }),
-      priority: z
-        .object({
-          name: z.string(),
-        })
-        .nullable(),
-      project: z
-        .object({
-          key: z.string(),
-          name: z.string(),
-        })
-        .optional(),
-      created: z.string(),
-      updated: z.string(),
-      // Common sprint custom fields
-      customfield_10020: z.any().optional(),
-      customfield_10021: z.any().optional(),
-      customfield_10016: z.any().optional(),
-      customfield_10018: z.any().optional(),
-      customfield_10019: z.any().optional(),
-    })
-    .catchall(z.any()),
-});
-
-const SearchResultSchema = z.object({
-  issues: z.array(IssueSchema),
-  startAt: z.number(),
-  maxResults: z.number(),
-  total: z.number(),
-});
+// ============= Jira API Schemas (non-issue related) =============
 
 const BoardSchema = z.object({
   id: z.number(),
@@ -138,18 +96,12 @@ const UserSchema = z.object({
 });
 
 // ============= Exported Types =============
-export type Issue = z.infer<typeof IssueSchema>;
 export type Board = z.infer<typeof BoardSchema>;
 export type Sprint = z.infer<typeof SprintSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
 export type JiraUser = z.infer<typeof UserSchema>;
-
-export interface SearchOptions {
-  startAt?: number;
-  maxResults?: number;
-  fields?: string[];
-  expand?: string[];
-}
+// Re-export Issue type and interfaces from issue-operations
+export type { Issue, IssueSearchResult, SearchOptions } from './jira/issue-operations.js';
 
 export interface PaginatedResult<T> {
   values: T[];
@@ -158,29 +110,8 @@ export interface PaginatedResult<T> {
   total: number;
   isLast: boolean;
 }
-
-export interface IssueSearchResult extends PaginatedResult<Issue> {}
 export interface BoardSearchResult extends PaginatedResult<Board> {}
 export interface SprintSearchResult extends PaginatedResult<Sprint> {}
-
-// ============= Configuration =============
-export const ISSUE_FIELDS = [
-  'summary',
-  'description',
-  'status',
-  'assignee',
-  'reporter',
-  'priority',
-  'project',
-  'created',
-  'updated',
-  // Common sprint custom fields
-  'customfield_10020',
-  'customfield_10021',
-  'customfield_10016',
-  'customfield_10018',
-  'customfield_10019',
-];
 
 // ============= Jira Client Service Interface =============
 export interface JiraClientService {
@@ -451,13 +382,17 @@ export class JiraClientServiceTag extends Context.Tag('JiraClientService')<JiraC
 
 // ============= Jira Client Service Implementation =============
 class JiraClientServiceImpl implements JiraClientService {
+  private issueOps: IssueOperationsImpl;
+
   constructor(
     private http: HttpClientService,
     private config: ConfigService,
     private logger: LoggerService,
-  ) {}
+  ) {
+    this.issueOps = new IssueOperationsImpl(http, config, logger);
+  }
 
-  // ============= Issue Operations =============
+  // ============= Issue Operations (delegated to IssueOperationsImpl) =============
   getIssue(
     issueKey: string,
   ): Effect.Effect<
@@ -471,34 +406,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | RateLimitError
     | ConfigError
   > {
-    return pipe(
-      this.validateIssueKey(issueKey),
-      Effect.flatMap(() => this.config.getConfig),
-      Effect.flatMap((config) => {
-        const params = new URLSearchParams({
-          fields: ISSUE_FIELDS.join(','),
-        });
-        const url = `${config.jiraUrl}/rest/api/3/issue/${issueKey}?${params}`;
-
-        return pipe(
-          this.logger.debug('Fetching issue', { issueKey }),
-          Effect.flatMap(() => this.http.get<unknown>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => IssueSchema.parse(data),
-              catch: (error) => new ParseError('Failed to parse issue response', 'issue', String(data), error),
-            }),
-          ),
-          Effect.tap(() => this.logger.debug('Issue fetched successfully', { issueKey })),
-          Effect.retry(this.createRetrySchedule()),
-        ) as Effect.Effect<
-          Issue,
-          NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError | NotFoundError,
-          never
-        >;
-      }),
-    );
+    return this.issueOps.getIssue(issueKey);
   }
 
   searchIssues(
@@ -515,58 +423,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | ConfigError
     | NotFoundError
   > {
-    return pipe(
-      this.validateJQL(jql),
-      Effect.flatMap(() => this.config.getConfig),
-      Effect.flatMap((config) => {
-        const params = new URLSearchParams({
-          jql,
-          startAt: (options.startAt || 0).toString(),
-          maxResults: (options.maxResults || 50).toString(),
-        });
-
-        if (options.fields) {
-          params.append('fields', options.fields.join(','));
-        } else {
-          params.append('fields', ISSUE_FIELDS.join(','));
-        }
-
-        if (options.expand) {
-          params.append('expand', options.expand.join(','));
-        }
-
-        const url = `${config.jiraUrl}/rest/api/3/search?${params}`;
-
-        return pipe(
-          this.logger.debug('Searching issues', { jql, options }),
-          Effect.flatMap(() => this.http.get<unknown>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => {
-                const result = SearchResultSchema.parse(data);
-                return {
-                  values: result.issues,
-                  startAt: result.startAt,
-                  maxResults: result.maxResults,
-                  total: result.total,
-                  isLast: result.startAt + result.issues.length >= result.total,
-                };
-              },
-              catch: (error) => new ParseError('Failed to parse search response', 'searchResult', String(data), error),
-            }),
-          ),
-          Effect.tap((result) =>
-            this.logger.debug('Issues searched successfully', { total: result.total, returned: result.values.length }),
-          ),
-          Effect.retry(this.createRetrySchedule()),
-        ) as Effect.Effect<
-          IssueSearchResult,
-          NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError | NotFoundError,
-          never
-        >;
-      }),
-    );
+    return this.issueOps.searchIssues(jql, options);
   }
 
   getAllProjectIssues(
@@ -583,23 +440,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | ConfigError
     | NotFoundError
   > {
-    return pipe(
-      Stream.fromEffect(this.validateProjectKey(projectKey)),
-      Stream.flatMap(() => {
-        const searchJql = jql || `project = ${projectKey} ORDER BY updated DESC`;
-
-        return Stream.paginateEffect(0, (startAt: number) =>
-          pipe(
-            this.searchIssues(searchJql, { startAt, maxResults: 100 }),
-            Effect.map(
-              (result) => [result.values, result.isLast ? Option.none<number>() : Option.some(startAt + 100)] as const,
-            ),
-          ),
-        );
-      }),
-      Stream.flatMap((issues) => Stream.fromIterable(issues)),
-      Stream.rechunk(50),
-    );
+    return this.issueOps.getAllProjectIssues(projectKey, jql);
   }
 
   assignIssue(
@@ -609,35 +450,7 @@ class JiraClientServiceImpl implements JiraClientService {
     void,
     ValidationError | NotFoundError | NetworkError | AuthenticationError | TimeoutError | RateLimitError | ConfigError
   > {
-    return pipe(
-      Effect.all({
-        _: this.validateIssueKey(issueKey),
-        __: this.validateAccountId(accountId),
-        config: this.config.getConfig,
-      }),
-      Effect.flatMap(({ config }) => {
-        const url = `${config.jiraUrl}/rest/api/3/issue/${issueKey}/assignee`;
-        const body = { accountId };
-
-        return pipe(
-          this.logger.debug('Assigning issue', { issueKey, accountId }),
-          Effect.flatMap(() => this.http.put<void>(url, body, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.tap(() => this.logger.info('Issue assigned successfully', { issueKey, accountId })),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      void,
-      | ValidationError
-      | NotFoundError
-      | NetworkError
-      | AuthenticationError
-      | TimeoutError
-      | RateLimitError
-      | ConfigError,
-      never
-    >;
+    return this.issueOps.assignIssue(issueKey, accountId);
   }
 
   updateIssue(
@@ -647,34 +460,7 @@ class JiraClientServiceImpl implements JiraClientService {
     void,
     ValidationError | NotFoundError | NetworkError | AuthenticationError | TimeoutError | RateLimitError | ConfigError
   > {
-    return pipe(
-      Effect.all({
-        _: this.validateIssueKey(issueKey),
-        config: this.config.getConfig,
-      }),
-      Effect.flatMap(({ config }) => {
-        const url = `${config.jiraUrl}/rest/api/3/issue/${issueKey}`;
-        const body = { fields };
-
-        return pipe(
-          this.logger.debug('Updating issue', { issueKey, fields: Object.keys(fields) }),
-          Effect.flatMap(() => this.http.put<void>(url, body, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.tap(() => this.logger.info('Issue updated successfully', { issueKey })),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      void,
-      | ValidationError
-      | NotFoundError
-      | NetworkError
-      | AuthenticationError
-      | TimeoutError
-      | RateLimitError
-      | ConfigError,
-      never
-    >;
+    return this.issueOps.updateIssue(issueKey, fields);
   }
 
   createIssue(
@@ -693,49 +479,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | ConfigError
     | NotFoundError
   > {
-    return pipe(
-      Effect.all({
-        _: this.validateProjectKey(projectKey),
-        __: this.validateNonEmpty(summary, 'summary'),
-        config: this.config.getConfig,
-      }),
-      Effect.flatMap(({ config }) => {
-        const url = `${config.jiraUrl}/rest/api/3/issue`;
-        const body = {
-          fields: {
-            project: { key: projectKey },
-            issuetype: { name: issueType },
-            summary,
-            ...(description && { description }),
-          },
-        };
-
-        return pipe(
-          this.logger.debug('Creating issue', { projectKey, issueType, summary }),
-          Effect.flatMap(() => this.http.post<unknown>(url, body, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => IssueSchema.parse(data),
-              catch: (error) => new ParseError('Failed to parse created issue response', 'issue', String(data), error),
-            }),
-          ),
-          Effect.tap((issue) => this.logger.info('Issue created successfully', { issueKey: issue.key })),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      Issue,
-      | ValidationError
-      | NetworkError
-      | AuthenticationError
-      | ParseError
-      | TimeoutError
-      | RateLimitError
-      | ConfigError
-      | NotFoundError,
-      never
-    >;
+    return this.issueOps.createIssue(projectKey, issueType, summary, description);
   }
 
   // ============= User Operations =============
@@ -1405,22 +1149,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | RateLimitError
     | ConfigError
   > {
-    return pipe(
-      Stream.fromIterable(issueKeys),
-      Stream.mapEffect((issueKey) =>
-        pipe(
-          this.getIssue(issueKey),
-          Effect.catchAll((error) => {
-            // Log the error but don't fail the entire stream
-            return pipe(
-              this.logger.warn('Failed to fetch issue in batch', { issueKey, error: error.message }),
-              Effect.flatMap(() => Effect.fail(error)),
-            );
-          }),
-        ),
-      ),
-      Stream.rechunk(10), // Process in chunks of 10
-    );
+    return batchGetIssues(this.issueOps, this.logger)(issueKeys);
   }
 
   batchAssignIssues(
@@ -1429,21 +1158,7 @@ class JiraClientServiceImpl implements JiraClientService {
     Array<{ issueKey: string; success: boolean; error?: string }>,
     ValidationError | NetworkError | AuthenticationError
   > {
-    return pipe(
-      Effect.forEach(assignments, ({ issueKey, accountId }) =>
-        pipe(
-          this.assignIssue(issueKey, accountId),
-          Effect.map(() => ({ issueKey, success: true as const })),
-          Effect.catchAll((error) =>
-            Effect.succeed({
-              issueKey,
-              success: false as const,
-              error: error.message,
-            }),
-          ),
-        ),
-      ),
-    );
+    return batchAssignIssues(this.issueOps)(assignments);
   }
 
   // ============= Private Helper Methods =============
@@ -1479,14 +1194,6 @@ class JiraClientServiceImpl implements JiraClientService {
 
   private createRetrySchedule(): Schedule.Schedule<unknown, unknown, unknown> {
     return pipe(Schedule.exponential(Duration.millis(100)), Schedule.intersect(Schedule.recurs(3)), Schedule.jittered);
-  }
-
-  private validateIssueKey(issueKey: string): Effect.Effect<void, ValidationError> {
-    return Effect.sync(() => {
-      if (!issueKey || !issueKey.match(/^[A-Z]+-\d+$/)) {
-        throw new ValidationError('Invalid issue key format. Expected format: PROJECT-123', 'issueKey', issueKey);
-      }
-    });
   }
 
   private validateProjectKey(projectKey: string): Effect.Effect<void, ValidationError> {
@@ -1528,25 +1235,6 @@ class JiraClientServiceImpl implements JiraClientService {
     return Effect.sync(() => {
       if (!sprintId || sprintId <= 0) {
         throw new ValidationError('Sprint ID must be a positive number', 'sprintId', sprintId);
-      }
-    });
-  }
-
-  private validateJQL(jql: string): Effect.Effect<void, ValidationError> {
-    return Effect.sync(() => {
-      if (!jql || jql.trim().length === 0) {
-        throw new ValidationError('JQL query cannot be empty', 'jql', jql);
-      }
-      if (jql.length > 10000) {
-        throw new ValidationError('JQL query too long', 'jql', jql);
-      }
-    });
-  }
-
-  private validateNonEmpty(value: string, fieldName: string): Effect.Effect<void, ValidationError> {
-    return Effect.sync(() => {
-      if (!value || value.trim().length === 0) {
-        throw new ValidationError(`${fieldName} cannot be empty`, fieldName, value);
       }
     });
   }
