@@ -37,27 +37,11 @@ jobs:
           exit 1
         fi
 
-    - name: Formatting Check
-      id: format
-      run: |
-        echo "### 🎨 Formatting Check" >> $GITHUB_STEP_SUMMARY
-        if bun run biome format . --check; then
-          echo "✅ Code is properly formatted" >> $GITHUB_STEP_SUMMARY
-          echo "result=success" >> $GITHUB_OUTPUT
-        else
-          echo "❌ Code needs formatting. Run \`bun run format\` locally." >> $GITHUB_STEP_SUMMARY
-          echo "```diff" >> $GITHUB_STEP_SUMMARY
-          bun run biome format . --check --diff >> $GITHUB_STEP_SUMMARY 2>&1 || true
-          echo "```" >> $GITHUB_STEP_SUMMARY
-          echo "result=failure" >> $GITHUB_OUTPUT
-          exit 1
-        fi
-
-    - name: Linting Check
+    - name: Linting and Formatting Check
       id: lint
       run: |
-        echo "### 🧹 Linting Check" >> $GITHUB_STEP_SUMMARY
-        bun run biome check . 2>&1 | tee biome-output.txt
+        echo "### 🧹 Linting and Formatting Check" >> $GITHUB_STEP_SUMMARY
+        bunx biome check . 2>&1 | tee biome-output.txt
         BIOME_EXIT_CODE=$?
         
         # Count warnings and errors
@@ -65,7 +49,7 @@ jobs:
         ERRORS=$(grep -o "Found [0-9]* error" biome-output.txt | grep -o "[0-9]*" || echo "0")
         
         if [ "$WARNINGS" != "0" ] || [ "$ERRORS" != "0" ]; then
-          echo "❌ Linting failed" >> $GITHUB_STEP_SUMMARY
+          echo "❌ Linting and formatting check failed" >> $GITHUB_STEP_SUMMARY
           echo "- Errors: $ERRORS" >> $GITHUB_STEP_SUMMARY
           echo "- Warnings: $WARNINGS (must be 0)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -78,7 +62,7 @@ jobs:
           echo "result=failure" >> $GITHUB_OUTPUT
           exit 1
         else
-          echo "✅ Linting passed with zero warnings" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Linting and formatting check passed with zero warnings" >> $GITHUB_STEP_SUMMARY
           echo "result=success" >> $GITHUB_OUTPUT
         fi
 
@@ -97,18 +81,11 @@ jobs:
           echo "| TypeScript | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
         fi
         
-        # Formatting
-        if [ "${{ steps.format.outputs.result }}" == "success" ]; then
-          echo "| Formatting | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "| Formatting | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        # Linting
+        # Linting and Formatting
         if [ "${{ steps.lint.outputs.result }}" == "success" ]; then
-          echo "| Linting | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linting & Formatting | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
         else
-          echo "| Linting | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linting & Formatting | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
         fi
         
         echo "" >> $GITHUB_STEP_SUMMARY
