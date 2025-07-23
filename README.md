@@ -145,7 +145,7 @@ Features:
 
 ## Documentation
 
-- **[DOCS.md](DOCS.md)** - Complete command reference and advanced usage
+- **[DOCS.md](docs/DOCS.md)** - Complete command reference and advanced usage
 - **[CLAUDE.md](CLAUDE.md)** - Development notes and architecture
 
 ## Quick Reference

@@ -260,7 +260,7 @@ ji automatically handles index naming to avoid conflicts in shared Meilisearch e
 - **User data separation**: Each user gets their own isolated search indexes
 - **Optional customization**: Advanced users can override prefix if needed
 
-See `MEILISEARCH.md` for detailed information about shared environment usage.
+See `docs/MEILISEARCH.md` for detailed information about shared environment usage.
 
 ## Current Features
 
