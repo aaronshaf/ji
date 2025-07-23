@@ -18,3 +18,4 @@ auth.json
 test-config.json
 **/test-config.json
 **/*.mdb
+data.ms/
