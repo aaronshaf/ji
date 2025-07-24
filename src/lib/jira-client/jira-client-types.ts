@@ -93,5 +93,25 @@ export class ValidationError extends Error {
   readonly _tag = 'ValidationError';
 }
 
-// Standard fields to fetch for issues - we'll fetch ALL fields by using '*'
-export const ISSUE_FIELDS = ['*'];
+// Standard fields to fetch for issues
+// Note: Using '*' doesn't work reliably - Jira API sometimes omits the 'fields' property
+// when using the wildcard, so we specify fields explicitly
+export const ISSUE_FIELDS = [
+  'summary',
+  'status',
+  'assignee',
+  'reporter',
+  'priority',
+  'created',
+  'updated',
+  'description',
+  'labels',
+  'comment',
+  'project',
+  'customfield_10020', // Sprint (common field)
+  'customfield_10021', // Sprint (alternative)
+  'customfield_10016', // Sprint (alternative)
+  'customfield_10018', // Sprint (alternative)
+  'customfield_10019', // Sprint (alternative)
+  '*navigable', // Get all navigable custom fields
+];

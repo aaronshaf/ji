@@ -151,24 +151,22 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
       console.log(`${chalk.cyan('labels:')} ${issue.fields.labels.map((l: string) => chalk.cyan(l)).join(', ')}`);
     }
 
-    // Description
+    // Description - always show full description
     const description = formatDescription(issue.fields.description);
     if (description.trim()) {
-      // Truncate description similar to search results
       const cleanDescription = description.replace(/\s+/g, ' ').trim();
 
-      const maxLength = 300;
-      let truncated = cleanDescription;
-      if (cleanDescription.length > maxLength) {
-        const lastSpace = cleanDescription.lastIndexOf(' ', maxLength);
-        truncated = `${cleanDescription.substring(0, lastSpace > 0 ? lastSpace : maxLength)}...`;
-      }
-
       console.log(`${chalk.cyan('description:')} |`);
-      console.log(`  ${chalk.gray(truncated)}`);
+      if (cleanDescription.length > 300) {
+        // For long descriptions, split into multiple lines for better readability
+        const lines = cleanDescription.match(/.{1,120}(?:\s|$)/g) || [cleanDescription];
+        lines.forEach((line) => console.log(`  ${chalk.gray(line.trim())}`));
+      } else {
+        console.log(`  ${chalk.gray(cleanDescription)}`);
+      }
     }
 
-    // Comments (if any recent ones)
+    // Comments - show all comments
     if (
       issue.fields.comment &&
       typeof issue.fields.comment === 'object' &&
@@ -182,11 +180,28 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
 
       if (comments.length > 0) {
         console.log(`${chalk.cyan('comments:')} ${comments.length}`);
-        console.log(`${chalk.cyan('latest_comment:')} |`);
-        const latest = comments[comments.length - 1];
-        console.log(
-          `  ${chalk.gray(`${latest.author.displayName} (${formatSmartDate(latest.created)}): ${formatDescription(latest.body).replace(/\s+/g, ' ').trim().slice(0, 150)}...`)}`,
-        );
+
+        // Show all comments with proper YAML structure
+        comments.forEach((comment, index) => {
+          const commentBody = formatDescription(comment.body).replace(/\s+/g, ' ').trim();
+          console.log(`${chalk.cyan(`comment_${index + 1}:`)}`);
+          console.log(`  ${chalk.cyan('author:')} ${chalk.yellow(comment.author.displayName)}`);
+          console.log(`  ${chalk.cyan('created:')} ${chalk.dim(formatSmartDate(comment.created))}`);
+          console.log(`  ${chalk.cyan('body:')} |`);
+
+          // Split long comments across multiple lines with proper indentation
+          if (commentBody.length > 120) {
+            const lines = commentBody.match(/.{1,120}(?:\s|$)/g) || [commentBody];
+            lines.forEach((line) => console.log(`    ${chalk.gray(line.trim())}`));
+          } else {
+            console.log(`    ${chalk.gray(commentBody)}`);
+          }
+
+          // Add spacing between comments
+          if (index < comments.length - 1) {
+            console.log('');
+          }
+        });
       }
     }
   });
