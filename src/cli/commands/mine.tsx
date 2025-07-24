@@ -132,16 +132,30 @@ const MyIssuesApp: React.FC<AppProps> = ({ email, jiraClient, cacheManager, conf
 
   // Fetch fresh data after showing cached
   useEffect(() => {
-    if (!isLoading && cachedIssues.length > 0) {
+    if (!isLoading) {
       const fetchFreshData = async () => {
         setIsFetching(true);
         try {
           // Get all unique project keys
           let projectKeys = [...new Set(cachedIssues.map((i) => i.project_key))];
 
+          // If no cached issues, get all projects from cache
+          if (projectKeys.length === 0) {
+            const allProjects = await cacheManager.getAllProjects();
+            projectKeys = allProjects.map((p) => p.key);
+          }
+
           // If project filter is specified, only fetch for that project
           if (projectFilter) {
             projectKeys = projectKeys.filter((key) => key === projectFilter.toUpperCase());
+          }
+
+          // If still no projects, exit early
+          if (projectKeys.length === 0) {
+            setIsFetching(false);
+            // Exit after a short delay
+            setTimeout(() => exit(), 100);
+            return;
           }
 
           // Fetch fresh issues for each project
