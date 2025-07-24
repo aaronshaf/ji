@@ -1,4 +1,3 @@
-import chalk from 'chalk';
 import { Console, Effect, pipe } from 'effect';
 import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
@@ -54,7 +53,7 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
         // If clean flag is set, delete existing issues first
         options.clean
           ? pipe(
-              Console.log(chalk.yellow('  🧹 Cleaning existing issues...')),
+              Console.log('  🧹 Cleaning existing issues...'),
               Effect.flatMap(() =>
                 Effect.tryPromise({
                   try: () => cacheManager.deleteProjectIssues(projectKey),
@@ -92,13 +91,13 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
         // Fetch and sync issues
         Effect.flatMap((jql) =>
           pipe(
-            Console.log(chalk.bold.yellow(`\n━━━ Syncing Jira Project: ${projectKey} ━━━`)),
+            Console.log(`\n━━━ Syncing Jira Project: ${projectKey} ━━━`),
             Effect.flatMap(() => {
               const isIncremental = jql.includes('updated >=');
               if (isIncremental) {
-                return Console.log(chalk.dim('  🔄 Mode: Incremental sync'));
+                return Console.log('  🔄 Mode: Incremental sync');
               } else {
-                return Console.log(chalk.dim('  🆕 Mode: Full sync'));
+                return Console.log('  🆕 Mode: Full sync');
               }
             }),
             Effect.flatMap(() => {
@@ -110,14 +109,14 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
                   jql,
                   onProgress: (current, total) => {
                     // Show progress
-                    process.stdout.write(`\r${chalk.cyan('⏳ Progress:')} ${current}/${total} issues fetched...`);
+                    process.stdout.write(`\r⏳ Progress: ${current}/${total} issues fetched...`);
                   },
                 }),
                 Effect.flatMap((issues) =>
                   pipe(
                     Effect.sync(() => {
                       console.log(); // New line after progress
-                      console.log(chalk.dim(`\n📥 Fetched ${issues.length} issues\n📝 Saving to database...`));
+                      console.log(`\n📥 Fetched ${issues.length} issues\n📝 Saving to database...`);
                       return issues;
                     }),
                     Effect.flatMap((issues) => {
@@ -132,9 +131,7 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
                             Effect.tap((count) =>
                               Effect.sync(() => {
                                 totalSynced += count;
-                                process.stdout.write(
-                                  `\r${chalk.green('💾 Saved:')} ${totalSynced}/${issues.length} issues...`,
-                                );
+                                process.stdout.write(`\r💾 Saved: ${totalSynced}/${issues.length} issues...`);
                               }),
                             ),
                           ),
@@ -153,15 +150,13 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
             Effect.tap((count) =>
               pipe(
                 Effect.sync(() => console.log()), // New line
-                Effect.flatMap(() =>
-                  Console.log(chalk.green(`\n✅ Successfully synced ${count} issues from ${projectKey}`)),
-                ),
+                Effect.flatMap(() => Console.log(`\n✅ Successfully synced ${count} issues from ${projectKey}`)),
               ),
             ),
             // Track this project as a workspace
             Effect.tap(() =>
               pipe(
-                Effect.sync(() => process.stdout.write(chalk.dim('\n  📦 Finalizing workspace tracking...'))),
+                Effect.sync(() => process.stdout.write('\n  📦 Finalizing workspace tracking...')),
                 Effect.flatMap(() =>
                   Effect.tryPromise({
                     try: () => cacheManager.trackWorkspace('jira_project', projectKey, projectKey),
@@ -173,7 +168,7 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
             ),
             Effect.tap(() =>
               pipe(
-                Effect.sync(() => process.stdout.write(chalk.dim('  🎪 Closing connections...'))),
+                Effect.sync(() => process.stdout.write('  🎪 Closing connections...')),
                 Effect.flatMap(() =>
                   Effect.sync(() => {
                     cacheManager.close();
@@ -190,7 +185,7 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
     ),
     Effect.catchAll((error) =>
       pipe(
-        Console.error(chalk.red('Sync failed:'), error instanceof Error ? error.message : String(error)),
+        Console.error('Sync failed:', error instanceof Error ? error.message : String(error)),
         Effect.flatMap(() => Effect.fail(error)),
       ),
     ),
@@ -226,30 +221,28 @@ const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
 
       if (workspaces.length === 0) {
         return pipe(
-          Console.log(chalk.yellow('No active workspaces found.')),
-          Effect.flatMap(() => Console.log(chalk.dim('Sync projects with: ji issue sync <project-key>'))),
+          Console.log('No active workspaces found.'),
+          Effect.flatMap(() => Console.log('Sync projects with: ji issue sync <project-key>')),
           Effect.tap(() => Effect.sync(() => cacheManager.close())),
         );
       }
 
       return pipe(
-        Console.log(chalk.bold.cyan('\n━━━ Active Workspaces ━━━')),
+        Console.log('\n━━━ Active Workspaces ━━━'),
         Effect.flatMap(() => {
           const effects: Effect.Effect<void, Error>[] = [];
 
           if (jiraProjects.length > 0) {
             effects.push(
               pipe(
-                Console.log(chalk.yellow('\n📋 Jira Projects')),
+                Console.log('\n📋 Jira Projects'),
                 Effect.flatMap(() =>
                   Effect.all(
                     jiraProjects.map((project) => {
                       const lastUsed = new Date(project.lastUsed).toLocaleDateString();
                       const displayName =
                         project.keyOrId === project.name ? project.keyOrId : `${project.keyOrId} - ${project.name}`;
-                      return Console.log(
-                        `   ${chalk.bold(displayName)} ${chalk.dim(`─ ${project.usageCount} uses, last: ${lastUsed}`)}`,
-                      );
+                      return Console.log(`   ${displayName} ─ ${project.usageCount} uses, last: ${lastUsed}`);
                     }),
                   ),
                 ),
@@ -260,16 +253,14 @@ const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
           if (confluenceSpaces.length > 0) {
             effects.push(
               pipe(
-                Console.log(chalk.blue('\n📄 Confluence Spaces')),
+                Console.log('\n📄 Confluence Spaces'),
                 Effect.flatMap(() =>
                   Effect.all(
                     confluenceSpaces.map((space) => {
                       const lastUsed = new Date(space.lastUsed).toLocaleDateString();
                       const displayName =
                         space.keyOrId === space.name ? space.keyOrId : `${space.keyOrId} - ${space.name}`;
-                      return Console.log(
-                        `   ${chalk.bold(displayName)} ${chalk.dim(`─ ${space.usageCount} uses, last: ${lastUsed}`)}`,
-                      );
+                      return Console.log(`   ${displayName} ─ ${space.usageCount} uses, last: ${lastUsed}`);
                     }),
                   ),
                 ),
@@ -287,15 +278,12 @@ const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
           if (jiraProjects.length > 0) {
             syncEffects.push(
               pipe(
-                Console.log(chalk.bold.yellow('\n━━━ Syncing Jira Projects ━━━')),
+                Console.log('\n━━━ Syncing Jira Projects ━━━'),
                 Effect.flatMap(() =>
                   Effect.all(
                     jiraProjects.map((project, index) =>
                       pipe(
-                        Console.log(
-                          chalk.dim(`\n[${index + 1}/${jiraProjects.length}]`) +
-                            chalk.yellow(` Syncing ${project.keyOrId}...`),
-                        ),
+                        Console.log(`\n[${index + 1}/${jiraProjects.length}] Syncing ${project.keyOrId}...`),
                         Effect.flatMap(() => {
                           // Close current cache manager before syncing each project
                           cacheManager.close();
@@ -312,7 +300,7 @@ const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
                     { concurrency: 1 }, // Sync one at a time
                   ),
                 ),
-                Effect.tap(() => Console.log(chalk.bold.green('\n✅ All Jira projects synced successfully!'))),
+                Effect.tap(() => Console.log('\n✅ All Jira projects synced successfully!')),
                 Effect.map(() => undefined), // Convert to void
               ),
             );
@@ -322,15 +310,12 @@ const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
           if (confluenceSpaces.length > 0) {
             syncEffects.push(
               pipe(
-                Console.log(chalk.bold.blue('\n━━━ Syncing Confluence Spaces ━━━')),
+                Console.log('\n━━━ Syncing Confluence Spaces ━━━'),
                 Effect.flatMap(() =>
                   Effect.all(
                     confluenceSpaces.map((space, index) =>
                       pipe(
-                        Console.log(
-                          chalk.dim(`\n[${index + 1}/${confluenceSpaces.length}]`) +
-                            chalk.blue(` Syncing ${space.keyOrId}...`),
-                        ),
+                        Console.log(`\n[${index + 1}/${confluenceSpaces.length}] Syncing ${space.keyOrId}...`),
                         Effect.flatMap(() =>
                           pipe(
                             syncConfluenceSpaceEffect(space.keyOrId, options),
@@ -345,7 +330,7 @@ const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
                     { concurrency: 1 }, // Sync one at a time
                   ),
                 ),
-                Effect.tap(() => Console.log(chalk.bold.green('\n✅ All Confluence spaces synced successfully!'))),
+                Effect.tap(() => Console.log('\n✅ All Confluence spaces synced successfully!')),
                 Effect.map(() => undefined), // Convert to void
               ),
             );
@@ -353,7 +338,7 @@ const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
 
           return pipe(
             Effect.all(syncEffects, { concurrency: 1 }),
-            Effect.tap(() => Console.log(chalk.bold.green('\n🎉 All workspaces synced successfully! 🎉'))),
+            Effect.tap(() => Console.log('\n🎉 All workspaces synced successfully! 🎉')),
           );
         }),
         Effect.tap(() => Effect.sync(() => cacheManager.close())),
@@ -361,7 +346,7 @@ const syncWorkspacesEffect = (options: { clean?: boolean } = {}) =>
     }),
     Effect.catchAll((error) =>
       pipe(
-        Console.error(chalk.red('Sync failed:'), error instanceof Error ? error.message : String(error)),
+        Console.error('Sync failed:', error instanceof Error ? error.message : String(error)),
         Effect.flatMap(() => Effect.fail(error)),
       ),
     ),
@@ -387,11 +372,11 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
 
           // If clean flag is set, delete existing pages first
           if (options.clean) {
-            console.log(chalk.yellow('  🧹 Cleaning existing Confluence pages...'));
+            console.log('  🧹 Cleaning existing Confluence pages...');
             await contentManager.deleteSpaceContent(spaceKey);
-            console.log(chalk.bold.blue(`\n━━━ Starting Fresh Sync: ${spaceKey} ━━━`));
+            console.log(`\n━━━ Starting Fresh Sync: ${spaceKey} ━━━`);
           } else {
-            console.log(chalk.bold.blue(`\n━━━ Smart Incremental Sync: ${spaceKey} ━━━`));
+            console.log(`\n━━━ Smart Incremental Sync: ${spaceKey} ━━━`);
           }
 
           let totalSynced = 0;
@@ -406,17 +391,17 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
             lastSyncTime = await contentManager.getLastSyncTime(spaceKey);
 
             if (lastSyncTime) {
-              console.log(`\n${chalk.dim('⏰ Last sync:')} ${lastSyncTime.toLocaleString()}`);
-              console.log(chalk.dim('🔍 Checking for updates...'));
+              console.log(`\n⏰ Last sync: ${lastSyncTime.toLocaleString()}`);
+              console.log('🔍 Checking for updates...');
 
               // Get pages that have been updated since last sync
               const pageIds = await confluenceClient.getPagesSince(spaceKey, lastSyncTime, (count) => {
-                process.stdout.write(`\r${chalk.cyan('📄 Updated pages found:')} ${count}`);
+                process.stdout.write(`\r📄 Updated pages found: ${count}`);
               });
               console.log();
 
               if (pageIds.length > 0) {
-                console.log(chalk.dim(`  📥 Fetching ${pageIds.length} updated pages...`));
+                console.log(`  📥 Fetching ${pageIds.length} updated pages...`);
 
                 // Fetch pages in batches
                 const pages = [];
@@ -425,12 +410,12 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                   const batchPromises = batchIds.map((id) => confluenceClient.getPage(id));
                   const batchPages = await Promise.all(batchPromises);
                   pages.push(...batchPages);
-                  process.stdout.write(`\r${chalk.cyan('📥 Fetched:')} ${pages.length}/${pageIds.length} pages...`);
+                  process.stdout.write(`\r📥 Fetched: ${pages.length}/${pageIds.length} pages...`);
                 }
                 console.log();
 
                 // Save pages
-                console.log(chalk.dim('  💾 Saving updated pages...'));
+                console.log('  💾 Saving updated pages...');
                 for (let i = 0; i < pages.length; i += SAVE_BATCH_SIZE) {
                   const batch = pages.slice(i, i + SAVE_BATCH_SIZE);
 
@@ -451,35 +436,35 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                           metadata: { version: page.version.number },
                         });
                       } catch (error) {
-                        console.error(chalk.red(`Failed to save page ${page.id}: ${error}`));
+                        console.error(`Failed to save page ${page.id}: ${error}`);
                       }
                     }),
                   );
                   totalSynced += batch.length;
-                  process.stdout.write(`\r${chalk.green('💾 Saved:')} ${totalSynced} pages...`);
+                  process.stdout.write(`\r💾 Saved: ${totalSynced} pages...`);
                 }
                 console.log();
               } else {
-                console.log(chalk.dim('✨ No updates found since last sync.'));
+                console.log('✨ No updates found since last sync.');
               }
             }
           }
 
           // Strategy 2: Metadata-first full sync for clean
           if (options.clean) {
-            console.log(chalk.dim('\n  🇦 Strategy: Metadata-first full sync'));
+            console.log('\n  🇦 Strategy: Metadata-first full sync');
 
             // Step 1: Get ALL page metadata (fast!)
-            console.log(chalk.dim('  📊 Fetching page metadata...'));
+            console.log('  📊 Fetching page metadata...');
             const allMetadata = await confluenceClient.getAllPagesMetadata(spaceKey, (current, total) => {
-              process.stdout.write(`\r${chalk.cyan('Metadata:')} ${current}/${total} pages...`);
+              process.stdout.write(`\rMetadata: ${current}/${total} pages...`);
             });
             console.log();
-            console.log(chalk.green(`  ✓ Found ${allMetadata.length} pages`));
+            console.log(`  ✓ Found ${allMetadata.length} pages`);
 
             if (allMetadata.length > 0) {
               // Step 2: Check what we already have locally
-              console.log(chalk.dim('\n  🔍 Comparing with local data...'));
+              console.log('\n  🔍 Comparing with local data...');
               const localVersions = new Map<string, number>();
 
               // Get local page versions
@@ -510,13 +495,13 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                 }
               }
 
-              console.log(chalk.dim(`  📂 Local: ${localVersions.size} pages`));
-              console.log(chalk.dim(`  ☁️ Remote: ${allMetadata.length} pages`));
-              console.log(chalk.dim(`  🆕 Need update: ${pagesToFetch.length} pages`));
+              console.log(`  📂 Local: ${localVersions.size} pages`);
+              console.log(`  ☁️ Remote: ${allMetadata.length} pages`);
+              console.log(`  🆕 Need update: ${pagesToFetch.length} pages`);
 
               if (pagesToFetch.length > 0) {
                 // Step 4: Fetch and save only changed pages in parallel batches
-                console.log(chalk.dim('\n  📥 Fetching updated pages...'));
+                console.log('\n  📥 Fetching updated pages...');
 
                 for (let i = 0; i < pagesToFetch.length; i += FETCH_BATCH_SIZE) {
                   const batchIds = pagesToFetch.slice(i, i + FETCH_BATCH_SIZE);
@@ -526,7 +511,7 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                   const pages = await Promise.all(batchPromises);
 
                   process.stdout.write(
-                    `\r${chalk.cyan('Fetched:')} ${Math.min(i + FETCH_BATCH_SIZE, pagesToFetch.length)}/${pagesToFetch.length} pages...`,
+                    `\rFetched: ${Math.min(i + FETCH_BATCH_SIZE, pagesToFetch.length)}/${pagesToFetch.length} pages...`,
                   );
 
                   // Save pages in parallel
@@ -547,7 +532,7 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                           metadata: { version: page.version.number },
                         });
                       } catch (error) {
-                        console.error(chalk.red(`Failed to save page ${page.id}: ${error}`));
+                        console.error(`Failed to save page ${page.id}: ${error}`);
                       }
                     }),
                   );
@@ -555,17 +540,17 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                 }
                 console.log();
               } else {
-                console.log(chalk.green('  ✨ All pages are up to date!'));
+                console.log('  ✨ All pages are up to date!');
               }
             }
           } else if (!lastSyncTime && totalSynced === 0) {
             // First-time sync without clean flag - get recent pages to start
-            console.log(chalk.dim(`\n  🆕 First-time sync - fetching ${INITIAL_BATCH} most recent pages...`));
+            console.log(`\n  🆕 First-time sync - fetching ${INITIAL_BATCH} most recent pages...`);
 
             const recentSummaries = await confluenceClient.getRecentlyUpdatedPages(spaceKey, INITIAL_BATCH);
 
             if (recentSummaries.length > 0) {
-              console.log(chalk.dim(`  📥 Fetching full content for ${recentSummaries.length} pages...`));
+              console.log(`  📥 Fetching full content for ${recentSummaries.length} pages...`);
 
               // Fetch full page content in batches
               const pages = [];
@@ -574,12 +559,12 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                 const batchPromises = batch.map((summary) => confluenceClient.getPage(summary.id));
                 const batchPages = await Promise.all(batchPromises);
                 pages.push(...batchPages);
-                process.stdout.write(`\r${chalk.cyan('Fetched:')} ${pages.length}/${recentSummaries.length} pages...`);
+                process.stdout.write(`\rFetched: ${pages.length}/${recentSummaries.length} pages...`);
               }
               console.log();
 
               // Save pages
-              console.log(chalk.dim('\n  💾 Saving pages...'));
+              console.log('\n  💾 Saving pages...');
               for (let i = 0; i < pages.length; i += SAVE_BATCH_SIZE) {
                 const batch = pages.slice(i, i + SAVE_BATCH_SIZE);
 
@@ -600,18 +585,18 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
                         metadata: { version: page.version.number },
                       });
                     } catch (error) {
-                      console.error(chalk.red(`Failed to save page ${page.id}: ${error}`));
+                      console.error(`Failed to save page ${page.id}: ${error}`);
                     }
                   }),
                 );
                 totalSynced += batch.length;
-                process.stdout.write(`\r${chalk.green('Saved:')} ${totalSynced} pages...`);
+                process.stdout.write(`\rSaved: ${totalSynced} pages...`);
               }
               console.log();
             }
           }
 
-          console.log(chalk.green(`✅ Successfully synced ${totalSynced} pages from ${spaceKey}`));
+          console.log(`✅ Successfully synced ${totalSynced} pages from ${spaceKey}`);
 
           // Track this space as a workspace
           const cacheManager = new CacheManager();
@@ -635,7 +620,7 @@ const syncConfluenceSpaceEffect = (spaceKey: string, options: { clean?: boolean 
     ),
     Effect.catchAll((error) =>
       pipe(
-        Console.error(chalk.red('Confluence sync failed:'), error instanceof Error ? error.message : String(error)),
+        Console.error('Confluence sync failed:', error instanceof Error ? error.message : String(error)),
         Effect.flatMap(() => Effect.fail(error)),
       ),
     ),

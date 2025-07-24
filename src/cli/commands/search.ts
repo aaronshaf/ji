@@ -1,4 +1,3 @@
-import chalk from 'chalk';
 import { ConfigManager } from '../../lib/config.js';
 import { ContentManager } from '../../lib/content-manager.js';
 import { OllamaClient } from '../../lib/ollama.js';
@@ -23,7 +22,7 @@ export async function search(
     });
 
     if (results.length === 0) {
-      console.log(chalk.yellow('No results found'));
+      console.log('No results found');
       contentManager.close();
       return;
     }
@@ -49,7 +48,7 @@ export async function search(
 
     contentManager.close();
   } catch (error) {
-    console.error(chalk.red('Search failed:'), error instanceof Error ? error.message : 'Unknown error');
+    console.error('Search failed:', error instanceof Error ? error.message : 'Unknown error');
     process.exit(1);
   }
 }
@@ -95,33 +94,25 @@ function displaySearchResults(
       created = formatSmartDate(dateValue);
     }
 
-    // YAML output with color
-    console.log(`${chalk.cyan('- type:')} ${type}`);
-    console.log(`${chalk.cyan('  key:')} ${chalk.bold(key)}`);
-    console.log(`${chalk.cyan('  title:')} ${title}`);
+    // YAML output
+    console.log(`- type: ${type}`);
+    console.log(`  key: ${key}`);
+    console.log(`  title: ${title}`);
     if (created) {
-      console.log(`${chalk.cyan('  created:')} ${chalk.dim(created)}`);
+      console.log(`  created: ${created}`);
     }
     if (updated) {
-      console.log(`${chalk.cyan('  updated:')} ${chalk.dim(updated)}`);
+      console.log(`  updated: ${updated}`);
     }
     if (content.metadata?.status) {
-      const statusColor =
-        String(content.metadata.status).toLowerCase() === 'closed'
-          ? chalk.gray
-          : String(content.metadata.status).toLowerCase() === 'open'
-            ? chalk.green
-            : chalk.yellow;
-      console.log(`${chalk.cyan('  status:')} ${statusColor(String(content.metadata.status))}`);
+      console.log(`  status: ${String(content.metadata.status)}`);
     }
     if (content.metadata?.priority) {
       const priority = String(content.metadata.priority);
-      const priorityColor =
-        priority === 'P1' || priority === 'P2' ? chalk.red : priority === 'P3' ? chalk.yellow : chalk.gray;
-      console.log(`${chalk.cyan('  priority:')} ${priorityColor(priority)}`);
+      console.log(`  priority: ${priority}`);
     }
     if (content.metadata?.assignee) {
-      console.log(`${chalk.cyan('  assignee:')} ${content.metadata.assignee}`);
+      console.log(`  assignee: ${content.metadata.assignee}`);
     }
     if (snippet) {
       const cleanSnippet = snippet
@@ -138,8 +129,8 @@ function displaySearchResults(
         truncated = `${cleanSnippet.substring(0, lastSpace > 0 ? lastSpace : maxLength)}...`;
       }
 
-      console.log(`${chalk.cyan('  description:')} |`);
-      console.log(`    ${chalk.gray(truncated)}`);
+      console.log(`  description: |`);
+      console.log(`    ${truncated}`);
     }
 
     // Only add empty line between results, not after the last one
@@ -156,18 +147,18 @@ export async function ask(question: string) {
     const settings = await configManager.getSettings();
 
     if (!config) {
-      console.error(chalk.red('Configuration not found. Run "ji auth" first.'));
+      console.error('Configuration not found. Run "ji auth" first.');
       process.exit(1);
     }
 
-    console.log(chalk.gray('Searching for relevant content...\n'));
+    console.log('Searching for relevant content...\n');
 
     // Search for relevant content
     const contentManager = new ContentManager();
     const searchResults = await contentManager.searchContent(question);
 
     if (searchResults.length === 0) {
-      console.log(chalk.yellow('No relevant content found in your workspace.'));
+      console.log('No relevant content found in your workspace.');
       return;
     }
 
@@ -189,26 +180,26 @@ ${context}
 
 Please provide a clear and concise answer based on the information provided. If the information doesn't fully answer the question, mention what's missing.`;
 
-    console.log(chalk.gray('Generating answer...\n'));
+    console.log('Generating answer...\n');
 
     const response = await ollama.generate(prompt, {
       model: settings.askModel || 'gemma2:2b',
     });
 
-    console.log(chalk.bold('Answer:\n'));
+    console.log('Answer:\n');
     console.log(response);
 
     // Show sources
-    console.log(chalk.gray('\nSources:'));
+    console.log('\nSources:');
     for (const result of searchResults.slice(0, 5)) {
       const type = result.source === 'jira' ? 'Jira' : 'Confluence';
       const key = result.id.replace(/^(jira|confluence):/, '');
-      console.log(chalk.gray(`- ${type}: ${key} - ${result.title}`));
+      console.log(`- ${type}: ${key} - ${result.title}`);
     }
 
     configManager.close();
   } catch (error) {
-    console.error(chalk.red('Failed to generate answer:'), error instanceof Error ? error.message : 'Unknown error');
+    console.error('Failed to generate answer:', error instanceof Error ? error.message : 'Unknown error');
     process.exit(1);
   }
 }

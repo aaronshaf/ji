@@ -1,4 +1,3 @@
-import chalk from 'chalk';
 import { Console, Effect, pipe } from 'effect';
 import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
@@ -85,41 +84,27 @@ const refreshInBackgroundEffect = (_config: { jiraUrl: string }, issue: Issue) =
 const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
   Effect.sync(() => {
     // YAML output with color highlighting (matching search results)
-    console.log(`${chalk.cyan('type:')} issue`);
-    console.log(`${chalk.cyan('key:')} ${chalk.bold(issue.key)}`);
-    console.log(`${chalk.cyan('link:')} ${config.jiraUrl}/browse/${issue.key}`);
-    console.log(`${chalk.cyan('title:')} ${issue.fields.summary}`);
-    console.log(`${chalk.cyan('updated:')} ${chalk.dim(formatSmartDate(issue.fields.updated))}`);
-    console.log(`${chalk.cyan('created:')} ${chalk.dim(formatSmartDate(issue.fields.created))}`);
+    console.log(`type: issue`);
+    console.log(`key: ${issue.key}`);
+    console.log(`link: ${config.jiraUrl}/browse/${issue.key}`);
+    console.log(`title: ${issue.fields.summary}`);
+    console.log(`updated: ${formatSmartDate(issue.fields.updated)}`);
+    console.log(`created: ${formatSmartDate(issue.fields.created)}`);
+    console.log(`status: ${issue.fields.status.name}`);
 
-    // Status with colors
-    const statusColor =
-      issue.fields.status.name.toLowerCase() === 'closed' || issue.fields.status.name.toLowerCase() === 'done'
-        ? chalk.gray
-        : issue.fields.status.name.toLowerCase() === 'open' || issue.fields.status.name.toLowerCase() === 'in progress'
-          ? chalk.green
-          : chalk.yellow;
-    console.log(`${chalk.cyan('status:')} ${statusColor(issue.fields.status.name)}`);
-
-    // Priority with colors
+    // Priority
     if (issue.fields.priority) {
       const priority = issue.fields.priority.name;
-      const priorityColor =
-        priority === 'P1' || priority === 'P2' || priority === 'Highest' || priority === 'High'
-          ? chalk.red
-          : priority === 'P3' || priority === 'Medium'
-            ? chalk.yellow
-            : chalk.gray;
-      console.log(`${chalk.cyan('priority:')} ${priorityColor(priority)}`);
+      console.log(`priority: ${priority}`);
     }
 
     // Reporter before Assignee
-    console.log(`${chalk.cyan('reporter:')} ${issue.fields.reporter.displayName}`);
+    console.log(`reporter: ${issue.fields.reporter.displayName}`);
 
     if (issue.fields.assignee) {
-      console.log(`${chalk.cyan('assignee:')} ${issue.fields.assignee.displayName}`);
+      console.log(`assignee: ${issue.fields.assignee.displayName}`);
     } else {
-      console.log(`${chalk.cyan('assignee:')} ${chalk.dim('Unassigned')}`);
+      console.log(`assignee: Unassigned`);
     }
 
     // Sprint information
@@ -143,12 +128,12 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
       } else if (sprintField && typeof sprintField === 'object' && 'name' in sprintField) {
         sprintName = (sprintField as { name: string }).name;
       }
-      console.log(`${chalk.cyan('sprint:')} ${chalk.magenta(sprintName)}`);
+      console.log(`sprint: ${sprintName}`);
     }
 
     // Labels
     if (issue.fields.labels && issue.fields.labels.length > 0) {
-      console.log(`${chalk.cyan('labels:')} ${issue.fields.labels.map((l: string) => chalk.cyan(l)).join(', ')}`);
+      console.log(`labels: ${issue.fields.labels.join(', ')}`);
     }
 
     // Description - always show full description
@@ -156,14 +141,9 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
     if (description.trim()) {
       const cleanDescription = description.replace(/\s+/g, ' ').trim();
 
-      console.log(`${chalk.cyan('description:')} |`);
-      if (cleanDescription.length > 300) {
-        // For long descriptions, split into multiple lines for better readability
-        const lines = cleanDescription.match(/.{1,120}(?:\s|$)/g) || [cleanDescription];
-        lines.forEach((line) => console.log(`  ${chalk.gray(line.trim())}`));
-      } else {
-        console.log(`  ${chalk.gray(cleanDescription)}`);
-      }
+      console.log(`description: |`);
+      // For YAML pipe literal, keep as single paragraph (no artificial line breaks)
+      console.log(`  ${cleanDescription}`);
     }
 
     // Comments - show all comments
@@ -179,28 +159,17 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
       ).comments;
 
       if (comments.length > 0) {
-        console.log(`${chalk.cyan('comments:')} ${comments.length}`);
+        console.log(`comments:`);
 
-        // Show all comments with proper YAML structure
-        comments.forEach((comment, index) => {
+        // Show all comments as YAML array
+        comments.forEach((comment) => {
           const commentBody = formatDescription(comment.body).replace(/\s+/g, ' ').trim();
-          console.log(`${chalk.cyan(`comment_${index + 1}:`)}`);
-          console.log(`  ${chalk.cyan('author:')} ${chalk.yellow(comment.author.displayName)}`);
-          console.log(`  ${chalk.cyan('created:')} ${chalk.dim(formatSmartDate(comment.created))}`);
-          console.log(`  ${chalk.cyan('body:')} |`);
+          console.log(`  - author: ${comment.author.displayName}`);
+          console.log(`    created: ${formatSmartDate(comment.created)}`);
+          console.log(`    body: |`);
 
-          // Split long comments across multiple lines with proper indentation
-          if (commentBody.length > 120) {
-            const lines = commentBody.match(/.{1,120}(?:\s|$)/g) || [commentBody];
-            lines.forEach((line) => console.log(`    ${chalk.gray(line.trim())}`));
-          } else {
-            console.log(`    ${chalk.gray(commentBody)}`);
-          }
-
-          // Add spacing between comments
-          if (index < comments.length - 1) {
-            console.log('');
-          }
+          // For YAML pipe literal, keep as single paragraph (no artificial line breaks)
+          console.log(`      ${commentBody}`);
         });
       }
     }
@@ -251,7 +220,7 @@ const viewIssueEffect = (issueKey: string, options: { json?: boolean; sync?: boo
                 // API failed, try to use cache if we have it
                 if (cachedIssue) {
                   return pipe(
-                    Console.log(chalk.yellow('⚠️  Using cached data (API unavailable)')),
+                    Console.log('⚠️  Using cached data (API unavailable)'),
                     Effect.flatMap(() => formatIssueOutputEffect(cachedIssue, config)),
                     Effect.tap(() =>
                       Effect.sync(() => {
@@ -280,7 +249,7 @@ const viewIssueEffect = (issueKey: string, options: { json?: boolean; sync?: boo
     ),
     Effect.catchAll((error) =>
       pipe(
-        Console.error(chalk.red('Error:'), error.message),
+        Console.error('Error:', error.message),
         Effect.flatMap(() => Effect.fail(error)),
       ),
     ),

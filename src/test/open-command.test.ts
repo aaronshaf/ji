@@ -67,11 +67,11 @@ test('ji open - opens cached issue in browser', async () => {
   const logs: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
-  console.log = (...args: any[]) => {
+  console.log = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
@@ -105,11 +105,11 @@ test('ji open - opens different issue key', async () => {
   const logs: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
-  console.log = (...args: any[]) => {
+  console.log = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
@@ -135,11 +135,11 @@ test('ji open - validates issue key format', async () => {
   const logs: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
-  console.log = (...args: any[]) => {
+  console.log = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
@@ -173,11 +173,11 @@ test('ji open - handles missing configuration', async () => {
   const logs: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
-  console.log = (...args: any[]) => {
+  console.log = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
@@ -202,11 +202,11 @@ test('ji open - converts lowercase keys to uppercase', async () => {
   const logs: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
-  console.log = (...args: any[]) => {
+  console.log = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
@@ -242,11 +242,11 @@ test('ji open - handles trailing slash in jiraUrl', async () => {
   const logs: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
-  console.log = (...args: any[]) => {
+  console.log = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     const msg = args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ');
     logs.push(msg);
   };

@@ -10,6 +10,7 @@ A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Featur
 - 🔍 **Smart search** - finds what you need with typo tolerance
 - 🤖 **AI assistant** - ask questions about your knowledge base
 - 🔄 **Always fresh** - automatic background sync
+- 📝 **LLM-friendly** - YAML output format, minimal tokens, no color codes
 
 ## Installation
 
