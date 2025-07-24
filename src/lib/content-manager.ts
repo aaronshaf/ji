@@ -312,8 +312,9 @@ export class ContentManager {
             const meilisearch = new MeilisearchAdapter();
             await meilisearch.indexContent(content);
           },
-          catch: (_error) => {
+          catch: (error) => {
             if (!this.meilisearchErrorShown) {
+              console.error('Meilisearch error:', error);
               console.error('Meilisearch is not available. Continuing with SQLite search only.');
               this.meilisearchErrorShown = true;
             }
@@ -370,9 +371,10 @@ export class ContentManager {
     try {
       const meilisearch = new MeilisearchAdapter();
       await meilisearch.indexContent(content);
-    } catch (_error) {
+    } catch (error) {
       // Log but don't fail if Meilisearch is unavailable
       if (!this.meilisearchErrorShown) {
+        console.error('Meilisearch error in saveIssue:', error);
         console.error('Meilisearch is not available. Continuing with SQLite search only.');
         this.meilisearchErrorShown = true;
       }

@@ -1,19 +1,22 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { Schema } from 'effect';
 import { IssueSchema, UserSchema } from '../lib/effects/jira/schemas';
-import { createValidIssue, createValidUser, validateAndReturn } from './msw-schema-validation';
+import {
+  createArbitraryIssue,
+  createArbitraryUser,
+  createDiverseIssues,
+  createValidIssue,
+  validateAndReturn,
+} from './msw-schema-validation';
+import { installFetchMock, restoreFetch } from './test-fetch-mock';
 
 // Bun Native HTTP Mocking for `ji mine` command testing
 // Tests the complete flow: search for assigned issues -> cache updates -> display
 
-let originalFetch: typeof fetch;
-
-beforeEach(() => {
-  originalFetch = global.fetch;
-});
+beforeEach(() => {});
 
 afterEach(() => {
-  global.fetch = originalFetch;
+  restoreFetch();
   delete process.env.ALLOW_REAL_API_CALLS;
 });
 
@@ -88,7 +91,7 @@ test('ji mine command - mock complete user issue search flow', async () => {
     }),
   ];
 
-  const currentUser = createValidUser({
+  const currentUser = createArbitraryUser({
     accountId: 'test-user-123',
     displayName: 'Test User',
     emailAddress: 'test@company.com',
@@ -96,7 +99,7 @@ test('ji mine command - mock complete user issue search flow', async () => {
   });
 
   // Mock HTTP endpoints for complete mine command flow
-  (global.fetch as any) = mock(async (url: string | URL, _init?: RequestInit) => {
+  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
     const urlString = typeof url === 'string' ? url : url.toString();
 
     // Mock current user endpoint
@@ -270,7 +273,7 @@ test('ji mine command - mock complete user issue search flow', async () => {
 });
 
 test('ji mine command - handles empty results', async () => {
-  const currentUser = createValidUser({
+  const currentUser = createArbitraryUser({
     accountId: 'empty-user-123',
     displayName: 'User With No Issues',
     emailAddress: 'empty@company.com',
@@ -278,7 +281,7 @@ test('ji mine command - handles empty results', async () => {
   });
 
   // Mock empty search results
-  (global.fetch as any) = mock(async (url: string | URL, _init?: RequestInit) => {
+  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
     const urlString = typeof url === 'string' ? url : url.toString();
 
     if (urlString.includes('/rest/api/3/myself')) {
@@ -320,7 +323,7 @@ test('ji mine command - handles empty results', async () => {
 
 test('ji mine command - handles search API errors', async () => {
   // Mock 500 error for search endpoint
-  (global.fetch as any) = mock(async (url: string | URL, _init?: RequestInit) => {
+  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
     const urlString = typeof url === 'string' ? url : url.toString();
 
     if (urlString.includes('/rest/api/3/search')) {
@@ -352,9 +355,12 @@ test('ji mine command - handles search API errors', async () => {
 });
 
 test('ji mine command - validates issue schema compliance', async () => {
-  // Create issues with different priorities and statuses for comprehensive testing
+  // Use the new createDiverseIssues function to generate test data
+  const _baseDiverseIssues = createDiverseIssues(4);
+
+  // Customize specific issues for this test
   const diverseIssues = [
-    createValidIssue({
+    createArbitraryIssue({
       key: 'SCHEMA-001',
       fields: {
         summary: 'Critical production bug',
@@ -376,7 +382,7 @@ test('ji mine command - validates issue schema compliance', async () => {
         labels: ['urgent', 'customer-impact'],
       },
     }),
-    createValidIssue({
+    createArbitraryIssue({
       key: 'SCHEMA-002',
       fields: {
         summary: 'Feature enhancement request',
@@ -400,7 +406,7 @@ test('ji mine command - validates issue schema compliance', async () => {
     }),
   ];
 
-  (global.fetch as any) = mock(async (url: string | URL, _init?: RequestInit) => {
+  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
     const urlString = typeof url === 'string' ? url : url.toString();
 
     if (urlString.includes('/rest/api/3/search')) {
@@ -439,14 +445,14 @@ test('ji mine command - validates issue schema compliance', async () => {
   // Test issue with Critical priority
   const criticalIssue = results.issues.find((issue) => issue.key === 'SCHEMA-001');
   expect(criticalIssue).toBeDefined();
-  expect(criticalIssue!.fields.priority?.name).toBe('Critical');
-  expect(criticalIssue!.fields.labels).toContain('urgent');
+  expect(criticalIssue?.fields.priority?.name).toBe('Critical');
+  expect(criticalIssue?.fields.labels).toContain('urgent');
 
   // Test issue with null priority
   const enhancementIssue = results.issues.find((issue) => issue.key === 'SCHEMA-002');
   expect(enhancementIssue).toBeDefined();
-  expect(enhancementIssue!.fields.priority).toBeNull();
-  expect(enhancementIssue!.fields.labels).toContain('enhancement');
+  expect(enhancementIssue?.fields.priority).toBeNull();
+  expect(enhancementIssue?.fields.labels).toContain('enhancement');
 
   // Verify all issues pass schema validation
   results.issues.forEach((issue) => {

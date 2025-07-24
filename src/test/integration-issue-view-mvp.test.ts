@@ -44,8 +44,8 @@ class MockJiraClient {
       return mockIssue;
     }
     if (key === 'MISSING-123') {
-      const error = new Error('Issue not found');
-      (error as any).status = 404;
+      const error = new Error('Issue not found') as Error & { status: number };
+      error.status = 404;
       throw error;
     }
     throw new Error('Unexpected issue key in test');
@@ -80,7 +80,7 @@ class MockCacheManager {
 }
 
 class MockContentManager {
-  async upsertContent(_content: any) {
+  async upsertContent(_content: unknown) {
     // Mock content storage
     return;
   }
@@ -93,7 +93,7 @@ test('Integration test MVP - issue formatting produces expected output', () => {
   // Capture console output
   const consoleLogs: string[] = [];
   const originalLog = console.log;
-  console.log = (...args: any[]) => {
+  console.log = (...args: unknown[]) => {
     consoleLogs.push(args.join(' '));
   };
 
@@ -136,8 +136,8 @@ test('Integration test MVP - mock services behave correctly', async () => {
   try {
     await jiraClient.getIssue('MISSING-123');
     expect(true).toBe(false); // Should not reach here
-  } catch (error: any) {
-    expect(error.message).toContain('Issue not found');
+  } catch (error) {
+    expect((error as Error).message).toContain('Issue not found');
   }
 
   // Test ConfigManager mock
