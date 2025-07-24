@@ -3,69 +3,21 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { Effect, pipe } from 'effect';
-import { ContentError, ContentTooLargeError, QueryError, ValidationError } from './effects/errors.js';
+import { saveContent, saveContentEffect } from './content-manager/content-operations.js';
+import { buildJiraContent, saveJiraIssue, saveJiraIssueEffect } from './content-manager/jira-operations.js';
+
+// Import types from modular files
+import type { ADFNode, SearchableContent, SearchableContentMetadata, SearchResult } from './content-manager/types.js';
+import { escapeFTS5Query } from './content-manager/utils.js';
+import { type ContentError, type ContentTooLargeError, QueryError, ValidationError } from './effects/errors.js';
 import type { Issue } from './jira-client.js';
-import { MeilisearchAdapter } from './meilisearch-adapter.js';
-import { OllamaClient } from './ollama.js';
 
-// Atlassian Document Format node type
-interface ADFNode {
-  type?: string;
-  text?: string;
-  content?: ADFNode[];
-}
-
-export interface SearchableContentMetadata {
-  status?: string;
-  priority?: string;
-  assignee?: string;
-  reporter?: string;
-  [key: string]: string | number | undefined;
-}
-
-export interface SearchableContent {
-  id: string;
-  source: 'jira' | 'confluence';
-  type: string;
-  title: string;
-  content: string;
-  url: string;
-  spaceKey?: string;
-  projectKey?: string;
-  metadata?: SearchableContentMetadata;
-  createdAt?: number;
-  updatedAt?: number;
-  syncedAt: number;
-}
-
-export interface SearchResult {
-  content: SearchableContent;
-  score: number;
-  snippet: string;
-  chunkIndex?: number;
-}
-
-/**
- * Escape special characters in FTS5 queries to prevent syntax errors
- */
-function escapeFTS5Query(query: string): string {
-  // FTS5 special characters that need escaping: " * ? ( ) [ ] { } \ : ^
-  // We'll use double quotes to make it a phrase search, which handles most special chars
-  // But first escape any existing double quotes
-  const escaped = query.replace(/"/g, '""');
-
-  // If the query contains special FTS5 operators, wrap in quotes
-  if (/[*?()[\]{}\\:^]/.test(query)) {
-    return `"${escaped}"`;
-  }
-
-  // For simple queries, return as-is (but still escape quotes)
-  return escaped;
-}
+// Re-export types for backward compatibility
+export type { SearchableContent, SearchableContentMetadata, SearchResult, ADFNode };
 
 export class ContentManager {
   public db: Database;
-  private meilisearchErrorShown = false;
+  private meilisearchErrorShown = { value: false };
 
   constructor() {
     const dbPath = join(homedir(), '.ji', 'data.db');
@@ -79,155 +31,68 @@ export class ContentManager {
     issue: Issue,
   ): Effect.Effect<void, ValidationError | QueryError | ContentError | ContentTooLargeError> {
     return pipe(
-      // Validate issue
-      Effect.sync(() => {
-        if (!issue || typeof issue !== 'object') {
-          throw new ValidationError('Issue must be an object', 'issue', issue);
-        }
-        if (!issue.key || !issue.key.match(/^[A-Z]+-\d+$/)) {
-          throw new ValidationError('Invalid issue key format', 'issue.key', issue.key);
-        }
-        if (!issue.fields) {
-          throw new ValidationError('Issue must have fields', 'issue.fields', undefined);
-        }
-        if (!issue.fields.summary) {
-          throw new ValidationError('Issue must have a summary', 'issue.fields.summary', undefined);
-        }
-        if (!issue.fields.status?.name) {
-          throw new ValidationError('Issue must have a status', 'issue.fields.status', issue.fields.status);
-        }
-        if (!issue.fields.reporter?.displayName) {
-          throw new ValidationError('Issue must have a reporter', 'issue.fields.reporter', issue.fields.reporter);
-        }
-      }),
-      Effect.flatMap(() => {
-        const projectKey = issue.key.split('-')[0];
-        const sprintInfo = this.extractSprintInfo(issue);
-
-        return Effect.try(() => {
-          // Use transaction for atomicity
-          this.db.transaction(() => {
-            // Save project
-            const projectStmt = this.db.prepare('INSERT OR IGNORE INTO projects (key, name) VALUES (?, ?)');
-            projectStmt.run(projectKey, projectKey);
-
-            // Save issue
-            const issueStmt = this.db.prepare(`
-              INSERT OR REPLACE INTO issues (
-                key, project_key, summary, status, priority,
-                assignee_name, assignee_email, reporter_name, reporter_email,
-                created, updated, description, raw_data, synced_at,
-                sprint_id, sprint_name
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-
-            issueStmt.run(
-              issue.key,
-              projectKey,
-              issue.fields.summary,
-              issue.fields.status.name,
-              issue.fields.priority?.name || null,
-              issue.fields.assignee?.displayName || null,
-              issue.fields.assignee?.emailAddress || null,
-              issue.fields.reporter.displayName,
-              issue.fields.reporter.emailAddress || null,
-              new Date(issue.fields.created).getTime(),
-              new Date(issue.fields.updated).getTime(),
-              this.extractDescription(issue.fields.description as string | { content?: ADFNode[] } | null | undefined),
-              JSON.stringify(issue),
-              Date.now(),
-              sprintInfo?.id || null,
-              sprintInfo?.name || null,
-            );
-          })();
-        }).pipe(Effect.mapError((error) => new QueryError(`Failed to save issue to database: ${error}`)));
-      }),
+      saveJiraIssueEffect(this.db, issue),
       // Save to searchable content
       Effect.flatMap(() => {
         const projectKey = issue.key.split('-')[0];
-        const content = this.buildJiraContent(issue);
+        const content = buildJiraContent(issue);
 
-        return this.saveContentEffect({
-          id: `jira:${issue.key}`,
-          source: 'jira',
-          type: 'issue',
-          title: `${issue.key}: ${issue.fields.summary}`,
-          content: content,
-          url: `/browse/${issue.key}`,
-          projectKey: projectKey,
-          metadata: {
-            status: issue.fields.status.name,
-            priority: issue.fields.priority?.name,
-            assignee: issue.fields.assignee?.displayName,
-            reporter: issue.fields.reporter.displayName,
+        return saveContentEffect(
+          this.db,
+          {
+            id: `jira:${issue.key}`,
+            source: 'jira',
+            type: 'issue',
+            title: `${issue.key}: ${issue.fields.summary}`,
+            content: content,
+            url: `/browse/${issue.key}`,
+            projectKey: projectKey,
+            metadata: {
+              status: issue.fields.status.name,
+              priority: issue.fields.priority?.name,
+              assignee: issue.fields.assignee?.displayName,
+              reporter: issue.fields.reporter.displayName,
+            },
+            createdAt: new Date(issue.fields.created).getTime(),
+            updatedAt: new Date(issue.fields.updated).getTime(),
+            syncedAt: Date.now(),
           },
-          createdAt: new Date(issue.fields.created).getTime(),
-          updatedAt: new Date(issue.fields.updated).getTime(),
-          syncedAt: Date.now(),
-        });
+          this.meilisearchErrorShown,
+        );
       }),
     );
   }
 
   // Backward compatible version
   async saveJiraIssue(issue: Issue): Promise<void> {
-    const projectKey = issue.key.split('-')[0];
-
-    // Save to issues table (existing logic)
-    const projectStmt = this.db.prepare('INSERT OR IGNORE INTO projects (key, name) VALUES (?, ?)');
-    projectStmt.run(projectKey, projectKey);
-
-    // Extract sprint information from custom fields
-    const sprintInfo = this.extractSprintInfo(issue);
-
-    const issueStmt = this.db.prepare(`
-      INSERT OR REPLACE INTO issues (
-        key, project_key, summary, status, priority,
-        assignee_name, assignee_email, reporter_name, reporter_email,
-        created, updated, description, raw_data, synced_at,
-        sprint_id, sprint_name
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    issueStmt.run(
-      issue.key,
-      projectKey,
-      issue.fields.summary,
-      issue.fields.status.name,
-      issue.fields.priority?.name || null,
-      issue.fields.assignee?.displayName || null,
-      issue.fields.assignee?.emailAddress || null,
-      issue.fields.reporter.displayName,
-      issue.fields.reporter.emailAddress || null,
-      new Date(issue.fields.created).getTime(),
-      new Date(issue.fields.updated).getTime(),
-      this.extractDescription(issue.fields.description as string | { content?: ADFNode[] } | null | undefined),
-      JSON.stringify(issue),
-      Date.now(),
-      sprintInfo?.id || null,
-      sprintInfo?.name || null,
-    );
+    // Use the extracted function
+    await saveJiraIssue(this.db, issue);
 
     // Also save to searchable_content
-    const content = this.buildJiraContent(issue);
-    await this.saveContent({
-      id: `jira:${issue.key}`,
-      source: 'jira',
-      type: 'issue',
-      title: `${issue.key}: ${issue.fields.summary}`,
-      content: content,
-      url: `/browse/${issue.key}`,
-      projectKey: projectKey,
-      metadata: {
-        status: issue.fields.status.name,
-        priority: issue.fields.priority?.name,
-        assignee: issue.fields.assignee?.displayName,
-        reporter: issue.fields.reporter.displayName,
+    const projectKey = issue.key.split('-')[0];
+    const content = buildJiraContent(issue);
+    await saveContent(
+      this.db,
+      {
+        id: `jira:${issue.key}`,
+        source: 'jira',
+        type: 'issue',
+        title: `${issue.key}: ${issue.fields.summary}`,
+        content: content,
+        url: `/browse/${issue.key}`,
+        projectKey: projectKey,
+        metadata: {
+          status: issue.fields.status.name,
+          priority: issue.fields.priority?.name,
+          assignee: issue.fields.assignee?.displayName,
+          reporter: issue.fields.reporter.displayName,
+        },
+        createdAt: new Date(issue.fields.created).getTime(),
+        updatedAt: new Date(issue.fields.updated).getTime(),
+        syncedAt: Date.now(),
       },
-      createdAt: new Date(issue.fields.created).getTime(),
-      updatedAt: new Date(issue.fields.updated).getTime(),
-      syncedAt: Date.now(),
-    });
+      this.meilisearchErrorShown,
+    );
   }
 
   /**
@@ -236,149 +101,12 @@ export class ContentManager {
   saveContentEffect(
     content: SearchableContent,
   ): Effect.Effect<void, ValidationError | ContentTooLargeError | QueryError | ContentError> {
-    return pipe(
-      // Validate content
-      Effect.sync(() => {
-        if (!content || typeof content !== 'object') {
-          throw new ValidationError('Content must be an object', 'content', content);
-        }
-        if (!content.id || content.id.length === 0) {
-          throw new ValidationError('Content must have an ID', 'content.id', content.id);
-        }
-        if (!content.title || content.title.length === 0) {
-          throw new ValidationError('Content must have a title', 'content.title', content.title);
-        }
-        if (!content.content || content.content.length === 0) {
-          throw new ValidationError('Content must have content', 'content.content', undefined);
-        }
-        if (content.content.length > 10_000_000) {
-          // 10MB limit
-          throw new ContentTooLargeError('Content too large', content.content.length, 10_000_000);
-        }
-      }),
-      Effect.flatMap(() => {
-        // Calculate content hash using Effect
-        return pipe(
-          OllamaClient.contentHashEffect(content.content),
-          Effect.mapError((error) => new ContentError(`Failed to hash content: ${error}`)),
-        );
-      }),
-      Effect.flatMap((contentHash) => {
-        return Effect.try(() => {
-          // Use transaction for atomicity
-          this.db.transaction(() => {
-            // Save to searchable_content
-            const stmt = this.db.prepare(`
-              INSERT OR REPLACE INTO searchable_content (
-                id, source, type, title, content, url,
-                space_key, project_key, metadata,
-                created_at, updated_at, synced_at, content_hash
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-
-            stmt.run(
-              content.id,
-              content.source,
-              content.type,
-              content.title,
-              content.content,
-              content.url,
-              content.spaceKey || null,
-              content.projectKey || null,
-              JSON.stringify(content.metadata || {}),
-              content.createdAt || null,
-              content.updatedAt || null,
-              content.syncedAt,
-              contentHash,
-            );
-
-            // Update FTS table
-            const deleteFtsStmt = this.db.prepare('DELETE FROM content_fts WHERE id = ?');
-            deleteFtsStmt.run(content.id);
-
-            const ftsStmt = this.db.prepare(`
-              INSERT INTO content_fts (id, title, content)
-              VALUES (?, ?, ?)
-            `);
-
-            ftsStmt.run(content.id, content.title, content.content);
-          })();
-        }).pipe(Effect.mapError((error) => new QueryError(`Failed to save content: ${error}`)));
-      }),
-      // Try to index to Meilisearch but don't fail if unavailable
-      Effect.tap(() =>
-        Effect.tryPromise({
-          try: async () => {
-            const meilisearch = new MeilisearchAdapter();
-            await meilisearch.indexContent(content);
-          },
-          catch: (error) => {
-            if (!this.meilisearchErrorShown) {
-              console.error('Meilisearch error:', error);
-              console.error('Meilisearch is not available. Continuing with SQLite search only.');
-              this.meilisearchErrorShown = true;
-            }
-            return undefined; // Don't fail the operation
-          },
-        }).pipe(Effect.catchAll(() => Effect.succeed(undefined))),
-      ),
-    );
+    return saveContentEffect(this.db, content, this.meilisearchErrorShown);
   }
 
   // Backward compatible version
   async saveContent(content: SearchableContent): Promise<void> {
-    // Calculate content hash
-    const contentHash = OllamaClient.contentHash(content.content);
-
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO searchable_content (
-        id, source, type, title, content, url,
-        space_key, project_key, metadata,
-        created_at, updated_at, synced_at, content_hash
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      content.id,
-      content.source,
-      content.type,
-      content.title,
-      content.content,
-      content.url,
-      content.spaceKey || null,
-      content.projectKey || null,
-      JSON.stringify(content.metadata || {}),
-      content.createdAt || null,
-      content.updatedAt || null,
-      content.syncedAt,
-      contentHash,
-    );
-
-    // Also update FTS table
-    // First delete existing entry
-    const deleteFtsStmt = this.db.prepare('DELETE FROM content_fts WHERE id = ?');
-    deleteFtsStmt.run(content.id);
-
-    // Then insert new entry
-    const ftsStmt = this.db.prepare(`
-      INSERT INTO content_fts (id, title, content)
-      VALUES (?, ?, ?)
-    `);
-
-    ftsStmt.run(content.id, content.title, content.content);
-
-    // Also index to Meilisearch
-    try {
-      const meilisearch = new MeilisearchAdapter();
-      await meilisearch.indexContent(content);
-    } catch (error) {
-      // Log but don't fail if Meilisearch is unavailable
-      if (!this.meilisearchErrorShown) {
-        console.error('Meilisearch error in saveIssue:', error);
-        console.error('Meilisearch is not available. Continuing with SQLite search only.');
-        this.meilisearchErrorShown = true;
-      }
-    }
+    return saveContent(this.db, content, this.meilisearchErrorShown);
   }
 
   /**

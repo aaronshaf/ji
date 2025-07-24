@@ -12,6 +12,7 @@ import { showIssueLog } from './commands/log.js';
 import { addMemory, clearMemories, deleteMemory, listMemories, showMemoryStats } from './commands/memory.js';
 import { showMyIssues, takeIssue } from './commands/mine.js';
 import { configureModels } from './commands/models.js';
+import { openCommand } from './commands/open.js';
 import { ask, search } from './commands/search.js';
 import { initializeSetup } from './commands/setup.js';
 import { showSprint } from './commands/sprint.js';
@@ -254,6 +255,26 @@ ${chalk.yellow('Examples:')}
 `);
 }
 
+function showOpenHelp() {
+  console.log(`
+${chalk.bold('ji open - Open a Jira issue in browser')}
+
+${chalk.yellow('Usage:')}
+  ji open <issue-key>
+
+${chalk.yellow('Description:')}
+  Opens the specified Jira issue in your default browser.
+  Works on macOS, Linux, and Windows.
+
+${chalk.yellow('Options:')}
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji open EVAL-123          Open issue EVAL-123 in browser
+  ji open proj-456          Open issue PROJ-456 in browser
+`);
+}
+
 function showLogHelp() {
   console.log(`
 ${chalk.bold('ji log - Interactive comment viewer and editor')}
@@ -466,6 +487,7 @@ ${chalk.yellow('Issues:')}
   ji mine                              Show your open issues
   ji take <issue-key>                  Assign an issue to yourself
   ji done <issue-key>                  Mark an issue as Done
+  ji open <issue-key>                  Open issue in browser
   ji comment <issue-key> [comment]     Add a comment to an issue
   ji log <issue-key>                   Interactive comment viewer/editor
   ji <issue-key>                       View issue details
@@ -622,6 +644,19 @@ async function main() {
           process.exit(1);
         }
         await markIssueDone(subArgs[0]);
+        break;
+
+      case 'open':
+        if (args.includes('--help')) {
+          showOpenHelp();
+          process.exit(0);
+        }
+        if (!subArgs[0]) {
+          console.error('Please specify an issue key');
+          showOpenHelp();
+          process.exit(1);
+        }
+        await openCommand(subArgs[0]);
         break;
 
       case 'log':

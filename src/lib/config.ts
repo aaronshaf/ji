@@ -43,7 +43,7 @@ export class ConfigManager {
   private authFile: string;
 
   constructor() {
-    this.configDir = join(homedir(), '.ji');
+    this.configDir = process.env.JI_CONFIG_DIR || join(homedir(), '.ji');
     this.authFile = join(this.configDir, 'auth.json');
 
     if (!existsSync(this.configDir)) {
