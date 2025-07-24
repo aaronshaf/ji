@@ -1,220 +1,242 @@
-import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { Schema } from 'effect';
-import { HttpResponse, http } from 'msw';
-import { setupServer } from 'msw/node';
 import { IssueSchema, UserSchema } from '../lib/effects/jira/schemas';
-import { createValidIssue, createValidUser, validateAndReturn, validateMock } from './msw-schema-validation';
+import { createValidIssue, createValidUser, validateAndReturn } from './msw-schema-validation';
 
-// Create MSW server instance
-const server = setupServer();
+// Bun Native HTTP Mocking - Replaces MSW completely
+// This provides the same functionality as MSW but with perfect Bun compatibility
 
-// Start server before all tests
-beforeAll(() => {
-  server.listen({ onUnhandledRequest: 'error' });
+let originalFetch: typeof fetch;
+
+beforeEach(() => {
+  originalFetch = global.fetch;
 });
 
-// Reset handlers after each test
 afterEach(() => {
-  server.resetHandlers();
+  global.fetch = originalFetch;
+  delete process.env.ALLOW_REAL_API_CALLS;
 });
 
-// Clean up after all tests
-afterAll(() => {
-  server.close();
-});
-
-test('MSW should intercept HTTP requests with schema-validated mocks', async () => {
-  // Create a validated mock issue
+test('Bun HTTP mocking with schema validation works perfectly', async () => {
+  // Create validated mock data
   const mockIssue = createValidIssue({
-    key: 'TEST-123',
+    key: 'BUN-123',
   });
-  // Override specific fields after creation
-  mockIssue.fields.summary = 'MSW Integration Test Issue';
-  mockIssue.fields.description = 'This issue is fetched via MSW';
+  mockIssue.fields.summary = 'Bun HTTP Mock Test Issue';
+  mockIssue.fields.description = 'This issue is fetched via Bun native mocking';
   mockIssue.fields.status = { name: 'In Progress' };
   mockIssue.fields.assignee = {
-    displayName: 'MSW Test User',
-    emailAddress: 'msw@example.com',
-    accountId: 'msw-test-user-id',
-  };
-  mockIssue.fields.reporter = {
-    displayName: 'MSW Reporter',
-    emailAddress: 'reporter@example.com',
-    accountId: 'msw-reporter-id',
+    displayName: 'Bun Test User',
+    emailAddress: 'bun@example.com',
+    accountId: 'bun-test-user-id',
   };
   mockIssue.fields.priority = { name: 'High' };
-  mockIssue.fields.labels = ['msw', 'integration', 'test'];
-  mockIssue.fields.project = { key: 'TEST', name: 'Test Project' };
+  mockIssue.fields.labels = ['bun', 'native', 'test'];
 
-  // Create a validated mock user
   const mockUser = createValidUser({
-    accountId: 'test-account-id',
-    displayName: 'Test User',
-    emailAddress: 'test@example.com',
+    accountId: 'bun-account-id',
+    displayName: 'Bun Test User',
+    emailAddress: 'bun@example.com',
   });
 
-  // Override default handlers for this specific test
-  server.use(
-    // Mock Jira API endpoints with schema validation
-    http.get('https://test.atlassian.net/rest/api/3/issue/TEST-123', () => {
-      // Validate the mock before returning it
-      const validatedIssue = validateAndReturn(IssueSchema, mockIssue, 'Issue TEST-123');
-      return HttpResponse.json(validatedIssue);
-    }),
+  // Mock fetch with schema validation - replaces MSW server completely
+  (global.fetch as any) = mock(async (url: string | URL, _init?: RequestInit) => {
+    const urlString = typeof url === 'string' ? url : url.toString();
 
-    // Mock user info endpoint with schema validation
-    http.get('https://test.atlassian.net/rest/api/3/myself', () => {
+    if (urlString.includes('/issue/BUN-123')) {
+      // Validate mock before returning (same safety as MSW)
+      const validatedIssue = validateAndReturn(IssueSchema, mockIssue, 'Issue BUN-123');
+      return new Response(JSON.stringify(validatedIssue), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (urlString.includes('/myself')) {
       const validatedUser = validateAndReturn(UserSchema, mockUser, 'Current User');
-      return HttpResponse.json(validatedUser);
-    }),
-  );
+      return new Response(JSON.stringify(validatedUser), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
-  // Allow real API calls for this test since MSW will intercept them
+    // Unhandled request protection (replaces MSW onUnhandledRequest: 'error')
+    throw new Error(`Unhandled HTTP request: ${urlString}`);
+  });
+
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
-  try {
-    // Import after setting env var to bypass protection
-    const { JiraClient } = await import('../lib/jira-client');
+  const { JiraClient } = await import('../lib/jira-client');
+  const client = new JiraClient({
+    jiraUrl: 'https://test.atlassian.net',
+    email: 'test@example.com',
+    apiToken: 'mock-token',
+  });
 
-    const client = new JiraClient({
-      jiraUrl: 'https://test.atlassian.net',
-      email: 'test@example.com',
-      apiToken: 'mock-token',
-    });
+  // Test intercepted HTTP request
+  const issue = await client.getIssue('BUN-123');
 
-    // This should be intercepted by MSW
-    const issue = await client.getIssue('TEST-123');
+  // Verify mock data was returned correctly
+  expect(issue.key).toBe('BUN-123');
+  expect(issue.fields.summary).toBe('Bun HTTP Mock Test Issue');
+  expect(issue.fields.assignee?.displayName).toBe('Bun Test User');
+  expect(issue.fields.status.name).toBe('In Progress');
+  expect(issue.fields.priority?.name).toBe('High');
 
-    // Verify MSW intercepted and returned our mock data
-    expect(issue.key).toBe('TEST-123');
-    expect(issue.fields.summary).toBe('MSW Integration Test Issue');
-    expect(issue.fields.assignee?.displayName).toBe('MSW Test User');
-    expect(issue.fields.status.name).toBe('In Progress');
-    expect(issue.fields.priority?.name).toBe('High');
+  // Verify schema compliance (same as MSW tests)
+  const validationResult = Schema.decodeUnknownEither(IssueSchema)(issue);
+  expect(validationResult._tag).toBe('Right');
 
-    // Verify the response still conforms to our schema
-    const validationResult = Schema.decodeUnknownEither(IssueSchema)(issue);
-    expect(validationResult._tag).toBe('Right');
-  } finally {
-    delete process.env.ALLOW_REAL_API_CALLS;
-  }
+  // Verify mock was called
+  expect(global.fetch).toHaveBeenCalledTimes(1);
 });
 
-test('MSW should handle 404 errors with proper error response', async () => {
-  // Mock a 404 response
-  server.use(
-    http.get('https://test.atlassian.net/rest/api/3/issue/MISSING-999', () => {
-      return HttpResponse.json(
-        { errorMessages: ['Issue does not exist or you do not have permission to see it.'] },
-        { status: 404 },
+test('Bun HTTP mocking handles 404 errors correctly', async () => {
+  // Mock 404 error response (replaces MSW error handling)
+  (global.fetch as any) = mock(async (url: string | URL, _init?: RequestInit) => {
+    if (typeof url === 'string' && url.includes('/issue/MISSING-999')) {
+      return new Response(
+        JSON.stringify({
+          errorMessages: ['Issue does not exist or you do not have permission to see it.'],
+        }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } },
       );
-    }),
-  );
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  });
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
-  try {
-    const { JiraClient } = await import('../lib/jira-client');
-    const client = new JiraClient({
-      jiraUrl: 'https://test.atlassian.net',
-      email: 'test@example.com',
-      apiToken: 'mock-token',
-    });
+  const { JiraClient } = await import('../lib/jira-client');
+  const client = new JiraClient({
+    jiraUrl: 'https://test.atlassian.net',
+    email: 'test@example.com',
+    apiToken: 'mock-token',
+  });
 
-    // This should throw due to 404
-    await expect(client.getIssue('MISSING-999')).rejects.toThrow();
-  } finally {
-    delete process.env.ALLOW_REAL_API_CALLS;
-  }
+  // Should throw due to 404
+  await expect(client.getIssue('MISSING-999')).rejects.toThrow();
+  expect(global.fetch).toHaveBeenCalledTimes(1);
 });
 
-test('MSW should handle network timeouts', async () => {
-  // Mock a network timeout
-  server.use(
-    http.get('https://test.atlassian.net/rest/api/3/issue/TIMEOUT-123', () => {
-      // Simulate a network timeout by not responding
-      return HttpResponse.error();
-    }),
-  );
+test('Bun HTTP mocking handles network timeouts', async () => {
+  // Mock network timeout (replaces MSW timeout simulation)
+  (global.fetch as any) = mock(async (_url: string | URL, _init?: RequestInit) => {
+    throw new Error('Network timeout');
+  });
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
-  try {
-    const { JiraClient } = await import('../lib/jira-client');
-    const client = new JiraClient({
-      jiraUrl: 'https://test.atlassian.net',
-      email: 'test@example.com',
-      apiToken: 'mock-token',
-    });
+  const { JiraClient } = await import('../lib/jira-client');
+  const client = new JiraClient({
+    jiraUrl: 'https://test.atlassian.net',
+    email: 'test@example.com',
+    apiToken: 'mock-token',
+  });
 
-    // This should throw due to network error
-    await expect(client.getIssue('TIMEOUT-123')).rejects.toThrow();
-  } finally {
-    delete process.env.ALLOW_REAL_API_CALLS;
-  }
+  // Should throw due to network error
+  await expect(client.getIssue('TIMEOUT-123')).rejects.toThrow();
+  expect(global.fetch).toHaveBeenCalledTimes(1);
 });
 
-test('MSW should demonstrate request interception with schema validation', async () => {
+test('Bun HTTP mocking supports multiple request interception', async () => {
   let requestCount = 0;
 
-  // Create different validated issues for each request
-  const issues = ['TEST-1', 'TEST-2', 'TEST-3'].map((key) => {
-    const issue = createValidIssue({
-      key,
-      self: `https://test.atlassian.net/rest/api/3/issue/${key}`,
-    });
+  // Create multiple validated issues (replaces MSW request handlers)
+  const issues = ['REQ-1', 'REQ-2', 'REQ-3'].map((key) => {
+    const issue = createValidIssue({ key });
     issue.fields.summary = `Issue ${key}`;
     return issue;
   });
 
-  // Track all requests
-  server.use(
-    http.get('https://test.atlassian.net/rest/api/3/issue/*', ({ params }) => {
+  // Mock with request counting
+  (global.fetch as any) = mock(async (url: string | URL, _init?: RequestInit) => {
+    const urlString = typeof url === 'string' ? url : url.toString();
+
+    if (urlString.includes('/rest/api/3/issue/')) {
       const index = requestCount++;
       const validatedIssue = validateAndReturn(IssueSchema, issues[index % issues.length], `Issue ${index}`);
-      return HttpResponse.json(validatedIssue);
-    }),
-  );
+      return new Response(JSON.stringify(validatedIssue), { status: 200 });
+    }
+
+    throw new Error(`Unhandled request: ${urlString}`);
+  });
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
-  try {
-    const { JiraClient } = await import('../lib/jira-client');
-    const client = new JiraClient({
-      jiraUrl: 'https://test.atlassian.net',
-      email: 'test@example.com',
-      apiToken: 'mock-token',
-    });
+  const { JiraClient } = await import('../lib/jira-client');
+  const client = new JiraClient({
+    jiraUrl: 'https://test.atlassian.net',
+    email: 'test@example.com',
+    apiToken: 'mock-token',
+  });
 
-    // Make multiple requests
-    const issue1 = await client.getIssue('TEST-1');
-    const issue2 = await client.getIssue('TEST-2');
-    const issue3 = await client.getIssue('TEST-3');
+  // Make multiple requests
+  const issue1 = await client.getIssue('REQ-1');
+  const issue2 = await client.getIssue('REQ-2');
+  const issue3 = await client.getIssue('REQ-3');
 
-    // Verify MSW intercepted all requests
-    expect(requestCount).toBe(3);
+  // Verify all requests were intercepted
+  expect(requestCount).toBe(3);
+  expect(global.fetch).toHaveBeenCalledTimes(3);
 
-    // Verify all responses conform to schema
-    for (const issue of [issue1, issue2, issue3]) {
-      const validationResult = Schema.decodeUnknownEither(IssueSchema)(issue);
-      expect(validationResult._tag).toBe('Right');
-    }
-  } finally {
-    delete process.env.ALLOW_REAL_API_CALLS;
+  // Verify all responses conform to schema
+  for (const issue of [issue1, issue2, issue3]) {
+    const validationResult = Schema.decodeUnknownEither(IssueSchema)(issue);
+    expect(validationResult._tag).toBe('Right');
   }
 });
 
-test('MSW mock validation should catch schema violations', () => {
-  // This test demonstrates that our validation catches invalid mocks
+test('Bun HTTP mocking catches schema violations', () => {
+  // Test that our validation catches invalid mocks (same as MSW)
   const invalidIssue = {
-    key: 'TEST-123',
+    key: 'INVALID-123',
     // Missing required 'self' field
     fields: {
-      summary: 'Test',
+      summary: 'Invalid Issue',
       // Missing required fields like status, reporter, created, updated
     },
   };
 
-  // This should throw a validation error
-  expect(() => validateMock(IssueSchema, invalidIssue, 'Invalid Issue')).toThrow();
+  // Should throw validation error
+  expect(() => {
+    validateAndReturn(IssueSchema, invalidIssue, 'Invalid Issue');
+  }).toThrow('Mock validation failed for Invalid Issue');
+});
+
+test('Bun HTTP mocking performance test', async () => {
+  const startTime = performance.now();
+
+  // Mock multiple rapid requests
+  (global.fetch as any) = mock(async (_url: string | URL, _init?: RequestInit) => {
+    const mockIssue = createValidIssue({
+      key: 'PERF-1',
+    });
+    return new Response(JSON.stringify(mockIssue), { status: 200 });
+  });
+
+  process.env.ALLOW_REAL_API_CALLS = 'true';
+
+  const { JiraClient } = await import('../lib/jira-client');
+  const client = new JiraClient({
+    jiraUrl: 'https://test.atlassian.net',
+    email: 'test@example.com',
+    apiToken: 'mock-token',
+  });
+
+  // Make 10 rapid requests
+  const promises = Array.from({ length: 10 }, (_, i) => client.getIssue(`PERF-${i}`));
+
+  const results = await Promise.all(promises);
+  const endTime = performance.now();
+
+  // Verify all requests completed
+  expect(results).toHaveLength(10);
+  expect(global.fetch).toHaveBeenCalledTimes(10);
+
+  // Should be very fast (< 100ms for 10 requests)
+  const duration = endTime - startTime;
+  expect(duration).toBeLessThan(100);
+
+  console.log(`✅ Bun native mocking: ${10} requests in ${duration.toFixed(2)}ms`);
 });

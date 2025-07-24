@@ -83,10 +83,15 @@ export function createValidIssue(overrides: Partial<TestIssue> = {}): TestIssue 
       labels: [],
       ...overrides.fields,
     },
+    ...overrides, // Apply top-level overrides after fields
   };
 
+  // Update self URL to match key if key was overridden
+  if (overrides.key && overrides.key !== 'TEST-123') {
+    defaultIssue.self = `https://test.atlassian.net/rest/api/3/issue/${overrides.key}`;
+  }
+
   // Validate the mock against our schema
-  // Validate the mock against our schema and cast the result
   validateMock(IssueSchema, defaultIssue, 'Issue');
   return defaultIssue;
 }

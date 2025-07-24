@@ -166,6 +166,15 @@ export class HttpClientServiceTag extends Context.Tag('HttpClientService')<HttpC
 export const HttpClientServiceLive = Layer.effect(
   HttpClientServiceTag,
   Effect.sync(() => {
+    // Prevent real HTTP calls in test environment unless explicitly allowed
+    if (process.env.NODE_ENV === 'test' && !process.env.ALLOW_REAL_API_CALLS) {
+      throw new Error(
+        'Real HTTP calls detected in test environment! ' +
+          'Tests must use TestHttpClientService from test-layers.ts to avoid making real HTTP requests. ' +
+          'If you really need to make real calls, set ALLOW_REAL_API_CALLS=true',
+      );
+    }
+
     const defaultTimeout = 30000; // 30 seconds
 
     const makeRequest = <T>(url: string, options?: RequestInit) =>
