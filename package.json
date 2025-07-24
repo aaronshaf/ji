@@ -10,10 +10,6 @@
     "dev": "bun run --watch src/cli.ts",
     "daemon": "bun run src/daemon/index.ts",
     "test": "NODE_ENV=test bun test",
-    "test:unit": "NODE_ENV=test bun test",
-    "test:integration": "vitest run",
-    "test:integration:ui": "vitest --ui",
-    "test:all": "bun run test:unit && bun run test:integration",
     "test:coverage": "NODE_ENV=test bun test --coverage",
     "test:coverage:report": "NODE_ENV=test bun test --coverage --coverage-reporter=html,text",
     "test:coverage:check": "NODE_ENV=test bun test --coverage --coverage-threshold=1",
@@ -52,10 +48,8 @@
     "@biomejs/biome": "^2.0.6",
     "@types/react": "^19.1.8",
     "@types/turndown": "^5.0.5",
-    "@vitest/ui": "^3.2.4",
     "bun-types": "^1.0.20",
     "msw": "^2.10.4",
-    "typescript": "^5.3.3",
-    "vitest": "^3.2.4"
+    "typescript": "^5.3.3"
   }
 }
