@@ -198,10 +198,19 @@ test('Bun HTTP mocking catches schema violations', () => {
     },
   };
 
-  // Should throw validation error
-  expect(() => {
-    validateAndReturn(IssueSchema, invalidIssue, 'Invalid Issue');
-  }).toThrow('Mock validation failed for Invalid Issue');
+  // Suppress console.error during this test to avoid noise
+  const originalConsoleError = console.error;
+  console.error = () => {}; // Suppress error output
+
+  try {
+    // Should throw validation error
+    expect(() => {
+      validateAndReturn(IssueSchema, invalidIssue, 'Invalid Issue');
+    }).toThrow('Mock validation failed for Invalid Issue');
+  } finally {
+    // Restore console.error
+    console.error = originalConsoleError;
+  }
 });
 
 test('Bun HTTP mocking performance test', async () => {
