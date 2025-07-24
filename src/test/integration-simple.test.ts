@@ -72,7 +72,11 @@ test('Integration test concept - CLI command with injected dependencies', async 
   };
 
   // Simulate a CLI command function that accepts injected dependencies
-  async function mockViewIssue(issueKey: string, jiraClient: any, _configManager: any) {
+  async function mockViewIssue(
+    issueKey: string,
+    jiraClient: typeof mockJiraClient,
+    _configManager: typeof mockConfigManager,
+  ) {
     const issue = await jiraClient.getIssue(issueKey);
     return `Issue: ${issue.key} - ${issue.fields.summary}`;
   }

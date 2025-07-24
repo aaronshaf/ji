@@ -4,10 +4,10 @@
  * Handles all Jira API interactions with proper error handling and retry strategies
  */
 
-import { Context, Duration, Effect, Layer, Option, pipe, Schedule, Schema, type Stream } from 'effect';
-import {
+import { Context, Effect, Layer, type Option, pipe, type Stream } from 'effect';
+import type {
   AuthenticationError,
-  type ConfigError,
+  ConfigError,
   NetworkError,
   NotFoundError,
   ParseError,
@@ -15,25 +15,18 @@ import {
   TimeoutError,
   ValidationError,
 } from './errors.js';
+import { BatchOperationsImpl } from './jira/batch-operations.js';
+import { BoardOperationsImpl, type BoardSearchResult } from './jira/board-operations.js';
 import {
-  batchAssignIssues,
-  batchGetIssues,
   type Issue,
   IssueOperationsImpl,
   type IssueSearchResult,
   type SearchOptions,
 } from './jira/issue-operations.js';
-import {
-  type Board,
-  BoardsResponseSchema,
-  IssueSchema,
-  type JiraUser,
-  type Project,
-  ProjectSchema,
-  type Sprint,
-  SprintsResponseSchema,
-  UserSchema,
-} from './jira/schemas.js';
+import { ProjectOperationsImpl } from './jira/project-operations.js';
+import type { Board, JiraUser, Project, Sprint } from './jira/schemas.js';
+import { SprintOperationsImpl } from './jira/sprint-operations.js';
+import { UserOperationsImpl } from './jira/user-operations.js';
 import {
   type ConfigService,
   ConfigServiceTag,
@@ -43,7 +36,8 @@ import {
   LoggerServiceTag,
 } from './layers.js';
 
-// Re-export Issue type and interfaces from issue-operations
+export type { BoardSearchResult } from './jira/board-operations.js';
+// Re-export types from operation modules
 export type { Issue, IssueSearchResult, SearchOptions } from './jira/issue-operations.js';
 export type { Board, JiraUser, Project, Sprint } from './jira/schemas.js';
 
@@ -54,7 +48,6 @@ export interface PaginatedResult<T> {
   total: number;
   isLast: boolean;
 }
-export interface BoardSearchResult extends PaginatedResult<Board> {}
 export interface SprintSearchResult extends PaginatedResult<Sprint> {}
 
 // ============= Jira Client Service Interface =============
@@ -327,6 +320,11 @@ export class JiraClientServiceTag extends Context.Tag('JiraClientService')<JiraC
 // ============= Jira Client Service Implementation =============
 class JiraClientServiceImpl implements JiraClientService {
   private issueOps: IssueOperationsImpl;
+  private userOps: UserOperationsImpl;
+  private boardOps: BoardOperationsImpl;
+  private sprintOps: SprintOperationsImpl;
+  private projectOps: ProjectOperationsImpl;
+  private batchOps: BatchOperationsImpl;
 
   constructor(
     private http: HttpClientService,
@@ -334,6 +332,11 @@ class JiraClientServiceImpl implements JiraClientService {
     private logger: LoggerService,
   ) {
     this.issueOps = new IssueOperationsImpl(http, config, logger);
+    this.userOps = new UserOperationsImpl(http, config, logger, this.issueOps.searchIssues.bind(this.issueOps));
+    this.boardOps = new BoardOperationsImpl(http, config, logger, this.userOps);
+    this.sprintOps = new SprintOperationsImpl(http, config, logger, this.boardOps);
+    this.projectOps = new ProjectOperationsImpl(http, config, logger);
+    this.batchOps = new BatchOperationsImpl(this.issueOps, logger);
   }
 
   // ============= Issue Operations (delegated to IssueOperationsImpl) =============
@@ -426,35 +429,12 @@ class JiraClientServiceImpl implements JiraClientService {
     return this.issueOps.createIssue(projectKey, issueType, summary, description);
   }
 
-  // ============= User Operations =============
+  // ============= User Operations (delegated to UserOperationsImpl) =============
   getCurrentUser(): Effect.Effect<
     JiraUser,
     NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError | NotFoundError
   > {
-    return pipe(
-      this.config.getConfig,
-      Effect.flatMap((config) => {
-        const url = `${config.jiraUrl}/rest/api/3/myself`;
-
-        return pipe(
-          this.logger.debug('Fetching current user'),
-          Effect.flatMap(() => this.http.get<unknown>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => Schema.decodeUnknownSync(UserSchema)(data),
-              catch: (error) => new ParseError('Failed to parse user response', 'user', String(data), error),
-            }),
-          ),
-          Effect.tap((user) => this.logger.debug('Current user fetched successfully', { accountId: user.accountId })),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      JiraUser,
-      NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError | NotFoundError,
-      never
-    >;
+    return this.userOps.getCurrentUser();
   }
 
   getUserByEmail(
@@ -470,50 +450,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | ConfigError
     | NotFoundError
   > {
-    return pipe(
-      this.validateEmail(email),
-      Effect.flatMap(() => this.config.getConfig),
-      Effect.flatMap((config) => {
-        const url = `${config.jiraUrl}/rest/api/3/user/search?query=${encodeURIComponent(email)}`;
-
-        return pipe(
-          this.logger.debug('Searching user by email', { email }),
-          Effect.flatMap(() => this.http.get<unknown[]>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => {
-                if (!Array.isArray(data) || data.length === 0) {
-                  return Option.none();
-                }
-                const user = Schema.decodeUnknownSync(UserSchema)(data[0]);
-                return Option.some(user);
-              },
-              catch: (error) =>
-                new ParseError('Failed to parse user search response', 'userSearch', String(data), error),
-            }),
-          ),
-          Effect.tap((userOption) =>
-            this.logger.debug('User search completed', {
-              email,
-              found: Option.isSome(userOption),
-            }),
-          ),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      Option.Option<JiraUser>,
-      | ValidationError
-      | NetworkError
-      | AuthenticationError
-      | ParseError
-      | TimeoutError
-      | RateLimitError
-      | ConfigError
-      | NotFoundError,
-      never
-    >;
+    return this.userOps.getUserByEmail(email);
   }
 
   getUserActiveProjects(
@@ -529,75 +466,17 @@ class JiraClientServiceImpl implements JiraClientService {
     | NotFoundError
     | ValidationError
   > {
-    return pipe(
-      this.validateEmail(userEmail),
-      Effect.flatMap(() => {
-        const jql = `assignee = "${userEmail}" AND updated >= -30d ORDER BY updated DESC`;
-
-        return pipe(
-          this.searchIssues(jql, { maxResults: 100 }),
-          Effect.map((result) => {
-            const projectKeys = new Set<string>();
-            result.values.forEach((issue) => {
-              const projectKey = issue.key.split('-')[0];
-              projectKeys.add(projectKey);
-            });
-            return Array.from(projectKeys);
-          }),
-        );
-      }),
-    );
+    return this.userOps.getUserActiveProjects(userEmail);
   }
 
-  // ============= Board Operations =============
+  // ============= Board Operations (delegated to BoardOperationsImpl) =============
   getBoards(
     options: { projectKeyOrId?: string; type?: 'scrum' | 'kanban' } = {},
   ): Effect.Effect<
     BoardSearchResult,
     NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError | NotFoundError
   > {
-    return pipe(
-      this.config.getConfig,
-      Effect.flatMap((config) => {
-        const params = new URLSearchParams();
-
-        if (options.projectKeyOrId) {
-          params.append('projectKeyOrId', options.projectKeyOrId);
-        }
-        if (options.type) {
-          params.append('type', options.type);
-        }
-
-        const url = `${config.jiraUrl}/rest/agile/1.0/board${params.toString() ? `?${params}` : ''}`;
-
-        return pipe(
-          this.logger.debug('Fetching boards', { options }),
-          Effect.flatMap(() => this.http.get<unknown>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => {
-                const result = Schema.decodeUnknownSync(BoardsResponseSchema)(data);
-                return {
-                  values: result.values,
-                  startAt: result.startAt,
-                  maxResults: result.maxResults,
-                  total: result.total,
-                  isLast: result.startAt + result.values.length >= result.total,
-                };
-              },
-              catch: (error) => new ParseError('Failed to parse boards response', 'boards', String(data), error),
-            }),
-          ),
-          Effect.tap((result) => this.logger.debug('Boards fetched successfully', { total: result.total })),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      BoardSearchResult,
-      NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError | NotFoundError,
-      never
-    >;
+    return this.boardOps.getBoards(options);
   }
 
   getBoardsForProject(
@@ -613,11 +492,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | ConfigError
     | NotFoundError
   > {
-    return pipe(
-      this.validateProjectKey(projectKey),
-      Effect.flatMap(() => this.getBoards({ projectKeyOrId: projectKey })),
-      Effect.map((result) => result.values),
-    );
+    return this.boardOps.getBoardsForProject(projectKey);
   }
 
   getUserBoards(
@@ -633,26 +508,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | ConfigError
     | NotFoundError
   > {
-    return pipe(
-      this.validateEmail(userEmail),
-      Effect.flatMap(() => this.getUserActiveProjects(userEmail)),
-      Effect.flatMap((activeProjects) =>
-        Effect.forEach(activeProjects, (projectKey) =>
-          pipe(
-            this.getBoardsForProject(projectKey),
-            Effect.catchAll(() => Effect.succeed([] as Board[])),
-          ),
-        ),
-      ),
-      Effect.map((boardArrays) => {
-        // Flatten and deduplicate
-        const allBoards = boardArrays.flat();
-        const uniqueBoards = allBoards.filter(
-          (board, index, array) => array.findIndex((b) => b.id === board.id) === index,
-        );
-        return uniqueBoards.sort((a, b) => a.name.localeCompare(b.name));
-      }),
-    );
+    return this.boardOps.getUserBoards(userEmail);
   }
 
   getBoardConfiguration(
@@ -668,44 +524,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | RateLimitError
     | ConfigError
   > {
-    return pipe(
-      this.validateBoardId(boardId),
-      Effect.flatMap(() => this.config.getConfig),
-      Effect.flatMap((config) => {
-        const url = `${config.jiraUrl}/rest/agile/1.0/board/${boardId}/configuration`;
-
-        return pipe(
-          this.logger.debug('Fetching board configuration', { boardId }),
-          Effect.flatMap(() => this.http.get<unknown>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => {
-                const parsedData = data as { columnConfig?: { columns?: unknown[] } };
-                return {
-                  columns: parsedData.columnConfig?.columns || [],
-                };
-              },
-              catch: (error) =>
-                new ParseError('Failed to parse board configuration response', 'boardConfig', String(data), error),
-            }),
-          ),
-          Effect.tap(() => this.logger.debug('Board configuration fetched successfully', { boardId })),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      { columns: Array<{ name: string; statuses: Array<{ id: string; name: string }> }> },
-      | ValidationError
-      | NotFoundError
-      | NetworkError
-      | AuthenticationError
-      | ParseError
-      | TimeoutError
-      | RateLimitError
-      | ConfigError,
-      never
-    >;
+    return this.boardOps.getBoardConfiguration(boardId);
   }
 
   getBoardIssues(
@@ -722,70 +541,10 @@ class JiraClientServiceImpl implements JiraClientService {
     | RateLimitError
     | ConfigError
   > {
-    return pipe(
-      this.validateBoardId(boardId),
-      Effect.flatMap(() => this.config.getConfig),
-      Effect.flatMap((config) => {
-        const params = new URLSearchParams({
-          startAt: (options.startAt || 0).toString(),
-          maxResults: (options.maxResults || 50).toString(),
-        });
-
-        if (options.fields) {
-          params.append('fields', options.fields.join(','));
-        }
-
-        const url = `${config.jiraUrl}/rest/agile/1.0/board/${boardId}/issue?${params}`;
-
-        return pipe(
-          this.logger.debug('Fetching board issues', { boardId, options }),
-          Effect.flatMap(() => this.http.get<unknown>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => {
-                const parsedData = data as {
-                  issues?: unknown[];
-                  startAt?: number;
-                  maxResults?: number;
-                  total?: number;
-                };
-                const issues = (parsedData.issues || []).map((issue: unknown) =>
-                  Schema.decodeUnknownSync(IssueSchema)(issue),
-                );
-                return {
-                  values: issues,
-                  startAt: parsedData.startAt || 0,
-                  maxResults: parsedData.maxResults || issues.length,
-                  total: parsedData.total || issues.length,
-                  isLast: true, // Simple implementation
-                };
-              },
-              catch: (error) =>
-                new ParseError('Failed to parse board issues response', 'boardIssues', String(data), error),
-            }),
-          ),
-          Effect.tap((result) =>
-            this.logger.debug('Board issues fetched successfully', { boardId, count: result.values.length }),
-          ),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      IssueSearchResult,
-      | ValidationError
-      | NotFoundError
-      | NetworkError
-      | AuthenticationError
-      | ParseError
-      | TimeoutError
-      | RateLimitError
-      | ConfigError,
-      never
-    >;
+    return this.boardOps.getBoardIssues(boardId, options);
   }
 
-  // ============= Sprint Operations =============
+  // ============= Sprint Operations (delegated to SprintOperationsImpl) =============
   getActiveSprints(
     boardId: number,
   ): Effect.Effect<
@@ -799,43 +558,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | RateLimitError
     | ConfigError
   > {
-    return pipe(
-      this.validateBoardId(boardId),
-      Effect.flatMap(() => this.config.getConfig),
-      Effect.flatMap((config) => {
-        const url = `${config.jiraUrl}/rest/agile/1.0/board/${boardId}/sprint?state=active`;
-
-        return pipe(
-          this.logger.debug('Fetching active sprints', { boardId }),
-          Effect.flatMap(() => this.http.get<unknown>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => {
-                const result = Schema.decodeUnknownSync(SprintsResponseSchema)(data);
-                return result.values;
-              },
-              catch: (error) => new ParseError('Failed to parse sprints response', 'sprints', String(data), error),
-            }),
-          ),
-          Effect.tap((sprints) =>
-            this.logger.debug('Active sprints fetched successfully', { boardId, count: sprints.length }),
-          ),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      Sprint[],
-      | ValidationError
-      | NotFoundError
-      | NetworkError
-      | AuthenticationError
-      | ParseError
-      | TimeoutError
-      | RateLimitError
-      | ConfigError,
-      never
-    >;
+    return this.sprintOps.getActiveSprints(boardId);
   }
 
   getAllSprints(
@@ -851,43 +574,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | RateLimitError
     | ConfigError
   > {
-    return pipe(
-      this.validateBoardId(boardId),
-      Effect.flatMap(() => this.config.getConfig),
-      Effect.flatMap((config) => {
-        const url = `${config.jiraUrl}/rest/agile/1.0/board/${boardId}/sprint`;
-
-        return pipe(
-          this.logger.debug('Fetching all sprints', { boardId }),
-          Effect.flatMap(() => this.http.get<unknown>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => {
-                const result = Schema.decodeUnknownSync(SprintsResponseSchema)(data);
-                return result.values;
-              },
-              catch: (error) => new ParseError('Failed to parse sprints response', 'sprints', String(data), error),
-            }),
-          ),
-          Effect.tap((sprints) =>
-            this.logger.debug('All sprints fetched successfully', { boardId, count: sprints.length }),
-          ),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      Sprint[],
-      | ValidationError
-      | NotFoundError
-      | NetworkError
-      | AuthenticationError
-      | ParseError
-      | TimeoutError
-      | RateLimitError
-      | ConfigError,
-      never
-    >;
+    return this.sprintOps.getAllSprints(boardId);
   }
 
   getSprintIssues(
@@ -904,67 +591,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | RateLimitError
     | ConfigError
   > {
-    return pipe(
-      this.validateSprintId(sprintId),
-      Effect.flatMap(() => this.config.getConfig),
-      Effect.flatMap((config) => {
-        const params = new URLSearchParams({
-          startAt: (options.startAt || 0).toString(),
-          maxResults: (options.maxResults || 50).toString(),
-        });
-
-        if (options.fields) {
-          params.append('fields', options.fields.join(','));
-        }
-
-        const url = `${config.jiraUrl}/rest/agile/1.0/sprint/${sprintId}/issue?${params}`;
-
-        return pipe(
-          this.logger.debug('Fetching sprint issues', { sprintId, options }),
-          Effect.flatMap(() => this.http.get<unknown>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => {
-                const parsedData = data as {
-                  issues?: unknown[];
-                  startAt?: number;
-                  maxResults?: number;
-                  total?: number;
-                };
-                const issues = (parsedData.issues || []).map((issue: unknown) =>
-                  Schema.decodeUnknownSync(IssueSchema)(issue),
-                );
-                return {
-                  values: issues,
-                  startAt: parsedData.startAt || 0,
-                  maxResults: parsedData.maxResults || issues.length,
-                  total: parsedData.total || issues.length,
-                  isLast: true, // Simple implementation
-                };
-              },
-              catch: (error) =>
-                new ParseError('Failed to parse sprint issues response', 'sprintIssues', String(data), error),
-            }),
-          ),
-          Effect.tap((result) =>
-            this.logger.debug('Sprint issues fetched successfully', { sprintId, count: result.values.length }),
-          ),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      IssueSearchResult,
-      | ValidationError
-      | NotFoundError
-      | NetworkError
-      | AuthenticationError
-      | ParseError
-      | TimeoutError
-      | RateLimitError
-      | ConfigError,
-      never
-    >;
+    return this.sprintOps.getSprintIssues(sprintId, options);
   }
 
   getUserActiveSprints(
@@ -980,27 +607,10 @@ class JiraClientServiceImpl implements JiraClientService {
     | ConfigError
     | NotFoundError
   > {
-    return pipe(
-      this.validateEmail(userEmail),
-      Effect.flatMap(() => this.getUserBoards(userEmail)),
-      Effect.flatMap((boards) =>
-        Effect.forEach(boards, (board) =>
-          pipe(
-            this.getActiveSprints(board.id),
-            Effect.catchAll(() => Effect.succeed([] as Sprint[])),
-          ),
-        ),
-      ),
-      Effect.map((sprintArrays) => {
-        // Flatten and deduplicate
-        const allSprints = sprintArrays.flat();
-        const uniqueSprints = Array.from(new Map(allSprints.map((s) => [s.id, s])).values());
-        return uniqueSprints;
-      }),
-    );
+    return this.sprintOps.getUserActiveSprints(userEmail);
   }
 
-  // ============= Project Operations =============
+  // ============= Project Operations (delegated to ProjectOperationsImpl) =============
   getProject(
     projectKey: string,
   ): Effect.Effect<
@@ -1014,76 +624,17 @@ class JiraClientServiceImpl implements JiraClientService {
     | RateLimitError
     | ConfigError
   > {
-    return pipe(
-      this.validateProjectKey(projectKey),
-      Effect.flatMap(() => this.config.getConfig),
-      Effect.flatMap((config) => {
-        const url = `${config.jiraUrl}/rest/api/3/project/${projectKey}`;
-
-        return pipe(
-          this.logger.debug('Fetching project', { projectKey }),
-          Effect.flatMap(() => this.http.get<unknown>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => Schema.decodeUnknownSync(ProjectSchema)(data),
-              catch: (error) => new ParseError('Failed to parse project response', 'project', String(data), error),
-            }),
-          ),
-          Effect.tap(() => this.logger.debug('Project fetched successfully', { projectKey })),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      Project,
-      | ValidationError
-      | NotFoundError
-      | NetworkError
-      | AuthenticationError
-      | ParseError
-      | TimeoutError
-      | RateLimitError
-      | ConfigError,
-      never
-    >;
+    return this.projectOps.getProject(projectKey);
   }
 
   getAllProjects(): Effect.Effect<
     Project[],
     NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError | NotFoundError
   > {
-    return pipe(
-      this.config.getConfig,
-      Effect.flatMap((config) => {
-        const url = `${config.jiraUrl}/rest/api/3/project`;
-
-        return pipe(
-          this.logger.debug('Fetching all projects'),
-          Effect.flatMap(() => this.http.get<unknown[]>(url, this.getAuthHeaders(config))),
-          Effect.mapError(this.mapHttpError),
-          Effect.flatMap((data) =>
-            Effect.try({
-              try: () => {
-                if (!Array.isArray(data)) {
-                  throw new Error('Projects response is not an array');
-                }
-                return data.map((project) => Schema.decodeUnknownSync(ProjectSchema)(project));
-              },
-              catch: (error) => new ParseError('Failed to parse projects response', 'projects', String(data), error),
-            }),
-          ),
-          Effect.tap((projects) => this.logger.debug('All projects fetched successfully', { count: projects.length })),
-          Effect.retry(this.createRetrySchedule()),
-        );
-      }),
-    ) as Effect.Effect<
-      Project[],
-      NetworkError | AuthenticationError | ParseError | TimeoutError | RateLimitError | ConfigError | NotFoundError,
-      never
-    >;
+    return this.projectOps.getAllProjects();
   }
 
-  // ============= Batch Operations =============
+  // ============= Batch Operations (delegated to BatchOperationsImpl) =============
   batchGetIssues(
     issueKeys: string[],
   ): Stream.Stream<
@@ -1097,7 +648,7 @@ class JiraClientServiceImpl implements JiraClientService {
     | RateLimitError
     | ConfigError
   > {
-    return batchGetIssues(this.issueOps, this.logger)(issueKeys);
+    return this.batchOps.batchGetIssues(issueKeys);
   }
 
   batchAssignIssues(
@@ -1106,85 +657,7 @@ class JiraClientServiceImpl implements JiraClientService {
     Array<{ issueKey: string; success: boolean; error?: string }>,
     ValidationError | NetworkError | AuthenticationError
   > {
-    return batchAssignIssues(this.issueOps)(assignments);
-  }
-
-  // ============= Private Helper Methods =============
-  private getAuthHeaders(config: { email: string; apiToken: string }): Record<string, string> {
-    const token = Buffer.from(`${config.email}:${config.apiToken}`).toString('base64');
-    return {
-      Authorization: `Basic ${token}`,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    };
-  }
-
-  private mapHttpError = (
-    error: unknown,
-  ): NetworkError | AuthenticationError | NotFoundError | RateLimitError | TimeoutError | ConfigError => {
-    // This would need to be implemented based on the HttpClientService error types
-    if (error instanceof Error) {
-      if (error.message.includes('401') || error.message.includes('403')) {
-        return new AuthenticationError(error.message);
-      }
-      if (error.message.includes('404')) {
-        return new NotFoundError(error.message);
-      }
-      if (error.message.includes('429')) {
-        return new RateLimitError(error.message);
-      }
-      if (error.message.includes('timeout')) {
-        return new TimeoutError(error.message);
-      }
-    }
-    return new NetworkError(String(error));
-  };
-
-  private createRetrySchedule(): Schedule.Schedule<unknown, unknown, unknown> {
-    return pipe(Schedule.exponential(Duration.millis(100)), Schedule.intersect(Schedule.recurs(3)), Schedule.jittered);
-  }
-
-  private validateProjectKey(projectKey: string): Effect.Effect<void, ValidationError> {
-    return Effect.sync(() => {
-      if (!projectKey || projectKey.length === 0) {
-        throw new ValidationError('Project key cannot be empty', 'projectKey', projectKey);
-      }
-      if (!/^[A-Z][A-Z0-9]*$/.test(projectKey)) {
-        throw new ValidationError('Invalid project key format', 'projectKey', projectKey);
-      }
-    });
-  }
-
-  private validateAccountId(accountId: string): Effect.Effect<void, ValidationError> {
-    return Effect.sync(() => {
-      if (!accountId || accountId.trim().length === 0) {
-        throw new ValidationError('Account ID cannot be empty', 'accountId', accountId);
-      }
-    });
-  }
-
-  private validateEmail(email: string): Effect.Effect<void, ValidationError> {
-    return Effect.sync(() => {
-      if (!email || !email.includes('@')) {
-        throw new ValidationError('Invalid email format', 'email', email);
-      }
-    });
-  }
-
-  private validateBoardId(boardId: number): Effect.Effect<void, ValidationError> {
-    return Effect.sync(() => {
-      if (!boardId || boardId <= 0) {
-        throw new ValidationError('Board ID must be a positive number', 'boardId', boardId);
-      }
-    });
-  }
-
-  private validateSprintId(sprintId: number): Effect.Effect<void, ValidationError> {
-    return Effect.sync(() => {
-      if (!sprintId || sprintId <= 0) {
-        throw new ValidationError('Sprint ID must be a positive number', 'sprintId', sprintId);
-      }
-    });
+    return this.batchOps.batchAssignIssues(assignments);
   }
 }
 

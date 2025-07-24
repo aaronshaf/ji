@@ -52,38 +52,45 @@ export function validateMock<T>(schema: Schema.Schema<T>, mock: unknown, mockNam
  * Creates a validated Issue mock that conforms to our Effect schema
  */
 export function createValidIssue(overrides: Partial<TestIssue> = {}): TestIssue {
+  const defaultFields = {
+    summary: 'Test Issue Summary',
+    description: 'Test issue description',
+    status: {
+      name: 'To Do',
+    },
+    assignee: {
+      displayName: 'Test Assignee',
+      emailAddress: 'assignee@test.com',
+      accountId: 'test-assignee-id',
+    },
+    reporter: {
+      displayName: 'Test Reporter',
+      emailAddress: 'reporter@test.com',
+      accountId: 'test-reporter-id',
+    },
+    priority: {
+      name: 'Medium',
+    },
+    created: '2024-01-01T00:00:00.000Z',
+    updated: '2024-01-01T00:00:00.000Z',
+    project: {
+      key: 'TEST',
+      name: 'Test Project',
+    },
+    labels: [],
+  };
+
+  // Extract fields from overrides to handle separately
+  const { fields: fieldOverrides, ...topLevelOverrides } = overrides;
+
   const defaultIssue: TestIssue = {
     key: 'TEST-123',
     self: 'https://test.atlassian.net/rest/api/3/issue/TEST-123',
     fields: {
-      summary: 'Test Issue Summary',
-      description: 'Test issue description',
-      status: {
-        name: 'To Do',
-      },
-      assignee: {
-        displayName: 'Test Assignee',
-        emailAddress: 'assignee@test.com',
-        accountId: 'test-assignee-id',
-      },
-      reporter: {
-        displayName: 'Test Reporter',
-        emailAddress: 'reporter@test.com',
-        accountId: 'test-reporter-id',
-      },
-      priority: {
-        name: 'Medium',
-      },
-      created: '2024-01-01T00:00:00.000Z',
-      updated: '2024-01-01T00:00:00.000Z',
-      project: {
-        key: 'TEST',
-        name: 'Test Project',
-      },
-      labels: [],
-      ...overrides.fields,
+      ...defaultFields,
+      ...fieldOverrides, // This merges field overrides with defaults
     },
-    ...overrides, // Apply top-level overrides after fields
+    ...topLevelOverrides, // Apply top-level overrides
   };
 
   // Update self URL to match key if key was overridden
@@ -177,4 +184,74 @@ export function validateAndReturn<T>(schema: Schema.Schema<T>, data: unknown, re
     console.error(`MSW mock validation error for ${responseName}:`, error);
     throw error;
   }
+}
+
+/**
+ * NOTE: Effect Schema Arbitrary generation has compatibility issues with our current schemas
+ * The IssueSchema uses Schema.Unknown for fields, which generates unpredictable arbitrary data
+ * For now, we'll keep the manual mock creation approach which gives us consistent, predictable mocks
+ *
+ * Future TODO: Create more specific schemas suitable for arbitrary generation, or
+ * investigate Effect Schema Arbitrary compatibility with fast-check versions
+ */
+
+/**
+ * Create an Issue mock using enhanced manual creation
+ * This approach gives us full control over the generated data structure
+ */
+export function createArbitraryIssue(overrides: Partial<TestIssue> = {}, _seed = 12345): TestIssue {
+  // For now, delegate to our proven manual creation approach
+  return createValidIssue(overrides);
+}
+
+/**
+ * Create a User mock using enhanced manual creation
+ */
+export function createArbitraryUser(overrides: Partial<JiraUser> = {}, _seed = 12345): JiraUser {
+  // For now, delegate to our proven manual creation approach
+  return createValidUser(overrides);
+}
+
+/**
+ * Create multiple diverse Issues for comprehensive testing
+ */
+export function createDiverseIssues(count: number, _baseSeed = 12345): TestIssue[] {
+  const diverseIssues: TestIssue[] = [];
+
+  const variations = [
+    { status: 'To Do', priority: 'High', project: 'ALPHA' },
+    { status: 'In Progress', priority: 'Medium', project: 'BETA' },
+    { status: 'In Review', priority: 'Low', project: 'GAMMA' },
+    { status: 'Testing', priority: null, project: 'DELTA' },
+  ];
+
+  for (let i = 0; i < count; i++) {
+    const variant = variations[i % variations.length];
+    const issue = createValidIssue({
+      key: `${variant.project}-${100 + i}`,
+      fields: {
+        summary: `Generated Issue ${i + 1}: Sample issue for testing`,
+        status: { name: variant.status },
+        priority: variant.priority ? { name: variant.priority } : null,
+        project: { key: variant.project, name: `${variant.project} Project` },
+        assignee: {
+          displayName: `Developer ${i + 1}`,
+          emailAddress: `dev${i + 1}@company.com`,
+          accountId: `dev-${i + 1}-id`,
+        },
+        reporter: {
+          displayName: `Reporter ${i + 1}`,
+          emailAddress: `reporter${i + 1}@company.com`,
+          accountId: `reporter-${i + 1}-id`,
+        },
+        labels: [`label-${i + 1}`],
+        created: `2024-01-${String(i + 1).padStart(2, '0')}T10:00:00.000Z`,
+        updated: `2024-01-${String(i + 2).padStart(2, '0')}T15:30:00.000Z`,
+      },
+    });
+
+    diverseIssues.push(issue);
+  }
+
+  return diverseIssues;
 }

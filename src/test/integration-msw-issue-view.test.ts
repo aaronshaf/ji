@@ -1,19 +1,18 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { Schema } from 'effect';
 import { IssueSchema, UserSchema } from '../lib/effects/jira/schemas';
 import { createValidIssue, createValidUser, validateAndReturn } from './msw-schema-validation';
+import { installFetchMock, restoreFetch } from './test-fetch-mock';
 
 // Bun Native HTTP Mocking - Replaces MSW completely
 // This provides the same functionality as MSW but with perfect Bun compatibility
 
-let originalFetch: typeof fetch;
-
 beforeEach(() => {
-  originalFetch = global.fetch;
+  // No setup needed - fetch mocking is handled per test
 });
 
 afterEach(() => {
-  global.fetch = originalFetch;
+  restoreFetch();
   delete process.env.ALLOW_REAL_API_CALLS;
 });
 
@@ -40,7 +39,7 @@ test('Bun HTTP mocking with schema validation works perfectly', async () => {
   });
 
   // Mock fetch with schema validation - replaces MSW server completely
-  (global.fetch as any) = mock(async (url: string | URL, _init?: RequestInit) => {
+  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
     const urlString = typeof url === 'string' ? url : url.toString();
 
     if (urlString.includes('/issue/BUN-123')) {
@@ -93,7 +92,7 @@ test('Bun HTTP mocking with schema validation works perfectly', async () => {
 
 test('Bun HTTP mocking handles 404 errors correctly', async () => {
   // Mock 404 error response (replaces MSW error handling)
-  (global.fetch as any) = mock(async (url: string | URL, _init?: RequestInit) => {
+  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
     if (typeof url === 'string' && url.includes('/issue/MISSING-999')) {
       return new Response(
         JSON.stringify({
@@ -121,7 +120,7 @@ test('Bun HTTP mocking handles 404 errors correctly', async () => {
 
 test('Bun HTTP mocking handles network timeouts', async () => {
   // Mock network timeout (replaces MSW timeout simulation)
-  (global.fetch as any) = mock(async (_url: string | URL, _init?: RequestInit) => {
+  installFetchMock(async (_url: string | URL, _init?: RequestInit) => {
     throw new Error('Network timeout');
   });
 
@@ -150,7 +149,7 @@ test('Bun HTTP mocking supports multiple request interception', async () => {
   });
 
   // Mock with request counting
-  (global.fetch as any) = mock(async (url: string | URL, _init?: RequestInit) => {
+  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
     const urlString = typeof url === 'string' ? url : url.toString();
 
     if (urlString.includes('/rest/api/3/issue/')) {
@@ -217,7 +216,7 @@ test('Bun HTTP mocking performance test', async () => {
   const startTime = performance.now();
 
   // Mock multiple rapid requests
-  (global.fetch as any) = mock(async (_url: string | URL, _init?: RequestInit) => {
+  installFetchMock(async (_url: string | URL, _init?: RequestInit) => {
     const mockIssue = createValidIssue({
       key: 'PERF-1',
     });
