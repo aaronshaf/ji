@@ -35,7 +35,7 @@ export interface SearchOptions {
 }
 
 export interface PaginatedResult<T> {
-  values: T[];
+  values: readonly T[] | T[];
   start: number;
   limit: number;
   size: number;

@@ -4,8 +4,7 @@
  * Handles all Jira API interactions with proper error handling and retry strategies
  */
 
-import { Context, Duration, Effect, Layer, Option, pipe, Schedule, type Stream } from 'effect';
-import { z } from 'zod';
+import { Context, Duration, Effect, Layer, Option, pipe, Schedule, Schema, type Stream } from 'effect';
 import {
   AuthenticationError,
   type ConfigError,
@@ -21,10 +20,20 @@ import {
   batchGetIssues,
   type Issue,
   IssueOperationsImpl,
-  IssueSchema,
   type IssueSearchResult,
   type SearchOptions,
 } from './jira/issue-operations.js';
+import {
+  type Board,
+  BoardsResponseSchema,
+  IssueSchema,
+  type JiraUser,
+  type Project,
+  ProjectSchema,
+  type Sprint,
+  SprintsResponseSchema,
+  UserSchema,
+} from './jira/schemas.js';
 import {
   type ConfigService,
   ConfigServiceTag,
@@ -34,74 +43,9 @@ import {
   LoggerServiceTag,
 } from './layers.js';
 
-// ============= Jira API Schemas (non-issue related) =============
-
-const BoardSchema = z.object({
-  id: z.number(),
-  name: z.string(),
-  type: z.enum(['scrum', 'kanban']),
-  location: z
-    .object({
-      projectKey: z.string().optional(),
-      projectName: z.string().optional(),
-      projectTypeKey: z.string().optional(),
-      avatarURI: z.string().optional(),
-      name: z.string().optional(),
-      displayName: z.string().optional(),
-    })
-    .optional(),
-  self: z.string(),
-});
-
-const BoardsResponseSchema = z.object({
-  values: z.array(BoardSchema),
-  startAt: z.number(),
-  maxResults: z.number(),
-  total: z.number(),
-});
-
-const SprintSchema = z.object({
-  id: z.number(),
-  self: z.string(),
-  state: z.enum(['active', 'closed', 'future']),
-  name: z.string(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  completeDate: z.string().optional(),
-  originBoardId: z.number(),
-  goal: z.string().optional(),
-});
-
-const SprintsResponseSchema = z.object({
-  values: z.array(SprintSchema),
-  startAt: z.number(),
-  maxResults: z.number(),
-  total: z.number(),
-});
-
-const ProjectSchema = z.object({
-  id: z.string(),
-  key: z.string(),
-  name: z.string(),
-  projectTypeKey: z.string(),
-  simplified: z.boolean().optional(),
-  style: z.string().optional(),
-});
-
-const UserSchema = z.object({
-  accountId: z.string(),
-  displayName: z.string(),
-  emailAddress: z.string().email().optional(),
-  active: z.boolean().optional(),
-});
-
-// ============= Exported Types =============
-export type Board = z.infer<typeof BoardSchema>;
-export type Sprint = z.infer<typeof SprintSchema>;
-export type Project = z.infer<typeof ProjectSchema>;
-export type JiraUser = z.infer<typeof UserSchema>;
 // Re-export Issue type and interfaces from issue-operations
 export type { Issue, IssueSearchResult, SearchOptions } from './jira/issue-operations.js';
+export type { Board, JiraUser, Project, Sprint } from './jira/schemas.js';
 
 export interface PaginatedResult<T> {
   values: T[];
@@ -498,7 +442,7 @@ class JiraClientServiceImpl implements JiraClientService {
           Effect.mapError(this.mapHttpError),
           Effect.flatMap((data) =>
             Effect.try({
-              try: () => UserSchema.parse(data),
+              try: () => Schema.decodeUnknownSync(UserSchema)(data),
               catch: (error) => new ParseError('Failed to parse user response', 'user', String(data), error),
             }),
           ),
@@ -542,7 +486,7 @@ class JiraClientServiceImpl implements JiraClientService {
                 if (!Array.isArray(data) || data.length === 0) {
                   return Option.none();
                 }
-                const user = UserSchema.parse(data[0]);
+                const user = Schema.decodeUnknownSync(UserSchema)(data[0]);
                 return Option.some(user);
               },
               catch: (error) =>
@@ -633,7 +577,7 @@ class JiraClientServiceImpl implements JiraClientService {
           Effect.flatMap((data) =>
             Effect.try({
               try: () => {
-                const result = BoardsResponseSchema.parse(data);
+                const result = Schema.decodeUnknownSync(BoardsResponseSchema)(data);
                 return {
                   values: result.values,
                   startAt: result.startAt,
@@ -806,7 +750,9 @@ class JiraClientServiceImpl implements JiraClientService {
                   maxResults?: number;
                   total?: number;
                 };
-                const issues = (parsedData.issues || []).map((issue: unknown) => IssueSchema.parse(issue));
+                const issues = (parsedData.issues || []).map((issue: unknown) =>
+                  Schema.decodeUnknownSync(IssueSchema)(issue),
+                );
                 return {
                   values: issues,
                   startAt: parsedData.startAt || 0,
@@ -866,7 +812,7 @@ class JiraClientServiceImpl implements JiraClientService {
           Effect.flatMap((data) =>
             Effect.try({
               try: () => {
-                const result = SprintsResponseSchema.parse(data);
+                const result = Schema.decodeUnknownSync(SprintsResponseSchema)(data);
                 return result.values;
               },
               catch: (error) => new ParseError('Failed to parse sprints response', 'sprints', String(data), error),
@@ -918,7 +864,7 @@ class JiraClientServiceImpl implements JiraClientService {
           Effect.flatMap((data) =>
             Effect.try({
               try: () => {
-                const result = SprintsResponseSchema.parse(data);
+                const result = Schema.decodeUnknownSync(SprintsResponseSchema)(data);
                 return result.values;
               },
               catch: (error) => new ParseError('Failed to parse sprints response', 'sprints', String(data), error),
@@ -986,7 +932,9 @@ class JiraClientServiceImpl implements JiraClientService {
                   maxResults?: number;
                   total?: number;
                 };
-                const issues = (parsedData.issues || []).map((issue: unknown) => IssueSchema.parse(issue));
+                const issues = (parsedData.issues || []).map((issue: unknown) =>
+                  Schema.decodeUnknownSync(IssueSchema)(issue),
+                );
                 return {
                   values: issues,
                   startAt: parsedData.startAt || 0,
@@ -1078,7 +1026,7 @@ class JiraClientServiceImpl implements JiraClientService {
           Effect.mapError(this.mapHttpError),
           Effect.flatMap((data) =>
             Effect.try({
-              try: () => ProjectSchema.parse(data),
+              try: () => Schema.decodeUnknownSync(ProjectSchema)(data),
               catch: (error) => new ParseError('Failed to parse project response', 'project', String(data), error),
             }),
           ),
@@ -1119,7 +1067,7 @@ class JiraClientServiceImpl implements JiraClientService {
                 if (!Array.isArray(data)) {
                   throw new Error('Projects response is not an array');
                 }
-                return data.map((project) => ProjectSchema.parse(project));
+                return data.map((project) => Schema.decodeUnknownSync(ProjectSchema)(project));
               },
               catch: (error) => new ParseError('Failed to parse projects response', 'projects', String(data), error),
             }),

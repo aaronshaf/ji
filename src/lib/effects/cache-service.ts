@@ -113,23 +113,23 @@ class CacheServiceImpl implements CacheService {
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   issue.key,
-                  issue.fields.project?.key || 'UNKNOWN',
-                  issue.fields.summary,
-                  issue.fields.status.name,
-                  issue.fields.priority?.name || null,
-                  issue.fields.assignee?.displayName || null,
-                  issue.fields.assignee?.emailAddress || null,
-                  issue.fields.reporter.displayName,
-                  issue.fields.reporter.emailAddress || null,
-                  new Date(issue.fields.created).getTime(),
-                  new Date(issue.fields.updated).getTime(),
-                  this.extractDescription(issue.fields.description),
+                  (issue.fields as Record<string, any>).project?.key || 'UNKNOWN',
+                  (issue.fields as Record<string, any>).summary,
+                  (issue.fields as Record<string, any>).status.name,
+                  (issue.fields as Record<string, any>).priority?.name || null,
+                  (issue.fields as Record<string, any>).assignee?.displayName || null,
+                  (issue.fields as Record<string, any>).assignee?.emailAddress || null,
+                  (issue.fields as Record<string, any>).reporter.displayName,
+                  (issue.fields as Record<string, any>).reporter.emailAddress || null,
+                  new Date((issue.fields as Record<string, any>).created).getTime(),
+                  new Date((issue.fields as Record<string, any>).updated).getTime(),
+                  this.extractDescription((issue.fields as Record<string, any>).description),
                   JSON.stringify(issue),
                   Date.now(),
                 ],
               ),
             ),
-            Effect.tap(() => this.updateProjectCache(issue.fields.project?.key || 'UNKNOWN')),
+            Effect.tap(() => this.updateProjectCache((issue.fields as Record<string, any>).project?.key || 'UNKNOWN')),
             Effect.asVoid,
           ),
         ),
@@ -453,7 +453,7 @@ class CacheServiceImpl implements CacheService {
       Effect.flatMap((rows) => {
         if (rows.length > 0) {
           const cachedUpdated = new Date(rows[0].updated);
-          const issueUpdated = new Date(issue.fields.updated);
+          const issueUpdated = new Date((issue.fields as Record<string, any>).updated);
 
           if (cachedUpdated > issueUpdated) {
             return Effect.fail(new ConcurrencyError('Issue has been updated by another process', issue.key, 'save'));

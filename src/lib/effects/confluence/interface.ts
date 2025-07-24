@@ -25,7 +25,10 @@ export interface ConfluenceClientService {
   readonly getAllSpaces: (options?: SearchOptions) => Effect.Effect<SpaceSearchResult, CommonErrors | NotFoundError>;
   readonly getSpacePermissions: (
     spaceKey: string,
-  ) => Effect.Effect<Array<{ operation: string; targetType: string }>, ValidationError | NotFoundError | CommonErrors>;
+  ) => Effect.Effect<
+    ReadonlyArray<{ operation: string; targetType: string }> | Array<{ operation: string; targetType: string }>,
+    ValidationError | NotFoundError | CommonErrors
+  >;
 
   // Content retrieval
   readonly getPage: (pageId: string, expand?: string[]) => Effect.Effect<Page, AllErrors>;
@@ -38,8 +41,10 @@ export interface ConfluenceClientService {
     options?: SpaceContentOptions,
   ) => Effect.Effect<PageSearchResult, ValidationError | CommonErrors | NotFoundError>;
   readonly getAllSpacePages: (spaceKey: string) => Stream.Stream<Page, ValidationError | CommonErrors | NotFoundError>;
-  readonly getChildPages: (pageId: string, expand?: string[]) => Effect.Effect<Page[], AllErrors>;
-  readonly getPageAncestors: (pageId: string) => Effect.Effect<Array<{ id: string; title: string }>, AllErrors>;
+  readonly getChildPages: (pageId: string, expand?: string[]) => Effect.Effect<readonly Page[] | Page[], AllErrors>;
+  readonly getPageAncestors: (
+    pageId: string,
+  ) => Effect.Effect<ReadonlyArray<{ id: string; title: string }> | Array<{ id: string; title: string }>, AllErrors>;
 
   // Content search and discovery
   readonly searchContent: (

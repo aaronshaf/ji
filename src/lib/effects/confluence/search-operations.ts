@@ -3,7 +3,7 @@
  * All search and discovery related operations
  */
 
-import { Effect, Option, pipe, Stream } from 'effect';
+import { Effect, Option, pipe, Schema, Stream } from 'effect';
 import {
   AuthenticationError,
   type ConfigError,
@@ -52,7 +52,7 @@ export class SearchOperations {
           Effect.flatMap((data) =>
             Effect.try({
               try: () => {
-                const result = SearchResponseSchema.parse(data);
+                const result = Schema.decodeUnknownSync(SearchResponseSchema)(data);
                 return result.results.map(
                   (searchResult): PageSummary => ({
                     id: searchResult.content.id,

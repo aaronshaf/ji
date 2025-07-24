@@ -3,7 +3,7 @@
  * All space-related operations
  */
 
-import { Effect, pipe } from 'effect';
+import { Effect, pipe, Schema } from 'effect';
 import {
   AuthenticationError,
   type ConfigError,
@@ -57,7 +57,7 @@ export class SpaceOperations {
           Effect.flatMap(() => this.makeRequest<unknown>(url)),
           Effect.flatMap((data) =>
             Effect.try({
-              try: () => SpaceSchema.parse(data),
+              try: () => Schema.decodeUnknownSync(SpaceSchema)(data),
               catch: (error) => new ParseError('Failed to parse space response', 'space', String(data), error),
             }),
           ),
@@ -87,7 +87,7 @@ export class SpaceOperations {
       Effect.flatMap((data) =>
         Effect.try({
           try: () => {
-            const result = SpaceListResponseSchema.parse(data);
+            const result = Schema.decodeUnknownSync(SpaceListResponseSchema)(data);
             return {
               values: result.results,
               start: result.start,
@@ -106,7 +106,7 @@ export class SpaceOperations {
   getSpacePermissions(
     spaceKey: string,
   ): Effect.Effect<
-    Array<{ operation: string; targetType: string }>,
+    ReadonlyArray<{ operation: string; targetType: string }> | Array<{ operation: string; targetType: string }>,
     | ValidationError
     | NotFoundError
     | NetworkError

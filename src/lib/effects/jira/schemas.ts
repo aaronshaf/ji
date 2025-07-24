@@ -1,128 +1,89 @@
 /**
  * Jira API Schemas
- * All Zod schemas for Jira API responses and validation
+ * All Effect schemas for Jira API responses and validation
  */
 
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 // ============= Jira API Schemas =============
-export const IssueSchema = z.object({
-  key: z.string(),
-  self: z.string(),
-  fields: z
-    .object({
-      summary: z.string(),
-      description: z.any().nullable(),
-      status: z.object({
-        name: z.string(),
-      }),
-      assignee: z
-        .object({
-          displayName: z.string(),
-          emailAddress: z.string().email().optional(),
-          accountId: z.string(),
-        })
-        .nullable(),
-      reporter: z.object({
-        displayName: z.string(),
-        emailAddress: z.string().email().optional(),
-        accountId: z.string(),
-      }),
-      priority: z
-        .object({
-          name: z.string(),
-        })
-        .nullable(),
-      project: z
-        .object({
-          key: z.string(),
-          name: z.string(),
-        })
-        .optional(),
-      created: z.string(),
-      updated: z.string(),
-      // Common sprint custom fields
-      customfield_10020: z.any().optional(),
-      customfield_10021: z.any().optional(),
-      customfield_10016: z.any().optional(),
-      customfield_10018: z.any().optional(),
-      customfield_10019: z.any().optional(),
-    })
-    .catchall(z.any()),
+export const IssueSchema = Schema.Struct({
+  key: Schema.String,
+  self: Schema.String,
+  fields: Schema.Unknown, // Accept any fields structure for flexibility
 });
 
-export const SearchResultSchema = z.object({
-  issues: z.array(IssueSchema),
-  startAt: z.number(),
-  maxResults: z.number(),
-  total: z.number(),
+export const SearchResultSchema = Schema.Struct({
+  issues: Schema.Array(IssueSchema),
+  startAt: Schema.Number,
+  maxResults: Schema.Number,
+  total: Schema.Number,
 });
 
-export const BoardSchema = z.object({
-  id: z.number(),
-  name: z.string(),
-  type: z.enum(['scrum', 'kanban']),
-  location: z
-    .object({
-      projectKey: z.string().optional(),
-      projectName: z.string().optional(),
-      projectTypeKey: z.string().optional(),
-      avatarURI: z.string().optional(),
-      name: z.string().optional(),
-      displayName: z.string().optional(),
-    })
-    .optional(),
-  self: z.string(),
+export const BoardSchema = Schema.Struct({
+  id: Schema.Number,
+  name: Schema.String,
+  type: Schema.Literal('scrum', 'kanban'),
+  location: Schema.optional(
+    Schema.Struct({
+      projectKey: Schema.optional(Schema.String),
+      projectName: Schema.optional(Schema.String),
+      projectTypeKey: Schema.optional(Schema.String),
+      avatarURI: Schema.optional(Schema.String),
+      name: Schema.optional(Schema.String),
+      displayName: Schema.optional(Schema.String),
+    }),
+  ),
+  self: Schema.String,
 });
 
-export const BoardsResponseSchema = z.object({
-  values: z.array(BoardSchema),
-  startAt: z.number(),
-  maxResults: z.number(),
-  total: z.number(),
+export const BoardsResponseSchema = Schema.Struct({
+  values: Schema.Array(BoardSchema),
+  startAt: Schema.Number,
+  maxResults: Schema.Number,
+  total: Schema.Number,
 });
 
-export const SprintSchema = z.object({
-  id: z.number(),
-  self: z.string(),
-  state: z.enum(['active', 'closed', 'future']),
-  name: z.string(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  completeDate: z.string().optional(),
-  originBoardId: z.number(),
-  goal: z.string().optional(),
+export const SprintSchema = Schema.Struct({
+  id: Schema.Number,
+  self: Schema.String,
+  state: Schema.Literal('active', 'closed', 'future'),
+  name: Schema.String,
+  startDate: Schema.optional(Schema.String),
+  endDate: Schema.optional(Schema.String),
+  completeDate: Schema.optional(Schema.String),
+  originBoardId: Schema.Number,
+  goal: Schema.optional(Schema.String),
 });
 
-export const SprintsResponseSchema = z.object({
-  values: z.array(SprintSchema),
-  startAt: z.number(),
-  maxResults: z.number(),
-  total: z.number(),
+export const SprintsResponseSchema = Schema.Struct({
+  values: Schema.Array(SprintSchema),
+  startAt: Schema.Number,
+  maxResults: Schema.Number,
+  total: Schema.Number,
 });
 
-export const ProjectSchema = z.object({
-  id: z.string(),
-  key: z.string(),
-  name: z.string(),
-  projectTypeKey: z.string(),
-  simplified: z.boolean().optional(),
-  style: z.string().optional(),
+export const ProjectSchema = Schema.Struct({
+  id: Schema.String,
+  key: Schema.String,
+  name: Schema.String,
+  projectTypeKey: Schema.String,
+  simplified: Schema.optional(Schema.Boolean),
+  style: Schema.optional(Schema.String),
 });
 
-export const UserSchema = z.object({
-  accountId: z.string(),
-  displayName: z.string(),
-  emailAddress: z.string().email().optional(),
-  active: z.boolean().optional(),
+export const UserSchema = Schema.Struct({
+  accountId: Schema.String,
+  displayName: Schema.String,
+  emailAddress: Schema.optional(Schema.String),
+  active: Schema.optional(Schema.Boolean),
 });
 
 // ============= Exported Types =============
-export type Issue = z.infer<typeof IssueSchema>;
-export type Board = z.infer<typeof BoardSchema>;
-export type Sprint = z.infer<typeof SprintSchema>;
-export type Project = z.infer<typeof ProjectSchema>;
-export type JiraUser = z.infer<typeof UserSchema>;
-export type SearchResult = z.infer<typeof SearchResultSchema>;
-export type BoardsResponse = z.infer<typeof BoardsResponseSchema>;
-export type SprintsResponse = z.infer<typeof SprintsResponseSchema>;
+export type Issue = Schema.Schema.Type<typeof IssueSchema>;
+export type Board = Schema.Schema.Type<typeof BoardSchema>;
+export type Sprint = Schema.Schema.Type<typeof SprintSchema>;
+export type Project = Schema.Schema.Type<typeof ProjectSchema>;
+export type JiraUser = Schema.Schema.Type<typeof UserSchema>;
+export type SearchResult = Schema.Schema.Type<typeof SearchResultSchema>;
+export type BoardsResponse = Schema.Schema.Type<typeof BoardsResponseSchema>;
+export type SprintsResponse = Schema.Schema.Type<typeof SprintsResponseSchema>;

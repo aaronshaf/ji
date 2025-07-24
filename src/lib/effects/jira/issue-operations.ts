@@ -3,8 +3,7 @@
  * Contains all issue-related operations extracted from jira-client-service.ts
  */
 
-import { Duration, Effect, Option, pipe, Schedule, Stream } from 'effect';
-import { z } from 'zod';
+import { Duration, Effect, Option, pipe, Schedule, Schema, Stream } from 'effect';
 import {
   AuthenticationError,
   type ConfigError,
@@ -16,62 +15,10 @@ import {
   ValidationError,
 } from '../errors.js';
 import type { ConfigService, HttpClientService, LoggerService } from '../layers.js';
+import { type Issue, IssueSchema, SearchResultSchema } from './schemas.js';
 
-// ============= Issue Schema =============
-export const IssueSchema = z.object({
-  key: z.string(),
-  self: z.string(),
-  fields: z
-    .object({
-      summary: z.string(),
-      description: z.any().nullable(),
-      status: z.object({
-        name: z.string(),
-      }),
-      assignee: z
-        .object({
-          displayName: z.string(),
-          emailAddress: z.string().email().optional(),
-          accountId: z.string(),
-        })
-        .nullable(),
-      reporter: z.object({
-        displayName: z.string(),
-        emailAddress: z.string().email().optional(),
-        accountId: z.string(),
-      }),
-      priority: z
-        .object({
-          name: z.string(),
-        })
-        .nullable(),
-      project: z
-        .object({
-          key: z.string(),
-          name: z.string(),
-        })
-        .optional(),
-      created: z.string(),
-      updated: z.string(),
-      // Common sprint custom fields
-      customfield_10020: z.any().optional(),
-      customfield_10021: z.any().optional(),
-      customfield_10016: z.any().optional(),
-      customfield_10018: z.any().optional(),
-      customfield_10019: z.any().optional(),
-    })
-    .catchall(z.any()),
-});
-
-export const SearchResultSchema = z.object({
-  issues: z.array(IssueSchema),
-  startAt: z.number(),
-  maxResults: z.number(),
-  total: z.number(),
-});
-
-// ============= Exported Types =============
-export type Issue = z.infer<typeof IssueSchema>;
+// Re-export Issue type for backward compatibility
+export type { Issue };
 
 export interface SearchOptions {
   startAt?: number;
@@ -225,7 +172,7 @@ export class IssueOperationsImpl {
           Effect.mapError(this.mapHttpError),
           Effect.flatMap((data) =>
             Effect.try({
-              try: () => IssueSchema.parse(data),
+              try: () => Schema.decodeUnknownSync(IssueSchema)(data),
               catch: (error) => new ParseError('Failed to parse issue response', 'issue', String(data), error),
             }),
           ),
@@ -283,7 +230,7 @@ export class IssueOperationsImpl {
           Effect.flatMap((data) =>
             Effect.try({
               try: () => {
-                const result = SearchResultSchema.parse(data);
+                const result = Schema.decodeUnknownSync(SearchResultSchema)(data);
                 return {
                   values: result.issues,
                   startAt: result.startAt,
@@ -455,7 +402,7 @@ export class IssueOperationsImpl {
           Effect.mapError(this.mapHttpError),
           Effect.flatMap((data) =>
             Effect.try({
-              try: () => IssueSchema.parse(data),
+              try: () => Schema.decodeUnknownSync(IssueSchema)(data),
               catch: (error) => new ParseError('Failed to parse created issue response', 'issue', String(data), error),
             }),
           ),

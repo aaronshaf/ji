@@ -85,7 +85,10 @@ export class ConfluenceClientServiceImpl implements ConfluenceClientService {
 
   getSpacePermissions(
     spaceKey: string,
-  ): Effect.Effect<Array<{ operation: string; targetType: string }>, ValidationError | NotFoundError | CommonErrors> {
+  ): Effect.Effect<
+    ReadonlyArray<{ operation: string; targetType: string }> | Array<{ operation: string; targetType: string }>,
+    ValidationError | NotFoundError | CommonErrors
+  > {
     return pipe(
       this.initializeOperations(),
       Effect.flatMap(() => this.spaceOps.getSpacePermissions(spaceKey)),
@@ -152,14 +155,16 @@ export class ConfluenceClientServiceImpl implements ConfluenceClientService {
     );
   }
 
-  getChildPages(pageId: string, expand?: string[]): Effect.Effect<Page[], AllErrors> {
+  getChildPages(pageId: string, expand?: string[]): Effect.Effect<readonly Page[] | Page[], AllErrors> {
     return pipe(
       this.initializeOperations(),
       Effect.flatMap(() => this.contentOps.getChildPages(pageId, expand)),
     );
   }
 
-  getPageAncestors(pageId: string): Effect.Effect<Array<{ id: string; title: string }>, AllErrors> {
+  getPageAncestors(
+    pageId: string,
+  ): Effect.Effect<ReadonlyArray<{ id: string; title: string }> | Array<{ id: string; title: string }>, AllErrors> {
     return pipe(
       this.initializeOperations(),
       Effect.flatMap(() => this.contentOps.getPageAncestors(pageId)),

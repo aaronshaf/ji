@@ -1,222 +1,222 @@
 /**
  * Confluence API Schemas
- * All Zod schemas for Confluence API responses
+ * All Effect schemas for Confluence API responses
  */
 
-import { z } from 'zod';
+import { Schema } from 'effect';
 
 // ============= Page Schema =============
-export const PageSchema = z.object({
-  id: z.string(),
-  type: z.string(),
-  status: z.string(),
-  title: z.string(),
-  space: z.object({
-    key: z.string(),
-    name: z.string(),
-    id: z.string().optional(),
-    type: z.string().optional(),
+export const PageSchema = Schema.Struct({
+  id: Schema.String,
+  type: Schema.String,
+  status: Schema.String,
+  title: Schema.String,
+  space: Schema.Struct({
+    key: Schema.String,
+    name: Schema.String,
+    id: Schema.optional(Schema.String),
+    type: Schema.optional(Schema.String),
   }),
-  version: z.object({
-    number: z.number(),
-    when: z.string(),
-    by: z
-      .object({
-        displayName: z.string(),
-        userKey: z.string().optional(),
-        accountId: z.string().optional(),
-      })
-      .optional(),
-    message: z.string().optional(),
-  }),
-  body: z
-    .object({
-      storage: z
-        .object({
-          value: z.string(),
-          representation: z.literal('storage'),
-        })
-        .optional(),
-      view: z
-        .object({
-          value: z.string(),
-          representation: z.literal('view'),
-        })
-        .optional(),
-      atlas_doc_format: z
-        .object({
-          value: z.string(),
-          representation: z.literal('atlas_doc_format'),
-        })
-        .optional(),
-    })
-    .optional(),
-  _links: z.object({
-    self: z.string(),
-    webui: z.string(),
-    base: z.string().optional(),
-  }),
-  ancestors: z
-    .array(
-      z.object({
-        id: z.string(),
-        title: z.string(),
+  version: Schema.Struct({
+    number: Schema.Number,
+    when: Schema.String,
+    by: Schema.optional(
+      Schema.Struct({
+        displayName: Schema.String,
+        userKey: Schema.optional(Schema.String),
+        accountId: Schema.optional(Schema.String),
       }),
-    )
-    .optional(),
+    ),
+    message: Schema.optional(Schema.String),
+  }),
+  body: Schema.optional(
+    Schema.Struct({
+      storage: Schema.optional(
+        Schema.Struct({
+          value: Schema.String,
+          representation: Schema.Literal('storage'),
+        }),
+      ),
+      view: Schema.optional(
+        Schema.Struct({
+          value: Schema.String,
+          representation: Schema.Literal('view'),
+        }),
+      ),
+      atlas_doc_format: Schema.optional(
+        Schema.Struct({
+          value: Schema.String,
+          representation: Schema.Literal('atlas_doc_format'),
+        }),
+      ),
+    }),
+  ),
+  _links: Schema.Struct({
+    self: Schema.String,
+    webui: Schema.String,
+    base: Schema.optional(Schema.String),
+  }),
+  ancestors: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        id: Schema.String,
+        title: Schema.String,
+      }),
+    ),
+  ),
 });
 
 // ============= Space Schema =============
-export const SpaceSchema = z.object({
-  id: z.string().optional(),
-  key: z.string(),
-  name: z.string(),
-  type: z.string(),
-  status: z.string(),
-  description: z
-    .object({
-      plain: z
-        .object({
-          value: z.string(),
-          representation: z.literal('plain'),
-        })
-        .optional(),
-    })
-    .optional(),
-  homepage: z
-    .object({
-      id: z.string(),
-      title: z.string(),
-    })
-    .optional(),
-  _links: z.object({
-    self: z.string(),
-    webui: z.string(),
-    base: z.string().optional(),
+export const SpaceSchema = Schema.Struct({
+  id: Schema.optional(Schema.String),
+  key: Schema.String,
+  name: Schema.String,
+  type: Schema.String,
+  status: Schema.String,
+  description: Schema.optional(
+    Schema.Struct({
+      plain: Schema.optional(
+        Schema.Struct({
+          value: Schema.String,
+          representation: Schema.Literal('plain'),
+        }),
+      ),
+    }),
+  ),
+  homepage: Schema.optional(
+    Schema.Struct({
+      id: Schema.String,
+      title: Schema.String,
+    }),
+  ),
+  _links: Schema.Struct({
+    self: Schema.String,
+    webui: Schema.String,
+    base: Schema.optional(Schema.String),
   }),
-  permissions: z
-    .array(
-      z.object({
-        operation: z.string(),
-        targetType: z.string(),
+  permissions: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        operation: Schema.String,
+        targetType: Schema.String,
       }),
-    )
-    .optional(),
+    ),
+  ),
 });
 
 // ============= List Response Schemas =============
-export const PageListResponseSchema = z.object({
-  results: z.array(PageSchema),
-  start: z.number(),
-  limit: z.number(),
-  size: z.number(),
-  _links: z
-    .object({
-      base: z.string().optional(),
-      context: z.string().optional(),
-      next: z.string().optional(),
-      prev: z.string().optional(),
-    })
-    .optional(),
+export const PageListResponseSchema = Schema.Struct({
+  results: Schema.Array(PageSchema),
+  start: Schema.Number,
+  limit: Schema.Number,
+  size: Schema.Number,
+  _links: Schema.optional(
+    Schema.Struct({
+      base: Schema.optional(Schema.String),
+      context: Schema.optional(Schema.String),
+      next: Schema.optional(Schema.String),
+      prev: Schema.optional(Schema.String),
+    }),
+  ),
 });
 
-export const SpaceListResponseSchema = z.object({
-  results: z.array(SpaceSchema),
-  start: z.number(),
-  limit: z.number(),
-  size: z.number(),
-  _links: z
-    .object({
-      base: z.string().optional(),
-      context: z.string().optional(),
-      next: z.string().optional(),
-      prev: z.string().optional(),
-    })
-    .optional(),
+export const SpaceListResponseSchema = Schema.Struct({
+  results: Schema.Array(SpaceSchema),
+  start: Schema.Number,
+  limit: Schema.Number,
+  size: Schema.Number,
+  _links: Schema.optional(
+    Schema.Struct({
+      base: Schema.optional(Schema.String),
+      context: Schema.optional(Schema.String),
+      next: Schema.optional(Schema.String),
+      prev: Schema.optional(Schema.String),
+    }),
+  ),
 });
 
 // ============= Search Result Schemas =============
-export const SearchResultSchema = z.object({
-  content: z.object({
-    id: z.string(),
-    type: z.string(),
-    title: z.string(),
-    space: z
-      .object({
-        key: z.string(),
-        name: z.string(),
-      })
-      .optional(),
-    version: z
-      .object({
-        number: z.number(),
-        when: z.string(),
-        by: z
-          .object({
-            displayName: z.string(),
-          })
-          .optional(),
-      })
-      .optional(),
-    _links: z.object({
-      webui: z.string(),
-      self: z.string().optional(),
+export const SearchResultSchema = Schema.Struct({
+  content: Schema.Struct({
+    id: Schema.String,
+    type: Schema.String,
+    title: Schema.String,
+    space: Schema.optional(
+      Schema.Struct({
+        key: Schema.String,
+        name: Schema.String,
+      }),
+    ),
+    version: Schema.optional(
+      Schema.Struct({
+        number: Schema.Number,
+        when: Schema.String,
+        by: Schema.optional(
+          Schema.Struct({
+            displayName: Schema.String,
+          }),
+        ),
+      }),
+    ),
+    _links: Schema.Struct({
+      webui: Schema.String,
+      self: Schema.optional(Schema.String),
     }),
   }),
-  url: z.string().optional(),
-  lastModified: z.string().optional(),
+  url: Schema.optional(Schema.String),
+  lastModified: Schema.optional(Schema.String),
 });
 
-export const SearchResponseSchema = z.object({
-  results: z.array(SearchResultSchema),
-  start: z.number(),
-  limit: z.number(),
-  size: z.number(),
-  totalSize: z.number().optional(),
-  _links: z
-    .object({
-      base: z.string().optional(),
-      context: z.string().optional(),
-      next: z.string().optional(),
-      prev: z.string().optional(),
-    })
-    .optional(),
+export const SearchResponseSchema = Schema.Struct({
+  results: Schema.Array(SearchResultSchema),
+  start: Schema.Number,
+  limit: Schema.Number,
+  size: Schema.Number,
+  totalSize: Schema.optional(Schema.Number),
+  _links: Schema.optional(
+    Schema.Struct({
+      base: Schema.optional(Schema.String),
+      context: Schema.optional(Schema.String),
+      next: Schema.optional(Schema.String),
+      prev: Schema.optional(Schema.String),
+    }),
+  ),
 });
 
 // ============= Attachment Schema =============
-export const AttachmentSchema = z.object({
-  id: z.string(),
-  type: z.literal('attachment'),
-  status: z.string(),
-  title: z.string(),
-  version: z.object({
-    number: z.number(),
-    when: z.string(),
-    by: z
-      .object({
-        displayName: z.string(),
-      })
-      .optional(),
+export const AttachmentSchema = Schema.Struct({
+  id: Schema.String,
+  type: Schema.Literal('attachment'),
+  status: Schema.String,
+  title: Schema.String,
+  version: Schema.Struct({
+    number: Schema.Number,
+    when: Schema.String,
+    by: Schema.optional(
+      Schema.Struct({
+        displayName: Schema.String,
+      }),
+    ),
   }),
-  container: z.object({
-    id: z.string(),
-    title: z.string(),
+  container: Schema.Struct({
+    id: Schema.String,
+    title: Schema.String,
   }),
-  metadata: z
-    .object({
-      mediaType: z.string(),
-      fileSize: z.number().optional(),
-      comment: z.string().optional(),
-    })
-    .optional(),
-  _links: z.object({
-    self: z.string(),
-    webui: z.string(),
-    download: z.string(),
+  metadata: Schema.optional(
+    Schema.Struct({
+      mediaType: Schema.String,
+      fileSize: Schema.optional(Schema.Number),
+      comment: Schema.optional(Schema.String),
+    }),
+  ),
+  _links: Schema.Struct({
+    self: Schema.String,
+    webui: Schema.String,
+    download: Schema.String,
   }),
 });
 
 // ============= Exported Types =============
-export type Page = z.infer<typeof PageSchema>;
-export type Space = z.infer<typeof SpaceSchema>;
-export type Attachment = z.infer<typeof AttachmentSchema>;
+export type Page = Schema.Schema.Type<typeof PageSchema>;
+export type Space = Schema.Schema.Type<typeof SpaceSchema>;
+export type Attachment = Schema.Schema.Type<typeof AttachmentSchema>;

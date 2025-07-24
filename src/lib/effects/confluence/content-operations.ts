@@ -3,7 +3,7 @@
  * All content-related operations (pages, creation, updates)
  */
 
-import { Effect, Option, pipe, Stream } from 'effect';
+import { Effect, Option, pipe, Schema, Stream } from 'effect';
 import {
   AuthenticationError,
   type ConfigError,
@@ -64,7 +64,7 @@ export class ContentOperations {
           Effect.flatMap(() => this.makeRequest<unknown>(url)),
           Effect.flatMap((data) =>
             Effect.try({
-              try: () => PageSchema.parse(data),
+              try: () => Schema.decodeUnknownSync(PageSchema)(data),
               catch: (error) => new ParseError('Failed to parse page response', 'page', String(data), error),
             }),
           ),
@@ -126,7 +126,7 @@ export class ContentOperations {
           Effect.flatMap((data) =>
             Effect.try({
               try: () => {
-                const result = PageListResponseSchema.parse(data);
+                const result = Schema.decodeUnknownSync(PageListResponseSchema)(data);
                 return {
                   values: result.results,
                   start: result.start,
@@ -172,7 +172,7 @@ export class ContentOperations {
   getChildPages(
     pageId: string,
     expand: string[] = ['body.storage', 'version', 'space'],
-  ): Effect.Effect<Page[], AllErrors> {
+  ): Effect.Effect<readonly Page[] | Page[], AllErrors> {
     return pipe(
       validatePageId(pageId),
       Effect.flatMap(() => {
@@ -188,7 +188,7 @@ export class ContentOperations {
           Effect.flatMap((data) =>
             Effect.try({
               try: () => {
-                const result = PageListResponseSchema.parse(data);
+                const result = Schema.decodeUnknownSync(PageListResponseSchema)(data);
                 return result.results;
               },
               catch: (error) =>
@@ -201,7 +201,9 @@ export class ContentOperations {
     );
   }
 
-  getPageAncestors(pageId: string): Effect.Effect<Array<{ id: string; title: string }>, AllErrors> {
+  getPageAncestors(
+    pageId: string,
+  ): Effect.Effect<ReadonlyArray<{ id: string; title: string }> | Array<{ id: string; title: string }>, AllErrors> {
     return pipe(
       this.getPage(pageId, ['ancestors']),
       Effect.map((page) => page.ancestors || []),
@@ -225,7 +227,7 @@ export class ContentOperations {
           ),
           Effect.flatMap((data) =>
             Effect.try({
-              try: () => PageSchema.parse(data),
+              try: () => Schema.decodeUnknownSync(PageSchema)(data),
               catch: (error) => new ParseError('Failed to parse created page response', 'page', String(data), error),
             }),
           ),
@@ -252,7 +254,7 @@ export class ContentOperations {
           ),
           Effect.flatMap((data) =>
             Effect.try({
-              try: () => PageSchema.parse(data),
+              try: () => Schema.decodeUnknownSync(PageSchema)(data),
               catch: (error) => new ParseError('Failed to parse updated page response', 'page', String(data), error),
             }),
           ),
@@ -298,7 +300,7 @@ export class ContentOperations {
           ),
           Effect.flatMap((data) =>
             Effect.try({
-              try: () => PageSchema.parse(data),
+              try: () => Schema.decodeUnknownSync(PageSchema)(data),
               catch: (error) => new ParseError('Failed to parse moved page response', 'page', String(data), error),
             }),
           ),

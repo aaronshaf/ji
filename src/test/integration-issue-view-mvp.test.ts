@@ -39,10 +39,6 @@ const mockIssue: Issue = {
 
 // Mock implementations
 class MockJiraClient {
-  constructor(config: any) {
-    // Allow construction in tests by bypassing protection
-  }
-
   async getIssue(key: string): Promise<Issue> {
     if (key === 'TEST-123') {
       return mockIssue;
@@ -70,7 +66,7 @@ class MockConfigManager {
 }
 
 class MockCacheManager {
-  async upsertIssue(issue: Issue) {
+  async upsertIssue(_issue: Issue) {
     // Mock cache update
     return;
   }
@@ -84,7 +80,7 @@ class MockCacheManager {
 }
 
 class MockContentManager {
-  async upsertContent(content: any) {
+  async upsertContent(_content: any) {
     // Mock content storage
     return;
   }
@@ -131,7 +127,7 @@ test('Integration test MVP - issue formatting produces expected output', () => {
 // Test the mock services work correctly
 test('Integration test MVP - mock services behave correctly', async () => {
   // Test JiraClient mock
-  const jiraClient = new MockJiraClient({});
+  const jiraClient = new MockJiraClient();
   const issue = await jiraClient.getIssue('TEST-123');
   expect(issue.key).toBe('TEST-123');
   expect(issue.fields.summary).toBe('Integration Test Issue');
@@ -165,7 +161,7 @@ test('Integration test concept - end-to-end workflow simulation', async () => {
   expect(config).toBeDefined();
 
   // 2. Create Jira client (mocked)
-  const jiraClient = new MockJiraClient(config);
+  const jiraClient = new MockJiraClient();
 
   // 3. Fetch issue (mocked)
   const issue = await jiraClient.getIssue(issueKey);

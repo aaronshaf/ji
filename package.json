@@ -41,8 +41,7 @@
     "ink-text-input": "^6.0.0",
     "meilisearch": "latest",
     "ora": "^8.2.0",
-    "turndown": "^7.2.0",
-    "zod": "^3.22.4"
+    "turndown": "^7.2.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.6",

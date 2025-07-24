@@ -3,7 +3,7 @@
  * All attachment-related operations
  */
 
-import { Effect, pipe } from 'effect';
+import { Effect, pipe, Schema } from 'effect';
 import {
   AuthenticationError,
   type ConfigError,
@@ -40,7 +40,7 @@ export class AttachmentOperations {
             Effect.try({
               try: () => {
                 const result = data as { results: unknown[] };
-                return result.results.map((attachment) => AttachmentSchema.parse(attachment));
+                return result.results.map((attachment) => Schema.decodeUnknownSync(AttachmentSchema)(attachment));
               },
               catch: (error) =>
                 new ParseError('Failed to parse attachments response', 'attachments', String(data), error),
@@ -88,7 +88,7 @@ export class AttachmentOperations {
             Effect.try({
               try: () => {
                 const result = data as { results: unknown[] };
-                return AttachmentSchema.parse(result.results[0]);
+                return Schema.decodeUnknownSync(AttachmentSchema)(result.results[0]);
               },
               catch: (error) => new ParseError('Failed to parse upload response', 'attachment', String(data), error),
             }),
