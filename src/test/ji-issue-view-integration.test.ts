@@ -1,47 +1,51 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { IssueSchema } from '../lib/effects/jira/schemas';
 import { createValidIssue, validateAndReturn } from './msw-schema-validation';
 import { installFetchMock, restoreFetch } from './test-fetch-mock';
 
+// Mock all the file system based modules before they're imported
+mock.module('../lib/config', () => ({
+  ConfigManager: class MockConfigManager {
+    async getConfig() {
+      return {
+        jiraUrl: 'https://test.atlassian.net',
+        email: 'test@instructure.com',
+        apiToken: 'test-token',
+      };
+    }
+    close() {}
+  },
+}));
+
+mock.module('../lib/cache', () => ({
+  CacheManager: class MockCacheManager {
+    async getIssue() {
+      return null; // Force API fetch
+    }
+    async saveIssue() {}
+    async saveSearchableContent() {}
+    close() {}
+  },
+}));
+
+mock.module('../lib/content-manager', () => ({
+  ContentManager: class MockContentManager {
+    async processAndStoreIssue() {}
+    async saveJiraIssue() {}
+    close() {}
+  },
+}));
+
 // Integration tests for the actual `ji EVAL-5767` command flow
 // Tests the real viewIssue function from issue.ts with comments
 
-// Mock configuration for tests
-const mockConfig = {
-  jiraUrl: 'https://test.atlassian.net',
-  email: 'test@instructure.com',
-  apiToken: 'test-token',
-};
-
-let testConfigDir: string;
-
 beforeEach(() => {
   // Clean state for each test
-  // Set up environment variable to use test config directory
-  testConfigDir = '/tmp/ji-test-' + Date.now();
-  process.env.JI_CONFIG_DIR = testConfigDir;
-
-  // Create the test config directory and auth file
-  if (!existsSync(testConfigDir)) {
-    mkdirSync(testConfigDir, { recursive: true });
-  }
-
-  // Write mock auth.json
-  const authPath = join(testConfigDir, 'auth.json');
-  writeFileSync(authPath, JSON.stringify(mockConfig, null, 2));
 });
 
 afterEach(() => {
   restoreFetch();
   delete process.env.ALLOW_REAL_API_CALLS;
-  delete process.env.JI_CONFIG_DIR;
-
-  // Clean up test directory
-  if (testConfigDir && existsSync(testConfigDir)) {
-    rmSync(testConfigDir, { recursive: true, force: true });
-  }
 });
 
 test('ji EVAL-5767 command - real issue viewing with comments array processing', async () => {
