@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 
 // Test MeilisearchAdapter without external dependencies
 describe('MeilisearchAdapter Utilities', () => {
