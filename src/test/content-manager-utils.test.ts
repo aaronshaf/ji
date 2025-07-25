@@ -65,6 +65,7 @@ describe('Content Manager Utilities', () => {
 
   describe('SearchableContent validation', () => {
     it('should validate SearchableContent structure', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const validateSearchableContent = (content: any): { valid: boolean; errors: string[] } => {
         const errors: string[] = [];
 
@@ -173,6 +174,7 @@ describe('Content Manager Utilities', () => {
 
   describe('Content metadata extraction', () => {
     it('should extract Jira issue metadata', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractJiraMetadata = (issue: any) => {
         return {
           status: issue.fields?.status?.name,
@@ -181,7 +183,11 @@ describe('Content Manager Utilities', () => {
           reporter: issue.fields?.reporter?.emailAddress,
           issueType: issue.fields?.issuetype?.name,
           labels: issue.fields?.labels || [],
-          components: issue.fields?.components?.map((c: any) => c.name) || [],
+          components:
+            issue.fields?.components?.map(
+              // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
+              (c: any) => c.name,
+            ) || [],
         };
       };
 
@@ -209,6 +215,7 @@ describe('Content Manager Utilities', () => {
     });
 
     it('should extract Confluence page metadata', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractConfluenceMetadata = (page: any) => {
         return {
           spaceKey: page.space?.key,
@@ -246,6 +253,7 @@ describe('Content Manager Utilities', () => {
 
   describe('Content transformation', () => {
     it('should transform Jira issue to SearchableContent', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const transformJiraIssue = (issue: any): any => {
         return {
           id: `jira:${issue.key}`,
@@ -256,7 +264,10 @@ describe('Content Manager Utilities', () => {
             issue.fields.summary,
             issue.fields.description || '',
             (issue.fields.labels || []).join(' '),
-            (issue.fields.components || []).map((c: any) => c.name).join(' '),
+            (issue.fields.components || [])
+              // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
+              .map((c: any) => c.name)
+              .join(' '),
           ]
             .filter(Boolean)
             .join(' '),
@@ -302,6 +313,7 @@ describe('Content Manager Utilities', () => {
     });
 
     it('should transform Confluence page to SearchableContent', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const transformConfluencePage = (page: any): any => {
         return {
           id: `confluence:${page.id}`,
@@ -448,6 +460,7 @@ describe('Content Manager Utilities', () => {
 
   describe('Error handling patterns', () => {
     it('should categorize content errors correctly', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const categorizeContentError = (error: any): { type: string; shouldRetry: boolean; userMessage: string } => {
         if (error.message?.includes('too large')) {
           return {

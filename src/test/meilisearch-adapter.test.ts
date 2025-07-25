@@ -4,6 +4,7 @@ import { describe, expect, it } from 'bun:test';
 describe('MeilisearchAdapter Utilities', () => {
   describe('Document transformation', () => {
     it('should transform SearchableContent to MeilisearchDocument format', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const transformSearchableContent = (content: any) => {
         return {
           id: content.id.replace(':', '_'),
@@ -66,6 +67,7 @@ describe('MeilisearchAdapter Utilities', () => {
     });
 
     it('should handle Confluence content transformation', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const transformSearchableContent = (content: any) => {
         return {
           id: content.id.replace(':', '_'),
@@ -116,6 +118,7 @@ describe('MeilisearchAdapter Utilities', () => {
     });
 
     it('should truncate long content to 50000 characters', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const transformSearchableContent = (content: any) => {
         return {
           content: content.content.substring(0, 50000),
@@ -153,8 +156,11 @@ describe('MeilisearchAdapter Utilities', () => {
 
   describe('Batch processing utilities', () => {
     it('should split content into Jira and Confluence batches', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const splitContentBySource = (contents: any[]) => {
+        // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
         const jiraDocs: any[] = [];
+        // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
         const confluenceDocs: any[] = [];
 
         for (const content of contents) {
@@ -410,6 +416,7 @@ describe('MeilisearchAdapter Utilities', () => {
 
   describe('Search result processing', () => {
     it('should process search hits correctly', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const processSearchHits = (hits: any[]) => {
         return hits.map((hit) => ({
           id: hit.originalId || hit.id,

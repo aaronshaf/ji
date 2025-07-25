@@ -201,6 +201,7 @@ describe('Ollama Utilities', () => {
 
   describe('Response processing', () => {
     it('should process successful response', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const processOllamaResponse = (data: any): { success: boolean; response?: string; error?: string } => {
         if (data.error) {
           return { success: false, error: `Ollama error: ${data.error}` };

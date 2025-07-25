@@ -13,6 +13,7 @@ const mockExec = ((command: string, callback: (error: Error | null, stdout: stri
   execCalls.push(command);
   // Simulate successful execution
   callback(null, '', '');
+  // biome-ignore lint/suspicious/noExplicitAny: Mock function for testing
 }) as any;
 
 // Test directory setup

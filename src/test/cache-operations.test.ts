@@ -144,6 +144,7 @@ describe('Cache Operations Utilities', () => {
 
   describe('ADF (Atlassian Document Format) processing', () => {
     it('should extract text from ADF nodes', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractTextFromADF = (node: any): string => {
         if (typeof node === 'string') return node;
         if (!node || typeof node !== 'object') return '';
@@ -202,6 +203,7 @@ describe('Cache Operations Utilities', () => {
     });
 
     it('should handle complex ADF structures', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractTextFromADF = (node: any): string => {
         if (typeof node === 'string') return node;
         if (!node || typeof node !== 'object') return '';
@@ -337,6 +339,7 @@ describe('Cache Operations Utilities', () => {
 
   describe('Error handling patterns', () => {
     it('should categorize cache errors correctly', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const categorizeError = (error: any): { type: string; shouldRetry: boolean; userMessage: string } => {
         if (error.message?.includes('SQLITE_BUSY')) {
           return {
@@ -397,6 +400,7 @@ describe('Cache Operations Utilities', () => {
 
   describe('Data transformation', () => {
     it('should transform issue data for storage', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const transformIssueForStorage = (issue: any) => {
         return {
           key: issue.key,
@@ -448,6 +452,7 @@ describe('Cache Operations Utilities', () => {
     });
 
     it('should handle missing fields gracefully', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const transformIssueForStorage = (issue: any) => {
         return {
           key: issue.key,

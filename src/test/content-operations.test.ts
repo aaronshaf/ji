@@ -4,6 +4,7 @@ import { describe, expect, it } from 'bun:test';
 describe('Content Operations', () => {
   describe('Content building', () => {
     it('should build searchable content from Jira issue', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const buildJiraContent = (issue: any): string => {
         const parts = [
           issue.key,
@@ -14,7 +15,10 @@ describe('Content Operations', () => {
           issue.fields.assignee?.displayName || '',
           issue.fields.reporter?.displayName || '',
           (issue.fields.labels || []).join(' '),
-          (issue.fields.components || []).map((c: any) => c.name).join(' '),
+          (issue.fields.components || [])
+            // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
+            .map((c: any) => c.name)
+            .join(' '),
         ];
         return parts.filter(Boolean).join(' ').trim();
       };
@@ -43,6 +47,7 @@ describe('Content Operations', () => {
     });
 
     it('should handle missing fields gracefully', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const buildJiraContent = (issue: any): string => {
         const parts = [
           issue.key,
@@ -69,6 +74,7 @@ describe('Content Operations', () => {
 
   describe('Content metadata extraction', () => {
     it('should extract Jira issue metadata', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractJiraMetadata = (issue: any) => {
         return {
           status: issue.fields?.status?.name,
@@ -102,6 +108,7 @@ describe('Content Operations', () => {
     });
 
     it('should extract Confluence page metadata', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractConfluenceMetadata = (page: any) => {
         return {
           space: page.space?.key,

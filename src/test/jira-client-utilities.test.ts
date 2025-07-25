@@ -66,6 +66,7 @@ describe('Jira Client Utilities', () => {
 
   describe('Issue field extraction', () => {
     it('should extract standard issue fields', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractIssueFields = (issue: any) => {
         return {
           key: issue.key,
@@ -125,6 +126,7 @@ describe('Jira Client Utilities', () => {
     });
 
     it('should handle missing optional fields gracefully', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractIssueFields = (issue: any) => {
         return {
           key: issue.key,
@@ -326,6 +328,7 @@ describe('Jira Client Utilities', () => {
 
   describe('Response validation', () => {
     it('should validate issue structure', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const isValidIssue = (issue: any): boolean => {
         return !!(
           issue &&
@@ -354,6 +357,7 @@ describe('Jira Client Utilities', () => {
     });
 
     it('should validate search response structure', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const isValidSearchResponse = (response: any): boolean => {
         return !!(
           response &&
@@ -381,6 +385,7 @@ describe('Jira Client Utilities', () => {
     });
 
     it('should validate board structure', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const isValidBoard = (board: any): boolean => {
         return !!(
           board &&
@@ -481,6 +486,7 @@ describe('Jira Client Utilities', () => {
 
   describe('Sprint field handling', () => {
     it('should extract sprint from custom fields', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractSprint = (issue: any): any => {
         // Common sprint field names
         const sprintFields = [
@@ -530,6 +536,7 @@ describe('Jira Client Utilities', () => {
 
   describe('Comment handling', () => {
     it('should extract comments from issue', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractComments = (issue: any): any[] => {
         const comments = issue.fields?.comment;
         if (!comments || !Array.isArray(comments.comments)) {

@@ -78,7 +78,7 @@ describe('Effect Error Handling', () => {
         if (error) {
           return { success: false, error };
         }
-        return { success: true, data: data! };
+        return { success: true, data: data as T };
       };
 
       // Success case
@@ -150,6 +150,7 @@ describe('Effect Error Handling', () => {
           return { success: false, error: ['Data must be an object'] };
         }
 
+        // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
         const obj = data as any;
 
         if (typeof obj.key !== 'string' || !obj.key.match(/^[A-Z]+-\d+$/)) {
@@ -223,6 +224,7 @@ describe('Effect Error Handling', () => {
           return { success: false, error: ['Config must be an object'] };
         }
 
+        // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
         const obj = data as any;
 
         if (typeof obj.jiraUrl !== 'string' || !obj.jiraUrl.startsWith('https://')) {

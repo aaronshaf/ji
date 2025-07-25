@@ -69,6 +69,7 @@ describe('API Utils', () => {
 
   describe('Response parsing', () => {
     it('should extract issue data correctly', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const parseIssueResponse = (issue: any) => {
         return {
           key: issue.key,
@@ -103,6 +104,7 @@ describe('API Utils', () => {
     });
 
     it('should handle missing assignee gracefully', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const parseIssueResponse = (issue: any) => {
         return {
           key: issue.key,
@@ -268,13 +270,18 @@ describe('Content Transformation', () => {
 
   describe('Metadata extraction', () => {
     it('should extract metadata from issue fields', () => {
+      // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
       const extractMetadata = (issue: any) => {
         return {
           status: issue.fields?.status?.name,
           priority: issue.fields?.priority?.name,
           issueType: issue.fields?.issuetype?.name,
           labels: issue.fields?.labels || [],
-          components: issue.fields?.components?.map((c: any) => c.name) || [],
+          components:
+            issue.fields?.components?.map(
+              // biome-ignore lint/suspicious/noExplicitAny: Mock data for testing
+              (c: any) => c.name,
+            ) || [],
         };
       };
 
