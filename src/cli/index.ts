@@ -18,7 +18,7 @@ import { initializeSetup } from './commands/setup.js';
 import { showSprint } from './commands/sprint.js';
 import { syncConfluence, syncJiraProject, syncWorkspaces } from './commands/sync.js';
 import { testCommand } from './commands/test.js';
-import { refreshInBackground, refreshSprintInBackground } from './utils/background.js';
+import { refreshInBackground, refreshSprintInBackground, syncMyIssuesInBackground } from './utils/background.js';
 
 // Command-specific help functions
 function showSearchHelp() {
@@ -564,6 +564,11 @@ async function main() {
       return;
     }
 
+    if (command === 'internal-sync-mine' && subArgs.length >= 1) {
+      await syncMyIssuesInBackground(subArgs[0], subArgs[1]);
+      return;
+    }
+
     // Main commands
     switch (command) {
       case 'auth':
@@ -882,13 +887,13 @@ async function main() {
         }
     }
   } catch (error) {
-    console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error');
+    console.error('Error:', error instanceof Error ? error.message : 'Unknown error');
     process.exit(1);
   }
 }
 
 // Run the CLI
 main().catch((error) => {
-  console.error(chalk.red('Fatal error:'), error);
+  console.error('Fatal error:', error);
   process.exit(1);
 });

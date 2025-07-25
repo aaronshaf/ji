@@ -283,6 +283,16 @@ export class CacheManager {
     }>;
   }
 
+  async getMyIssuesLastSync(assigneeEmail: string): Promise<Date | null> {
+    const stmt = this.db.prepare(`
+      SELECT MAX(synced_at) as last_sync
+      FROM issues
+      WHERE assignee_email = ?
+    `);
+    const result = stmt.get(assigneeEmail) as { last_sync: number | null } | undefined;
+    return result?.last_sync ? new Date(result.last_sync) : null;
+  }
+
   async getProjectLastSync(projectKey: string): Promise<Date | null> {
     const stmt = this.db.prepare(`
       SELECT MAX(synced_at) as last_sync
