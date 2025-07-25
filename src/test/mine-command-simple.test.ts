@@ -4,7 +4,7 @@ import { describe, expect, it } from 'bun:test';
 describe('mine command helpers', () => {
   describe('issue formatting', () => {
     it('should format issue data correctly for YAML output', () => {
-      const issue = {
+      const _issue = {
         key: 'TEST-123',
         project_key: 'TEST',
         summary: 'Test issue summary',
@@ -14,7 +14,7 @@ describe('mine command helpers', () => {
         updated: '2024-01-01T12:00:00Z',
       };
 
-      const expectedOutput = {
+      const _expectedOutput = {
         key: 'TEST-123',
         title: 'Test issue summary',
         status: 'In Progress',

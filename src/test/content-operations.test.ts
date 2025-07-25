@@ -221,11 +221,11 @@ describe('Content Operations', () => {
         return oldHash !== generateHash(newContent);
       };
 
-      const originalContent = 'Original content';
+      const _originalContent = 'Original content';
       const originalHash = '12345abc'; // Assume this is the hash of original content
 
       const updatedContent = 'Updated content';
-      const sameContent = 'Original content';
+      const _sameContent = 'Original content';
 
       expect(hasContentChanged(originalHash, updatedContent)).toBe(true);
       // Note: This would be false if we actually computed the hash correctly
@@ -239,7 +239,7 @@ describe('Content Operations', () => {
         if (content.length <= maxLength) {
           return content;
         }
-        return content.substring(0, maxLength - 3) + '...';
+        return `${content.substring(0, maxLength - 3)}...`;
       };
 
       const shortContent = 'Short content';
@@ -254,15 +254,15 @@ describe('Content Operations', () => {
       const formatSnippet = (content: string, query: string, contextSize: number = 50): string => {
         const queryIndex = content.toLowerCase().indexOf(query.toLowerCase());
         if (queryIndex === -1) {
-          return content.substring(0, contextSize * 2) + '...';
+          return `${content.substring(0, contextSize * 2)}...`;
         }
 
         const start = Math.max(0, queryIndex - contextSize);
         const end = Math.min(content.length, queryIndex + query.length + contextSize);
 
         let snippet = content.substring(start, end);
-        if (start > 0) snippet = '...' + snippet;
-        if (end < content.length) snippet = snippet + '...';
+        if (start > 0) snippet = `...${snippet}`;
+        if (end < content.length) snippet = `${snippet}...`;
 
         return snippet;
       };

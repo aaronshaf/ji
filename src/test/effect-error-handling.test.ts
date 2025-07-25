@@ -108,7 +108,7 @@ describe('Effect Error Handling', () => {
 
       const parseNumber = (str: string): Result<number, string> => {
         const num = parseInt(str);
-        if (isNaN(num)) {
+        if (Number.isNaN(num)) {
           return { success: false, error: 'Invalid number' };
         }
         return { success: true, data: num };
@@ -313,7 +313,7 @@ describe('Effect Error Handling', () => {
 
       // Acquire resources
       const resource1 = manager.acquire('res1');
-      const resource2 = manager.acquire('res2');
+      const _resource2 = manager.acquire('res2');
 
       expect(manager.getActiveCount()).toBe(2);
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 
 // Test for search command helpers
 describe('Search command coverage', () => {
@@ -66,7 +66,7 @@ describe('Search command coverage', () => {
         if (typeof limit === 'number') return Math.max(1, Math.min(limit, 100));
         if (typeof limit === 'string') {
           const parsed = parseInt(limit);
-          if (!isNaN(parsed)) return Math.max(1, Math.min(parsed, 100));
+          if (!Number.isNaN(parsed)) return Math.max(1, Math.min(parsed, 100));
         }
         return defaultLimit;
       };
