@@ -143,13 +143,21 @@ describe('ji mine --pretty flag formatting', () => {
 
   describe('YAML output format (without --pretty)', () => {
     it('should generate valid YAML structure', () => {
-      const generateYamlOutput = (issues: any[], projectFilter?: string) => {
+      interface TestIssue {
+        key: string;
+        project_key: string;
+        summary: string;
+        status: string;
+        updated: string;
+      }
+
+      const generateYamlOutput = (issues: TestIssue[], projectFilter?: string) => {
         if (issues.length === 0) {
           return `projects: []\n# No open issues assigned to you${projectFilter ? ` in project ${projectFilter}` : ''}`;
         }
 
         const lines: string[] = ['projects:'];
-        const grouped: Record<string, any[]> = {};
+        const grouped: Record<string, TestIssue[]> = {};
 
         // Group by project
         issues.forEach((issue) => {
@@ -208,7 +216,12 @@ describe('ji mine --pretty flag formatting', () => {
 
   describe('grouping by project', () => {
     it('should group issues by project key', () => {
-      const groupIssuesByProject = (issues: any[]): Record<string, any[]> => {
+      interface ProjectIssue {
+        key: string;
+        project_key: string;
+      }
+
+      const groupIssuesByProject = (issues: ProjectIssue[]): Record<string, ProjectIssue[]> => {
         const grouped = issues.reduce(
           (acc, issue) => {
             if (!acc[issue.project_key]) {
@@ -217,12 +230,12 @@ describe('ji mine --pretty flag formatting', () => {
             acc[issue.project_key].push(issue);
             return acc;
           },
-          {} as Record<string, any[]>,
+          {} as Record<string, ProjectIssue[]>,
         );
 
         // Sort issues within each project
         Object.keys(grouped).forEach((key) => {
-          grouped[key] = grouped[key].sort((a: any, b: any) => {
+          grouped[key] = grouped[key].sort((a, b) => {
             // Sort by some criteria (e.g., key)
             return a.key.localeCompare(b.key);
           });
