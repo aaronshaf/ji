@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import chalk from 'chalk';
 import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
 import { JiraClient } from '../../lib/jira-client.js';
@@ -69,7 +70,7 @@ const groupIssuesByProject = (issues: Issue[]): GroupedIssues => {
   return grouped;
 };
 
-export async function showMyIssues(projectFilter?: string) {
+export async function showMyIssues(projectFilter?: string, pretty = false) {
   const configManager = new ConfigManager();
   let cacheManager: CacheManager | null = null;
 
@@ -139,35 +140,84 @@ export async function showMyIssues(projectFilter?: string) {
     const lastSyncTime = await cacheManager.getMyIssuesLastSync(config.email);
 
     // Output YAML with data sync indicator
-    if (lastSyncTime) {
-      console.log(`# Last synced: ${formatTimeAgo(lastSyncTime.getTime())}`);
-    }
+    if (pretty) {
+      // Pretty colored output
+      if (lastSyncTime) {
+        console.log(chalk.gray(`Last synced: ${formatTimeAgo(lastSyncTime.getTime())}\n`));
+      }
 
-    if (displayIssues.length === 0) {
-      console.log('projects: []');
-      console.log(
-        `# No open issues assigned to you${projectFilter ? ` in project ${projectFilter.toUpperCase()}` : ''}`,
-      );
-    } else {
-      const groupedIssues = groupIssuesByProject(displayIssues);
+      if (displayIssues.length === 0) {
+        console.log(
+          chalk.gray(
+            `No open issues assigned to you${projectFilter ? ` in project ${projectFilter.toUpperCase()}` : ''}`,
+          ),
+        );
+      } else {
+        const groupedIssues = groupIssuesByProject(displayIssues);
 
-      console.log('projects:');
+        Object.entries(groupedIssues)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .forEach(([projectKey, issues]) => {
+            console.log(chalk.bold.cyan(`${projectKey}`));
+            console.log(chalk.gray('─'.repeat(40)));
 
-      Object.entries(groupedIssues)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .forEach(([projectKey, issues]) => {
-          console.log(`  - name: ${projectKey}`);
-          console.log('    issues:');
+            issues.forEach((issue) => {
+              const updatedTime = formatTimeAgo(new Date(issue.updated).getTime());
 
-          issues.forEach((issue) => {
-            const updatedTime = formatTimeAgo(new Date(issue.updated).getTime());
+              // Color code priority
+              let priorityColor = chalk.gray;
+              const priority = issue.priority;
+              if (priority === 'Highest' || priority === 'P1') priorityColor = chalk.red;
+              else if (priority === 'High' || priority === 'P2') priorityColor = chalk.yellow;
+              else if (priority === 'Medium' || priority === 'P3') priorityColor = chalk.blue;
 
-            console.log(`      - key: ${issue.key}`);
-            console.log(`        title: ${issue.summary}`);
-            console.log(`        status: ${issue.status}`);
-            console.log(`        updated: ${updatedTime}`);
+              // Color code status
+              let statusColor = chalk.gray;
+              const status = issue.status.toLowerCase();
+              if (status.includes('progress')) statusColor = chalk.yellow;
+              else if (status.includes('review')) statusColor = chalk.magenta;
+              else if (status.includes('todo') || status.includes('open')) statusColor = chalk.cyan;
+
+              console.log(`  ${chalk.bold(issue.key)} ${chalk.white(issue.summary)}`);
+              console.log(
+                `       ${statusColor(issue.status)} • ${priorityColor(issue.priority)} • ${chalk.gray(updatedTime)}`,
+              );
+              console.log();
+            });
           });
-        });
+      }
+    } else {
+      // Simple YAML output (default)
+      if (lastSyncTime) {
+        console.log(`# Last synced: ${formatTimeAgo(lastSyncTime.getTime())}`);
+      }
+
+      if (displayIssues.length === 0) {
+        console.log('projects: []');
+        console.log(
+          `# No open issues assigned to you${projectFilter ? ` in project ${projectFilter.toUpperCase()}` : ''}`,
+        );
+      } else {
+        const groupedIssues = groupIssuesByProject(displayIssues);
+
+        console.log('projects:');
+
+        Object.entries(groupedIssues)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .forEach(([projectKey, issues]) => {
+            console.log(`  - name: ${projectKey}`);
+            console.log('    issues:');
+
+            issues.forEach((issue) => {
+              const updatedTime = formatTimeAgo(new Date(issue.updated).getTime());
+
+              console.log(`      - key: ${issue.key}`);
+              console.log(`        title: ${issue.summary}`);
+              console.log(`        status: ${issue.status}`);
+              console.log(`        updated: ${updatedTime}`);
+            });
+          });
+      }
     }
 
     // Spawn background sync process (non-blocking)
