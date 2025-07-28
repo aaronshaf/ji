@@ -187,11 +187,13 @@ ${chalk.yellow('Description:')}
 
 ${chalk.yellow('Options:')}
   --project <key>           Filter by project key (e.g., CFA, EVAL)
+  --pretty                  Show colored output with formatting
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
   ji mine                   Show all your open issues
   ji mine --project CFA     Show only issues from project CFA
+  ji mine --pretty          Show issues with colored formatting
 `);
 }
 
@@ -607,7 +609,10 @@ async function main() {
           }
         }
 
-        await showMyIssues(projectFilter);
+        // Check for --pretty flag
+        const pretty = args.includes('--pretty');
+
+        await showMyIssues(projectFilter, pretty);
         break;
       }
 
