@@ -78,9 +78,9 @@ const syncJiraProjectEffect = (projectKey: string, options: { fresh?: boolean; c
         Effect.map((latestUpdate) => {
           let jql = `project = ${projectKey}`;
           if (latestUpdate && !options.fresh && !options.clean) {
-            // Add 1 minute overlap to catch any edge cases
+            // Add 5 minute overlap to catch any edge cases and concurrent updates
             const updateDate = new Date(latestUpdate);
-            updateDate.setMinutes(updateDate.getMinutes() - 1);
+            updateDate.setMinutes(updateDate.getMinutes() - 5);
             const formattedDate = updateDate.toISOString().split('.')[0].replace('T', ' ').substring(0, 16);
             jql += ` AND updated >= "${formattedDate}"`;
           }
