@@ -228,13 +228,30 @@ ${chalk.yellow('Description:')}
   2. Editor: ji comment EVAL-123 (opens $EDITOR)
   3. Pipe: echo "Fixed" | ji comment EVAL-123
 
+${chalk.yellow('Wiki Markup Formatting:')}
+  ${chalk.dim('Text:')}     *bold* _italic_ +underline+ -strikethrough- {{monospace}}
+  ${chalk.dim('Heading:')} h1. Title  h2. Subtitle  h3. Section
+  ${chalk.dim('Lists:')}    * Bullet  # Numbered  ** Nested
+  ${chalk.dim('Code:')}     {code:js}console.log('hi');{code}
+  ${chalk.dim('Panels:')}  {note}Note{note}  {warning}Warning{warning}  {tip}Tip{tip}
+  ${chalk.dim('Links:')}    [text|url]  [JIRA-123]  [~username]
+  ${chalk.dim('Tables:')}   ||Header||  |Cell|
+
 ${chalk.yellow('Options:')}
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
+  ${chalk.dim('# Simple comment')}
   ji comment EVAL-123 "Deployed the fix to staging"
-  ji comment EVAL-123                              # Opens editor
-  cat notes.md | ji comment EVAL-123               # From pipe
+  
+  ${chalk.dim('# Formatted comment')}
+  ji comment EVAL-123 "*Fixed* the login bug in _auth.js_"
+  
+  ${chalk.dim('# From editor (opens $EDITOR)')}
+  ji comment EVAL-123
+  
+  ${chalk.dim('# From pipe')}
+  cat release-notes.md | ji comment EVAL-123
 `);
 }
 

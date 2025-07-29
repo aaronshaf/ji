@@ -21,7 +21,7 @@ export class JiraClientComments extends JiraClientBase {
         }
       }),
       Effect.flatMap(() => {
-        const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}/comment`;
+        const url = `${this.config.jiraUrl}/rest/api/2/issue/${issueKey}/comment`;
 
         return Effect.tryPromise({
           try: async () => {
@@ -29,21 +29,7 @@ export class JiraClientComments extends JiraClientBase {
               method: 'POST',
               headers: this.getHeaders(),
               body: JSON.stringify({
-                body: {
-                  type: 'doc',
-                  version: 1,
-                  content: [
-                    {
-                      type: 'paragraph',
-                      content: [
-                        {
-                          type: 'text',
-                          text: comment,
-                        },
-                      ],
-                    },
-                  ],
-                },
+                body: comment,
               }),
             });
 

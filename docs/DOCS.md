@@ -110,6 +110,7 @@ ji mine                      # Show your assigned issues
 ji issue view <KEY>          # View issue details
 ji issue sync <PROJECT>      # Sync all issues from a project
 ji take <KEY>                # Assign issue to yourself
+ji comment <KEY> ["text"]    # Add comment to issue (3 modes)
 ji board [PROJECT]           # Show boards (all or by project)
 ji sprint [PROJECT]          # Show current sprint(s)
 ji sprint unassigned [PROJ]  # Show unassigned sprint issues
@@ -159,6 +160,201 @@ ji test                      # Run all configured tests
 - `--all` - Include closed/resolved issues
 - `--include-jira` - Include Jira in AI answers
 - `--include-old` - Include old documents (3+ years)
+
+## Adding Comments to Issues
+
+The `ji comment` command allows you to add comments to Jira issues with full wiki markup support.
+
+### Usage Modes
+
+```bash
+# Mode 1: Inline comment
+ji comment PROJ-123 "This is a quick comment"
+
+# Mode 2: Interactive editor (opens $EDITOR, defaults to vi)
+ji comment PROJ-123
+
+# Mode 3: Pipe from other commands
+echo "Generated comment" | ji comment PROJ-123
+cat release-notes.md | ji comment PROJ-123
+```
+
+### Wiki Markup Formatting
+
+Comments support Jira's wiki markup for rich formatting:
+
+#### Text Formatting
+```
+*bold text*              → **bold text**
+_italic text_            → *italic text*
++underlined text+        → underlined text
+-strikethrough text-     → ~~strikethrough text~~
+{{monospace}}            → `monospace`
+^superscript^            → superscript
+~subscript~              → subscript
+```
+
+#### Headings
+```
+h1. Biggest heading
+h2. Big heading
+h3. Medium heading
+h4. Small heading
+h5. Smaller heading
+h6. Smallest heading
+```
+
+#### Lists
+```
+# Numbered list
+# Second item
+## Nested item
+### Deeply nested
+
+* Bullet list
+* Second item
+** Nested item
+*** Deeply nested
+
+# Mixed list
+#* Bullet under number
+#* Another bullet
+# Back to numbers
+```
+
+#### Code and Quotes
+```
+{code:javascript}
+function example() {
+  console.log("Syntax highlighted");
+}
+{code}
+
+{code}
+Plain code block
+{code}
+
+{quote}
+This is a quoted block.
+Can span multiple lines.
+{quote}
+
+{noformat}
+Preserves    exact    spacing
+and line breaks
+{noformat}
+```
+
+#### Links and References
+```
+[Google|https://google.com]     # External link
+[PROJ-123]                      # Issue link
+[~username]                     # User mention
+[^attachment.pdf]               # Attachment reference
+mailto:email@example.com        # Email link
+```
+
+#### Panels
+```
+{note}
+This is a note panel - light blue background
+{note}
+
+{warning}
+This is a warning panel - yellow background
+{warning}
+
+{info}
+This is an info panel - blue background
+{info}
+
+{tip}
+This is a tip panel - green background
+{tip}
+
+{panel:title=Custom Panel|borderStyle=solid|borderColor=#ccc|titleBGColor=#F7D6C1|bgColor=#FFFFCE}
+Custom styled panel with title
+{panel}
+```
+
+#### Tables
+```
+||Header 1||Header 2||Header 3||
+|Cell 1|Cell 2|Cell 3|
+|Cell 4|Cell 5|Cell 6|
+```
+
+#### Other Formatting
+```
+----                    # Horizontal rule
+{color:red}text{color}  # Colored text
+{color:#00ff00}text{color}  # Hex color
+bq. Block quote         # Alternative quote syntax
+{anchor:myanchor}       # Create anchor
+[#myanchor]             # Link to anchor
+!image.png!             # Embed image
+!image.png|width=300!   # Sized image
+```
+
+### Complex Example
+
+```bash
+ji comment PROJ-123 "h1. Release Notes v2.0
+
+h2. 🚀 New Features
+* *Enhanced Performance* - 50% faster load times
+* _New API endpoints_ for better integration
+* +Improved UI+ with modern design
+
+h2. 🐛 Bug Fixes
+# Fixed authentication issue [BUG-456]
+# Resolved memory leak in background process
+## Updated dependency versions
+## Improved error handling
+
+h2. 💻 Code Changes
+{code:javascript}
+// New feature implementation
+async function enhancedFeature() {
+  return await performanceBoost();
+}
+{code}
+
+{warning}
+Breaking changes in this release!
+Please review the migration guide before updating.
+{warning}
+
+h2. 👥 Contributors
+Thanks to [~john.doe] and [~jane.smith] for their contributions!
+
+||Component||Version||Status||
+|Frontend|2.0.0|✅ Stable|
+|Backend|2.0.0|✅ Stable|
+|API|v2|⚠️ Breaking changes|
+
+For more information, see our [documentation|https://docs.example.com]."
+```
+
+### Tips
+
+1. **Preview before posting**: Write complex comments in a file first
+   ```bash
+   vi comment.md
+   cat comment.md | ji comment PROJ-123
+   ```
+
+2. **Template comments**: Create reusable templates
+   ```bash
+   cat templates/release-note.md | ji comment PROJ-123
+   ```
+
+3. **Generate formatted reports**: Combine with other commands
+   ```bash
+   ji mine | grep "In Progress" | \
+   awk '{print "* [" $1 "] - " $2}' | \
+   ji comment SPRINT-REVIEW
+   ```
 
 ## Search & AI Features
 
