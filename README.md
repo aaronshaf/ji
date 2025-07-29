@@ -173,6 +173,7 @@ ji mine                      # Your issues
 ji <ISSUE-KEY>               # View issue (shorthand)
 ji issue view <KEY>          # View issue (full command)
 ji take <KEY>                # Assign to yourself
+ji comment <KEY> ["text"]    # Add comment (supports wiki markup)
 ji sprint [PROJECT]          # Sprint overview
 
 # Confluence
