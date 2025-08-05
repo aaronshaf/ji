@@ -56,12 +56,14 @@ ${chalk.yellow('Subcommands:')}
 
 ${chalk.yellow('Options:')}
   --json                    Output in JSON format (for view)
+  --sync                    Fetch fresh data from API (for view)
   --clean                   Clean sync - remove existing issues first
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
   ji issue view EVAL-123
   ji issue view EVAL-123 --json
+  ji issue view EVAL-123 --sync
   ji issue sync EVAL --clean
 `);
 }
@@ -706,7 +708,7 @@ async function main() {
         }
 
         if (subArgs[0] === 'view' && subArgs[1]) {
-          await viewIssue(subArgs[1], { json: args.includes('--json') });
+          await viewIssue(subArgs[1], { json: args.includes('--json'), sync: args.includes('--sync') });
         } else if (subArgs[0] === 'sync' && subArgs[1]) {
           await syncJiraProject(subArgs[1], { clean: args.includes('--clean') });
         } else {
@@ -901,7 +903,7 @@ async function main() {
       default:
         // Check if it's an issue key (e.g., ABC-123)
         if (/^[A-Z]+-\d+$/.test(command)) {
-          await viewIssue(command, { json: args.includes('--json') });
+          await viewIssue(command, { json: args.includes('--json'), sync: args.includes('--sync') });
         } else {
           console.error(`Unknown command: ${command}`);
           console.log('Run "ji help" for usage information');
