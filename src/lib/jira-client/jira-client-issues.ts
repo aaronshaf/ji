@@ -89,6 +89,7 @@ export class JiraClientIssues extends JiraClientBase {
       const result = await this.searchIssues(searchJql, {
         startAt,
         maxResults,
+        fields: ISSUE_FIELDS,
       });
 
       allIssues.push(...result.issues);
@@ -265,7 +266,7 @@ export class JiraClientIssues extends JiraClientBase {
 
         // First, get the total count
         return pipe(
-          this.searchIssuesEffect(searchJql, { startAt: 0, maxResults: 1 }),
+          this.searchIssuesEffect(searchJql, { startAt: 0, maxResults: 1, fields: ISSUE_FIELDS }),
           Effect.flatMap(({ total }) => {
             if (total === 0) {
               return Effect.succeed([] as Issue[]);
@@ -278,6 +279,7 @@ export class JiraClientIssues extends JiraClientBase {
                 this.searchIssuesEffect(searchJql, {
                   startAt: i * maxResults,
                   maxResults,
+                  fields: ISSUE_FIELDS,
                 }),
                 Effect.map((result) => result.issues),
                 Effect.tap(() =>
