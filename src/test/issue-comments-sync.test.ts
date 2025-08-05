@@ -10,14 +10,12 @@ describe('Issue Comments Sync', () => {
       apiToken: 'test-token',
     };
 
-    let capturedUrl: string | undefined;
     let capturedFields: string | undefined;
 
     // Mock fetch to capture the URL and fields
     const originalFetch = global.fetch;
     global.fetch = mock(async (url: string) => {
       const urlObj = new URL(url);
-      capturedUrl = urlObj.toString();
       capturedFields = urlObj.searchParams.get('fields') || undefined;
 
       return {
@@ -30,7 +28,7 @@ describe('Issue Comments Sync', () => {
           maxResults: 100,
         }),
       };
-    }) as any;
+    }) as unknown as typeof fetch;
 
     // Temporarily allow real API calls to create the client
     const originalEnv = process.env.ALLOW_REAL_API_CALLS;
@@ -82,7 +80,7 @@ describe('Issue Comments Sync', () => {
           maxResults: 100,
         }),
       };
-    }) as any;
+    }) as unknown as typeof fetch;
 
     // Temporarily allow real API calls to create the client
     const originalEnv = process.env.ALLOW_REAL_API_CALLS;
@@ -139,7 +137,7 @@ describe('Issue Comments Sync', () => {
           },
         }),
       };
-    }) as any;
+    }) as unknown as typeof fetch;
 
     // Temporarily allow real API calls to create the client
     const originalEnv = process.env.ALLOW_REAL_API_CALLS;
@@ -156,10 +154,10 @@ describe('Issue Comments Sync', () => {
 
       // Verify the issue has comments
       expect(issue.fields).toBeDefined();
-      const fields = issue.fields as any;
+      const fields = issue.fields as { comment?: { comments: unknown[] } };
       expect(fields.comment).toBeDefined();
-      expect(fields.comment.comments).toBeArray();
-      expect(fields.comment.comments).toHaveLength(1);
+      expect(fields.comment?.comments).toBeArray();
+      expect(fields.comment?.comments).toHaveLength(1);
     } finally {
       global.fetch = originalFetch;
     }
