@@ -163,28 +163,28 @@ describe('Issue Comments Sync', () => {
     }
   });
 
-  test('CLI recognizes --sync flag for issue view command', () => {
+  test('CLI recognizes --fetch flag for issue view command', () => {
     // This test verifies the CLI parsing logic
-    const testArgs = ['issue', 'view', 'TEST-123', '--sync'];
+    const testArgs = ['issue', 'view', 'TEST-123', '--fetch'];
 
     // Simulate argument parsing
-    const hasSync = testArgs.includes('--sync');
+    const hasFetch = testArgs.includes('--fetch');
     const hasJson = testArgs.includes('--json');
 
-    expect(hasSync).toBe(true);
+    expect(hasFetch).toBe(true);
     expect(hasJson).toBe(false);
   });
 
-  test('CLI recognizes --sync flag for direct issue key command', () => {
-    // Test for the shorthand ji TEST-123 --sync
-    const testArgs = ['TEST-123', '--sync'];
+  test('CLI recognizes --fetch flag for direct issue key command', () => {
+    // Test for the shorthand ji TEST-123 --fetch
+    const testArgs = ['TEST-123', '--fetch'];
 
     // Check if it's an issue key
     const isIssueKey = /^[A-Z]+-\d+$/.test(testArgs[0]);
-    const hasSync = testArgs.includes('--sync');
+    const hasFetch = testArgs.includes('--fetch');
 
     expect(isIssueKey).toBe(true);
-    expect(hasSync).toBe(true);
+    expect(hasFetch).toBe(true);
   });
 
   test('ISSUE_FIELDS constant includes comment field', () => {
