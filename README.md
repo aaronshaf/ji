@@ -6,11 +6,11 @@
 A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Features local caching with instant search and AI-powered Q&A.
 
 **Key benefits:**
-- ⚡ **Lightning fast** - local caching means <50ms searches
-- 🔍 **Smart search** - finds what you need with typo tolerance
-- 🤖 **AI assistant** - ask questions about your knowledge base
-- 🔄 **Always fresh** - automatic background sync
-- 📝 **LLM-friendly** - YAML output format, minimal tokens, no color codes
+- **Lightning fast** - local caching means <50ms searches
+- **Smart search** - finds what you need with typo tolerance
+- **AI assistant** - ask questions about your knowledge base
+- **Always fresh** - automatic background sync
+- **LLM-friendly** - YAML output format, minimal tokens, no color codes
 
 ## Local-First Architecture
 
@@ -99,29 +99,29 @@ ji sync
 
 ## Key Features
 
-### 🔍 Instant Search
+### Instant Search
 All data is cached locally in SQLite with full-text search. Searches complete in milliseconds, even offline.
 
-### 🤖 AI Assistant (Optional)
+### AI Assistant (Optional)
 With Ollama installed, ask natural language questions about your knowledge base:
 ```bash
 ji ask "What's our API rate limit?"
 ji ask "Who owns the payment service?"
 ```
 
-### 📱 Smart Sync
+### Smart Sync
 - Incremental sync only fetches changes
 - Background refresh keeps data current
 - Works offline with cached data
 
-### 🎯 Sprint Management
+### Sprint Management
 ```bash
 ji sprint              # Current sprint overview
 ji sprint unassigned   # Unassigned issues
 ji board PROJ          # View project board
 ```
 
-### 🧪 Testing Framework
+### Testing Framework
 Built-in testing for environment-specific commands:
 ```bash
 ji test --setup        # Configure tests for your environment
