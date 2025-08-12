@@ -18,6 +18,7 @@ import { initializeSetup } from './commands/setup.js';
 import { showSprint } from './commands/sprint.js';
 import { syncConfluence, syncJiraProject, syncWorkspaces } from './commands/sync.js';
 import { testCommand } from './commands/test.js';
+import { uncommentedCommand } from './commands/uncommented.js';
 import { refreshInBackground, refreshSprintInBackground, syncMyIssuesInBackground } from './utils/background.js';
 
 // Command-specific help functions
@@ -65,6 +66,32 @@ ${chalk.yellow('Examples:')}
   ji issue view EVAL-123 --json
   ji issue view EVAL-123 --fetch
   ji issue sync EVAL --clean
+`);
+}
+
+function showUncommentedHelp() {
+  console.log(`
+${chalk.bold('ji uncommented - Find issues without your comments')}
+
+${chalk.yellow('Usage:')}
+  ji uncommented [PROJECT] [options]
+
+${chalk.yellow('Options:')}
+  --days N                  Look back N days (default: 7)
+  --limit N                 Limit results to N issues (default: 50)
+  --json                    Output in JSON format
+  --help                    Show this help message
+
+${chalk.yellow('Examples:')}
+  ji uncommented            # All projects, last 7 days
+  ji uncommented EVAL       # EVAL project only
+  ji uncommented --days 14  # Last 14 days
+  ji uncommented EVAL --limit 20
+  ji uncommented --json     # JSON output for scripting
+
+${chalk.yellow('Description:')}
+  Shows recently created issues that you haven't commented on yet.
+  Useful for finding issues that may need your input or review.
 `);
 }
 
@@ -506,6 +533,7 @@ ${chalk.yellow('Authentication:')}
 
 ${chalk.yellow('Issues:')}
   ji mine                              Show your open issues
+  ji uncommented [project]             Find issues without your comments
   ji take <issue-key>                  Assign an issue to yourself
   ji done <issue-key>                  Mark an issue as Done
   ji open <issue-key>                  Open issue in browser
@@ -606,6 +634,14 @@ async function main() {
           process.exit(0);
         }
         await initializeSetup();
+        break;
+
+      case 'uncommented':
+        if (args.includes('--help')) {
+          showUncommentedHelp();
+          process.exit(0);
+        }
+        await uncommentedCommand(args);
         break;
 
       case 'mine': {
