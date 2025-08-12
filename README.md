@@ -3,14 +3,13 @@
 [![CI](https://github.com/aaronshaf/ji/actions/workflows/ci.yml/badge.svg)](https://github.com/aaronshaf/ji/actions/workflows/ci.yml)
 [![Code Quality](https://img.shields.io/badge/warnings-0-brightgreen)](https://github.com/aaronshaf/ji/actions/workflows/ci.yml)
 
-A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Features local caching with instant search and AI-powered Q&A.
+A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Features local caching for instant access.
 
 **Key benefits:**
-- **Lightning fast** - local caching means <50ms searches
-- **Smart search** - finds what you need with typo tolerance
-- **AI assistant** - ask questions about your knowledge base
+- **Lightning fast** - local caching means instant responses
 - **Always fresh** - automatic background sync
 - **LLM-friendly** - YAML output format, minimal tokens, no color codes
+- **Offline capable** - full functionality without network access
 
 ## Local-First Architecture
 
@@ -22,7 +21,7 @@ A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Featur
 - **Zero waiting** - No spinners, no progress bars, just instant results
 - **Offline capable** - Full functionality even without network access
 
-When you run commands like `ji mine` or `ji search`, you get results instantly from your local cache. The data age is always visible, and fresh data syncs automatically in the background.
+When you run commands like `ji mine`, you get results instantly from your local cache. The data age is always visible, and fresh data syncs automatically in the background.
 
 ## Installation
 
@@ -48,9 +47,7 @@ ji init
 
 This interactive wizard will:
 1. Set up your Atlassian credentials
-2. Install search tools (Meilisearch)
-3. Optionally set up AI features (Ollama)
-4. Sync your first project/space
+2. Sync your first project/space
 
 ## Common Commands
 
@@ -71,19 +68,6 @@ ji take PROJ-456
 ji sprint
 ```
 
-### Search & Ask
-
-```bash
-# Search everything
-ji search "login bug"
-
-# Search only Confluence
-ji search "api docs" --source confluence
-
-# Ask the AI assistant
-ji ask "How do we deploy to production?"
-```
-
 ### Sync Data
 
 ```bash
@@ -98,16 +82,6 @@ ji sync
 ```
 
 ## Key Features
-
-### Instant Search
-All data is cached locally in SQLite with full-text search. Searches complete in milliseconds, even offline.
-
-### AI Assistant (Optional)
-With Ollama installed, ask natural language questions about your knowledge base:
-```bash
-ji ask "What's our API rate limit?"
-ji ask "Who owns the payment service?"
-```
 
 ### Smart Sync
 - Incremental sync only fetches changes
@@ -130,28 +104,17 @@ ji test                # Run all configured tests
 
 Features:
 - Environment-specific test cases (real issue keys, projects)
-- LLM-based validation for `ji ask` responses
 - Comprehensive coverage of all commands
 - Pass/fail reporting with statistics
 
 ## Tips & Tricks
 
-1. **Speed up searches** with source filters:
-   ```bash
-   ji search "error" --source jira --limit 20
-   ```
-
-2. **Remember facts** for the AI:
-   ```bash
-   ji remember "Our staging URL is https://staging.example.com"
-   ```
-
-3. **Sync in background**:
+1. **Sync in background**:
    ```bash
    ji confluence sync LARGE_SPACE --background
    ```
 
-4. **View recent changes**:
+2. **View recent changes**:
    ```bash
    ji confluence recent ENG
    ```
@@ -182,13 +145,8 @@ ji sprint [PROJECT]          # Sprint overview
 ji confluence sync <SPACE>   # Sync space
 ji confluence recent <SPACE> # Recent changes
 
-# Search & AI
-ji search "query"            # Search everything
-ji ask "question"            # AI Q&A
-
 # Maintenance
 ji sync                      # Sync all workspaces
-ji index                     # Rebuild search index
 
 # Testing
 ji test --setup              # Configure environment tests
