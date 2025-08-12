@@ -265,23 +265,9 @@ export class EnhancedSearchEngine implements StreamingSearchService {
     ).pipe(Stream.flatMap((results) => Stream.fromIterable(results)));
   }
 
-  private searchMeilisearchStream(query: SearchQuery): Stream.Stream<SearchResult, NetworkError> {
-    return Stream.fromEffect(
-      Effect.tryPromise({
-        try: async () => {
-          const { MeilisearchAdapter } = await import('../meilisearch-adapter.js');
-          const meilisearch = new MeilisearchAdapter();
-
-          const results = await meilisearch.search(query.query, {
-            source: query.source,
-            limit: query.limit || 20,
-          });
-
-          return results;
-        },
-        catch: (error) => new NetworkError(`Meilisearch failed: ${error}`, error),
-      }),
-    ).pipe(Stream.flatMap((results) => Stream.fromIterable(results)));
+  private searchMeilisearchStream(_query: SearchQuery): Stream.Stream<SearchResult, NetworkError> {
+    // Meilisearch support has been removed - using SQLite FTS5 only
+    return Stream.empty;
   }
 
   private enhanceResult(result: SearchResult, query: SearchQuery): EnhancedSearchResult {

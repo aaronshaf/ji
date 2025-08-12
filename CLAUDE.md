@@ -25,9 +25,8 @@ Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 4. **Separate auth storage**: Credentials in `~/.ji/auth.json` (600 permissions)
 5. **Background refresh**: Auto-refresh data in background for instant access
 6. **Security**: API keys stored securely, never in git or environment variables
-7. **Full-text search**: SQLite FTS5 for searching across all content
-8. **No external search dependencies**: Removed Meilisearch dependency to ensure instant local search
-9. **YAML output**: All command outputs should be in YAML format for LLM compatibility
+7. **Full-text search**: SQLite FTS5 for searching across all content  
+8. **YAML output**: All command outputs should be in YAML format for LLM compatibility
 10. **Effect-first**: Use Effect and Effect Schema comprehensively for type-safe operations, proper error handling, and composable functions
 
 ## Development Guidelines
@@ -249,18 +248,6 @@ src/
 - Test configuration stored in `~/.ji/test-config.json` (gitignored, contains environment-specific data)
 - `.gitignore` configured to exclude all sensitive files including test configs
 - All sensitive configuration files use 600 permissions for security
-
-## Meilisearch Configuration
-
-ji automatically handles index naming to avoid conflicts in shared Meilisearch environments:
-
-- **Automatic prefixes**: Uses your email username (e.g., `john_doe` from `john.doe@company.com`)
-- **Zero configuration**: Works out of the box in shared environments
-- **Index isolation**: `{prefix}-jira-issues` and `{prefix}-confluence-pages`
-- **User data separation**: Each user gets their own isolated search indexes
-- **Optional customization**: Advanced users can override prefix if needed
-
-See `docs/MEILISEARCH.md` for detailed information about shared environment usage.
 
 ## Current Features
 
