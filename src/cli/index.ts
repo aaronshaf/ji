@@ -641,7 +641,7 @@ async function main() {
           showUncommentedHelp();
           process.exit(0);
         }
-        await uncommentedCommand(args);
+        await uncommentedCommand(subArgs);
         break;
 
       case 'mine': {
