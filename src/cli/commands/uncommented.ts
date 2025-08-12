@@ -69,6 +69,7 @@ const getIssuesFromCacheEffect = (projectKey: string | undefined, options: Uncom
           FROM issues 
           WHERE project_key = ? 
           AND created > ?
+          AND LOWER(status) NOT IN ('closed', 'done', 'resolved', 'complete', 'completed')
           ORDER BY created DESC
           LIMIT ?
         `;
@@ -80,6 +81,7 @@ const getIssuesFromCacheEffect = (projectKey: string | undefined, options: Uncom
                  reporter_email, raw_data, project_key
           FROM issues 
           WHERE created > ?
+          AND LOWER(status) NOT IN ('closed', 'done', 'resolved', 'complete', 'completed')
           ORDER BY created DESC
           LIMIT ?
         `;
