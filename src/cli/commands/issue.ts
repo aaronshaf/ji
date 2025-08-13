@@ -6,6 +6,16 @@ import { type Issue, JiraClient } from '../../lib/jira-client.js';
 import { formatSmartDate } from '../../lib/utils/date-formatter.js';
 import { formatDescription } from '../formatters/issue.js';
 
+// Helper function to escape XML special characters
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 // Effect wrapper for getting configuration and managers
 const getManagersEffect = () =>
   Effect.tryPromise({
@@ -80,31 +90,32 @@ const refreshInBackgroundEffect = (_config: { jiraUrl: string }, issue: Issue) =
     catch: (error) => new Error(`Failed to trigger background refresh: ${error}`),
   });
 
-// Effect for formatting issue output in YAML format
+// Effect for formatting issue output in XML format for better LLM parsing
 const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
   Effect.sync(() => {
-    // YAML output with color highlighting (matching search results)
-    console.log(`type: issue`);
-    console.log(`key: ${issue.key}`);
-    console.log(`link: ${config.jiraUrl}/browse/${issue.key}`);
-    console.log(`title: ${issue.fields.summary}`);
-    console.log(`updated: ${formatSmartDate(issue.fields.updated)}`);
-    console.log(`created: ${formatSmartDate(issue.fields.created)}`);
-    console.log(`status: ${issue.fields.status.name}`);
+    // XML output for better LLM parsing
+    console.log('<issue>');
+    console.log(`  <type>issue</type>`);
+    console.log(`  <key>${issue.key}</key>`);
+    console.log(`  <link>${config.jiraUrl}/browse/${issue.key}</link>`);
+    console.log(`  <title>${escapeXml(issue.fields.summary)}</title>`);
+    console.log(`  <updated>${formatSmartDate(issue.fields.updated)}</updated>`);
+    console.log(`  <created>${formatSmartDate(issue.fields.created)}</created>`);
+    console.log(`  <status>${escapeXml(issue.fields.status.name)}</status>`);
 
     // Priority
     if (issue.fields.priority) {
       const priority = issue.fields.priority.name;
-      console.log(`priority: ${priority}`);
+      console.log(`  <priority>${escapeXml(priority)}</priority>`);
     }
 
     // Reporter before Assignee
-    console.log(`reporter: ${issue.fields.reporter.displayName}`);
+    console.log(`  <reporter>${escapeXml(issue.fields.reporter.displayName)}</reporter>`);
 
     if (issue.fields.assignee) {
-      console.log(`assignee: ${issue.fields.assignee.displayName}`);
+      console.log(`  <assignee>${escapeXml(issue.fields.assignee.displayName)}</assignee>`);
     } else {
-      console.log(`assignee: Unassigned`);
+      console.log(`  <assignee>Unassigned</assignee>`);
     }
 
     // Sprint information
@@ -128,22 +139,23 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
       } else if (sprintField && typeof sprintField === 'object' && 'name' in sprintField) {
         sprintName = (sprintField as { name: string }).name;
       }
-      console.log(`sprint: ${sprintName}`);
+      console.log(`  <sprint>${escapeXml(sprintName)}</sprint>`);
     }
 
     // Labels
     if (issue.fields.labels && issue.fields.labels.length > 0) {
-      console.log(`labels: ${issue.fields.labels.join(', ')}`);
+      console.log(`  <labels>`);
+      issue.fields.labels.forEach((label) => {
+        console.log(`    <label>${escapeXml(label)}</label>`);
+      });
+      console.log(`  </labels>`);
     }
 
     // Description - always show full description
     const description = formatDescription(issue.fields.description);
     if (description.trim()) {
       const cleanDescription = description.replace(/\s+/g, ' ').trim();
-
-      console.log(`description: |`);
-      // For YAML pipe literal, keep as single paragraph (no artificial line breaks)
-      console.log(`  ${cleanDescription}`);
+      console.log(`  <description>${escapeXml(cleanDescription)}</description>`);
     }
 
     // Comments - show all comments
@@ -159,33 +171,36 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
       ).comments;
 
       if (comments.length > 0) {
-        console.log(`comments:`);
+        console.log(`  <comments>`);
 
-        // Show all comments as YAML array
+        // Show all comments in XML format
         comments.forEach((comment) => {
           const commentBody = formatDescription(comment.body).replace(/\s+/g, ' ').trim();
-          console.log(`  - author: ${comment.author.displayName}`);
-          console.log(`    created: ${formatSmartDate(comment.created)}`);
-          console.log(`    body: |`);
-
-          // For YAML pipe literal, keep as single paragraph (no artificial line breaks)
-          console.log(`      ${commentBody}`);
+          console.log(`    <comment>`);
+          console.log(`      <author>${escapeXml(comment.author.displayName)}</author>`);
+          console.log(`      <created>${formatSmartDate(comment.created)}</created>`);
+          console.log(`      <body>${escapeXml(commentBody)}</body>`);
+          console.log(`    </comment>`);
         });
+        console.log(`  </comments>`);
       }
     }
+
+    // Close the issue XML tag
+    console.log('</issue>');
   });
 
-// Pure Effect-based viewIssue implementation - local-first approach
-const viewIssueEffect = (issueKey: string, options: { json?: boolean; sync?: boolean } = {}) =>
+// Pure Effect-based viewIssue implementation - remote-first approach
+const viewIssueEffect = (issueKey: string, options: { json?: boolean; local?: boolean } = {}) =>
   pipe(
     getManagersEffect(),
     Effect.flatMap(({ config, configManager, cacheManager, contentManager, jiraClient }) =>
       pipe(
-        // First, try to get from cache (local-first approach)
+        // Check if we should use local cache or fetch fresh data
         getCachedIssueEffect(cacheManager, issueKey),
         Effect.flatMap((cachedIssue) => {
-          if (cachedIssue && !options.sync) {
-            // We have cached data, use it immediately (local-first)
+          if (options.local && cachedIssue) {
+            // User explicitly requested local cached data
             return pipe(
               formatIssueOutputEffect(cachedIssue, config),
               // Optionally refresh in background for next time
@@ -199,7 +214,7 @@ const viewIssueEffect = (issueKey: string, options: { json?: boolean; sync?: boo
               ),
             );
           } else {
-            // No cached data or user requested fresh sync - fetch from API
+            // Default behavior: fetch fresh data from API
             return pipe(
               getIssueFromJiraEffect(jiraClient, issueKey),
               Effect.flatMap((issue) =>
@@ -255,7 +270,7 @@ const viewIssueEffect = (issueKey: string, options: { json?: boolean; sync?: boo
     ),
   );
 
-export async function viewIssue(issueKey: string, options: { json?: boolean; sync?: boolean } = {}) {
+export async function viewIssue(issueKey: string, options: { json?: boolean; local?: boolean } = {}) {
   try {
     await Effect.runPromise(viewIssueEffect(issueKey, options));
   } catch (_error) {
