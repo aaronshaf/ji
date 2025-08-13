@@ -5,7 +5,17 @@ import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
 import { JiraClient } from '../../lib/jira-client.js';
 
-export async function showSprint(projectFilter?: string, options: { unassigned?: boolean } = {}) {
+// Helper function to escape XML special characters
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+export async function showSprint(projectFilter?: string, options: { unassigned?: boolean; local?: boolean } = {}) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
 
@@ -27,10 +37,10 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
         projectKey: string;
       }> = [];
 
-      // Check cached sprints first
+      // Check if we should use local cache or fetch fresh data
       const cachedSprints = await cacheManager.getUserActiveSprints(config.email);
 
-      if (cachedSprints.length === 0) {
+      if (!options.local || cachedSprints.length === 0) {
         // No cached sprints, try to detect from user's current issues
         console.log(chalk.dim('Detecting your active sprints...'));
 
@@ -159,25 +169,30 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
           continue;
         }
 
-        // YAML format output
+        // XML format output
         if (options.unassigned) {
-          // Show only unassigned issues in YAML
-          console.log(`${chalk.cyan('sprint:')} ${sprint.sprintName}`);
-          console.log(`${chalk.cyan('project:')} ${sprint.projectKey}`);
-          console.log(`${chalk.cyan('unassigned_count:')} ${unassignedIssues.length}`);
+          // Show only unassigned issues in XML
+          console.log('<sprint>');
+          console.log(`  <name>${escapeXml(sprint.sprintName)}</name>`);
+          console.log(`  <project>${escapeXml(sprint.projectKey)}</project>`);
+          console.log(`  <unassigned_count>${unassignedIssues.length}</unassigned_count>`);
 
           if (unassignedIssues.length > 0) {
-            console.log(`${chalk.cyan('unassigned_issues:')}`);
+            console.log('  <unassigned_issues>');
             unassignedIssues.forEach((issue) => {
               const priorityName = issue.fields.priority?.name || 'None';
-              console.log(`${chalk.cyan('- key:')} ${issue.key}`);
-              console.log(`  ${chalk.cyan('title:')} ${issue.fields.summary}`);
-              console.log(`  ${chalk.cyan('status:')} ${issue.fields.status.name}`);
-              console.log(`  ${chalk.cyan('priority:')} ${priorityName}`);
+              console.log('    <issue>');
+              console.log(`      <key>${escapeXml(issue.key)}</key>`);
+              console.log(`      <title>${escapeXml(issue.fields.summary)}</title>`);
+              console.log(`      <status>${escapeXml(issue.fields.status.name)}</status>`);
+              console.log(`      <priority>${escapeXml(priorityName)}</priority>`);
+              console.log('    </issue>');
             });
+            console.log('  </unassigned_issues>');
           }
+          console.log('</sprint>');
         } else {
-          // Show full sprint stats in YAML
+          // Show full sprint stats in XML
           const todoIssues = allIssues.filter((i) => ['To Do', 'Open', 'New'].includes(i.fields.status.name));
           const inProgressIssues = allIssues.filter((i) =>
             ['In Progress', 'In Development'].includes(i.fields.status.name),
@@ -189,25 +204,30 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
             (i) => i.fields.assignee?.emailAddress === myEmail || i.fields.assignee?.displayName === myEmail,
           );
 
-          console.log(`${chalk.cyan('sprint:')} ${sprint.sprintName}`);
-          console.log(`${chalk.cyan('project:')} ${sprint.projectKey}`);
-          console.log(`${chalk.cyan('total_issues:')} ${allIssues.length}`);
-          console.log(`${chalk.cyan('completed:')} ${doneIssues.length}`);
-          console.log(`${chalk.cyan('todo:')} ${todoIssues.length}`);
-          console.log(`${chalk.cyan('in_progress:')} ${inProgressIssues.length}`);
-          console.log(`${chalk.cyan('done:')} ${doneIssues.length}`);
-          console.log(`${chalk.cyan('my_issues_count:')} ${myIssues.length}`);
+          console.log('<sprint>');
+          console.log(`  <name>${escapeXml(sprint.sprintName)}</name>`);
+          console.log(`  <project>${escapeXml(sprint.projectKey)}</project>`);
+          console.log(`  <total_issues>${allIssues.length}</total_issues>`);
+          console.log(`  <completed>${doneIssues.length}</completed>`);
+          console.log(`  <todo>${todoIssues.length}</todo>`);
+          console.log(`  <in_progress>${inProgressIssues.length}</in_progress>`);
+          console.log(`  <done>${doneIssues.length}</done>`);
+          console.log(`  <my_issues_count>${myIssues.length}</my_issues_count>`);
 
           if (myIssues.length > 0) {
-            console.log(`${chalk.cyan('my_issues:')}`);
+            console.log('  <my_issues>');
             myIssues.forEach((issue) => {
-              console.log(`${chalk.cyan('- key:')} ${issue.key}`);
-              console.log(`  ${chalk.cyan('title:')} ${issue.fields.summary}`);
-              console.log(`  ${chalk.cyan('status:')} ${issue.fields.status.name}`);
+              console.log('    <issue>');
+              console.log(`      <key>${escapeXml(issue.key)}</key>`);
+              console.log(`      <title>${escapeXml(issue.fields.summary)}</title>`);
+              console.log(`      <status>${escapeXml(issue.fields.status.name)}</status>`);
+              console.log('    </issue>');
             });
+            console.log('  </my_issues>');
           }
 
-          console.log(`${chalk.cyan('unassigned_count:')} ${unassignedIssues.length}`);
+          console.log(`  <unassigned_count>${unassignedIssues.length}</unassigned_count>`);
+          console.log('</sprint>');
         }
       }
     },
