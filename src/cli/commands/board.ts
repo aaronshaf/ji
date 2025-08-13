@@ -2,9 +2,19 @@ import chalk from 'chalk';
 import { Console, Effect, pipe } from 'effect';
 import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
-import type { Board } from '../../lib/jira-client.js';
+import { type Board, JiraClient } from '../../lib/jira-client.js';
 
-// Effect wrapper for getting configuration and cache managers
+// Helper function to escape XML special characters
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// Effect wrapper for getting configuration, cache managers, and jira client
 const getManagersEffect = () =>
   Effect.tryPromise({
     try: async () => {
@@ -15,7 +25,8 @@ const getManagersEffect = () =>
           throw new Error('No configuration found. Please run "ji auth" first.');
         }
         const cacheManager = new CacheManager();
-        return { config, configManager, cacheManager };
+        const jiraClient = new JiraClient(config);
+        return { config, configManager, cacheManager, jiraClient };
       } catch (error) {
         configManager.close();
         throw error;
@@ -24,11 +35,48 @@ const getManagersEffect = () =>
     catch: (error) => new Error(`Failed to get configuration: ${error}`),
   });
 
-// Effect wrapper for getting boards
-const getBoardsEffect = (email: string, cacheManager: CacheManager, projectFilter?: string) =>
+// Effect wrapper for getting boards (remote-first)
+const getBoardsEffect = (
+  email: string,
+  cacheManager: CacheManager,
+  jiraClient: JiraClient,
+  projectFilter?: string,
+  useLocal = false,
+) =>
   Effect.tryPromise({
     try: async () => {
-      let boards = await cacheManager.getMyBoards(email);
+      let boards: Board[];
+
+      if (useLocal) {
+        // Use cached data when --local flag is specified
+        boards = await cacheManager.getMyBoards(email);
+      } else {
+        // Default: Fetch fresh data from API (remote-first)
+        try {
+          const projects = await cacheManager.getAllProjects();
+          const allBoards: Board[] = [];
+
+          // Fetch boards for each project
+          for (const project of projects) {
+            try {
+              const projectBoards = await jiraClient.getBoardsForProject(project.key);
+              allBoards.push(...projectBoards);
+            } catch (error) {
+              // Continue with other projects if one fails
+              console.error(`Failed to fetch boards for ${project.key}:`, error);
+            }
+          }
+
+          boards = allBoards;
+
+          // Cache the fresh data (skip for now since saveUserBoards might not exist)
+          // await cacheManager.saveUserBoards(email, boards);
+        } catch (error) {
+          // Fallback to cached data if API fails
+          console.error('Failed to fetch fresh board data, using cache:', error);
+          boards = await cacheManager.getMyBoards(email);
+        }
+      }
 
       if (projectFilter) {
         boards = boards.filter((board) => board.location?.projectKey?.toLowerCase() === projectFilter.toLowerCase());
@@ -46,8 +94,8 @@ const getProjectIssuesEffect = (projectKey: string, cacheManager: CacheManager) 
     catch: (error) => new Error(`Failed to get project issues: ${error}`),
   });
 
-// Effect for displaying single board with issues
-const displaySingleBoardEffect = (
+// Effect for displaying single board with issues (unused for now, keeping for future use)
+const _displaySingleBoardEffect = (
   board: Board,
   projectFilter: string,
   cacheManager: CacheManager,
@@ -113,7 +161,7 @@ const displaySingleBoardEffect = (
     }),
   );
 
-// Effect for displaying board list
+// Effect for displaying board list in XML format
 const displayBoardListEffect = (boards: Board[], config: { jiraUrl: string }) =>
   Effect.sync(() => {
     // Group boards by project
@@ -126,42 +174,51 @@ const displayBoardListEffect = (boards: Board[], config: { jiraUrl: string }) =>
       boardsByProject[projectKey].push(board);
     });
 
-    // Display board list
-    const projectEntries = Object.entries(boardsByProject);
-    projectEntries.forEach(([projectKey, projectBoards]) => {
-      if (projectBoards.length === 1) {
-        const board = projectBoards[0];
-        const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
-        console.log(
-          `${chalk.bold.blue(projectKey)}: ${typeIcon} ${chalk.bold(board.name)} ${chalk.cyan(`→ ${board.id}`)}`,
-        );
-      } else {
-        console.log(`${chalk.bold.blue(projectKey)} (${projectBoards.length}):`);
-        projectBoards.forEach((board) => {
-          const typeIcon = board.type === 'scrum' ? '🏃' : board.type === 'kanban' ? '📋' : '📊';
-          console.log(
-            `  ${typeIcon} ${chalk.bold(board.name)} ${chalk.dim(`(${board.type})`)} ${chalk.cyan(`→ ${board.id}`)}`,
-          );
-        });
-      }
-    });
+    // XML output
+    console.log('<boards>');
 
-    // Show actual clickable links for each board
-    console.log();
-    boards.forEach((board) => {
-      console.log(
-        chalk.dim(`${board.name}: ${chalk.cyan(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}`),
-      );
-    });
+    if (boards.length === 0) {
+      console.log('  <message>No boards found</message>');
+    } else {
+      console.log('  <projects>');
+
+      const projectEntries = Object.entries(boardsByProject);
+      projectEntries.forEach(([projectKey, projectBoards]) => {
+        console.log('    <project>');
+        console.log(`      <key>${escapeXml(projectKey)}</key>`);
+        console.log('      <boards>');
+
+        projectBoards.forEach((board) => {
+          console.log('        <board>');
+          console.log(`          <id>${board.id}</id>`);
+          console.log(`          <name>${escapeXml(board.name)}</name>`);
+          console.log(`          <type>${escapeXml(board.type)}</type>`);
+          console.log(
+            `          <url>${escapeXml(`${config.jiraUrl}/secure/RapidBoard.jspa?rapidView=${board.id}`)}</url>`,
+          );
+          if (board.location?.projectKey) {
+            console.log(`          <project_key>${escapeXml(board.location.projectKey)}</project_key>`);
+          }
+          console.log('        </board>');
+        });
+
+        console.log('      </boards>');
+        console.log('    </project>');
+      });
+
+      console.log('  </projects>');
+    }
+
+    console.log('</boards>');
   });
 
-// Pure Effect-based showMyBoards implementation
-const showMyBoardsEffect = (projectFilter?: string) =>
+// Pure Effect-based showMyBoards implementation - remote-first
+const showMyBoardsEffect = (projectFilter?: string, useLocal = false) =>
   pipe(
     getManagersEffect(),
-    Effect.flatMap(({ config, configManager, cacheManager }) =>
+    Effect.flatMap(({ config, configManager, cacheManager, jiraClient }) =>
       pipe(
-        getBoardsEffect(config.email, cacheManager, projectFilter),
+        getBoardsEffect(config.email, cacheManager, jiraClient, projectFilter, useLocal),
         Effect.flatMap((boards) => {
           if (projectFilter && boards.length === 0) {
             return pipe(
@@ -189,10 +246,8 @@ const showMyBoardsEffect = (projectFilter?: string) =>
             );
           }
 
-          const displayEffect =
-            projectFilter && boards.length === 1
-              ? displaySingleBoardEffect(boards[0], projectFilter, cacheManager, config)
-              : displayBoardListEffect(boards, config);
+          // Always use XML list format (simplified from the complex single board view)
+          const displayEffect = displayBoardListEffect(boards, config);
 
           return pipe(
             displayEffect,
@@ -214,9 +269,9 @@ const showMyBoardsEffect = (projectFilter?: string) =>
     ),
   );
 
-export async function showMyBoards(projectFilter?: string) {
+export async function showMyBoards(projectFilter?: string, useLocal = false) {
   try {
-    await Effect.runPromise(showMyBoardsEffect(projectFilter));
+    await Effect.runPromise(showMyBoardsEffect(projectFilter, useLocal));
   } catch (_error) {
     process.exit(1);
   }

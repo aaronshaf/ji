@@ -145,17 +145,22 @@ function showBoardHelp() {
 ${chalk.bold('ji board - Show Jira boards')}
 
 ${chalk.yellow('Usage:')}
-  ji board [project-key]
+  ji board [project-key] [options]
 
 ${chalk.yellow('Description:')}
   Shows boards for a specific project or all boards if no project is specified.
+  By default, fetches fresh data from Jira API.
+  Output is in XML format for better LLM parsing.
 
 ${chalk.yellow('Options:')}
+  --local                   Use cached board data instead of fetching from API
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
-  ji board                  Show all boards
-  ji board EVAL             Show boards for EVAL project
+  ji board                  Show all boards (fresh data)
+  ji board EVAL             Show boards for EVAL project (fresh data)
+  ji board --local          Show all boards from cache
+  ji board EVAL --local     Show EVAL boards from cache
 `);
 }
 
@@ -714,7 +719,7 @@ async function main() {
           showBoardHelp();
           process.exit(0);
         }
-        await showMyBoards(subArgs[0]);
+        await showMyBoards(subArgs[0], args.includes('--local'));
         break;
 
       case 'sprint':
