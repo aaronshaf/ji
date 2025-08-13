@@ -15,7 +15,10 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
-export async function showSprint(projectFilter?: string, options: { unassigned?: boolean; local?: boolean } = {}) {
+export async function showSprint(
+  projectFilter?: string,
+  options: { unassigned?: boolean; local?: boolean; pretty?: boolean } = {},
+) {
   const configManager = new ConfigManager();
   const config = await configManager.getConfig();
 
@@ -84,8 +87,13 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
       }
 
       if (activeSprints.length === 0) {
-        console.log(chalk.yellow('No active sprints found.'));
-        console.log(chalk.dim('💡 Make sure you have issues assigned in active sprints.'));
+        if (options.pretty) {
+          console.log(chalk.yellow('No active sprints found.'));
+          console.log(chalk.dim('💡 Make sure you have issues assigned in active sprints.'));
+        } else {
+          console.log(chalk.yellow('No active sprints found.'));
+          console.log(chalk.dim('💡 Make sure you have issues assigned in active sprints.'));
+        }
         return;
       }
 
@@ -169,30 +177,63 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
           continue;
         }
 
-        // XML format output
+        // Output format based on flags
         if (options.unassigned) {
-          // Show only unassigned issues in XML
-          console.log('<sprint>');
-          console.log(`  <name>${escapeXml(sprint.sprintName)}</name>`);
-          console.log(`  <project>${escapeXml(sprint.projectKey)}</project>`);
-          console.log(`  <unassigned_count>${unassignedIssues.length}</unassigned_count>`);
+          if (options.pretty) {
+            // Pretty colored output for unassigned issues
+            console.log(chalk.bold.cyan(`${sprint.sprintName} (${sprint.projectKey})`));
+            console.log(chalk.gray('─'.repeat(50)));
+            console.log(chalk.white(`Unassigned issues: ${unassignedIssues.length}`));
 
-          if (unassignedIssues.length > 0) {
-            console.log('  <unassigned_issues>');
-            unassignedIssues.forEach((issue) => {
-              const priorityName = issue.fields.priority?.name || 'None';
-              console.log('    <issue>');
-              console.log(`      <key>${escapeXml(issue.key)}</key>`);
-              console.log(`      <title>${escapeXml(issue.fields.summary)}</title>`);
-              console.log(`      <status>${escapeXml(issue.fields.status.name)}</status>`);
-              console.log(`      <priority>${escapeXml(priorityName)}</priority>`);
-              console.log('    </issue>');
-            });
-            console.log('  </unassigned_issues>');
+            if (unassignedIssues.length > 0) {
+              console.log();
+              unassignedIssues.forEach((issue) => {
+                const priorityName = issue.fields.priority?.name || 'None';
+
+                // Color code priority
+                let priorityColor = chalk.gray;
+                if (priorityName === 'Highest' || priorityName === 'P1') priorityColor = chalk.red;
+                else if (priorityName === 'High' || priorityName === 'P2') priorityColor = chalk.yellow;
+                else if (priorityName === 'Medium' || priorityName === 'P3') priorityColor = chalk.blue;
+
+                // Color code status
+                let statusColor = chalk.gray;
+                const status = issue.fields.status.name.toLowerCase();
+                if (status.includes('progress')) statusColor = chalk.yellow;
+                else if (status.includes('review')) statusColor = chalk.magenta;
+                else if (status.includes('todo') || status.includes('open')) statusColor = chalk.cyan;
+
+                console.log(`  ${chalk.bold(issue.key)} ${chalk.white(issue.fields.summary)}`);
+                console.log(`       ${statusColor(issue.fields.status.name)} • ${priorityColor(priorityName)}`);
+                console.log();
+              });
+            } else {
+              console.log(chalk.gray('\n  No unassigned issues found.\n'));
+            }
+          } else {
+            // XML output for unassigned issues
+            console.log('<sprint>');
+            console.log(`  <name>${escapeXml(sprint.sprintName)}</name>`);
+            console.log(`  <project>${escapeXml(sprint.projectKey)}</project>`);
+            console.log(`  <unassigned_count>${unassignedIssues.length}</unassigned_count>`);
+
+            if (unassignedIssues.length > 0) {
+              console.log('  <unassigned_issues>');
+              unassignedIssues.forEach((issue) => {
+                const priorityName = issue.fields.priority?.name || 'None';
+                console.log('    <issue>');
+                console.log(`      <key>${escapeXml(issue.key)}</key>`);
+                console.log(`      <title>${escapeXml(issue.fields.summary)}</title>`);
+                console.log(`      <status>${escapeXml(issue.fields.status.name)}</status>`);
+                console.log(`      <priority>${escapeXml(priorityName)}</priority>`);
+                console.log('    </issue>');
+              });
+              console.log('  </unassigned_issues>');
+            }
+            console.log('</sprint>');
           }
-          console.log('</sprint>');
         } else {
-          // Show full sprint stats in XML
+          // Show full sprint stats
           const todoIssues = allIssues.filter((i) => ['To Do', 'Open', 'New'].includes(i.fields.status.name));
           const inProgressIssues = allIssues.filter((i) =>
             ['In Progress', 'In Development'].includes(i.fields.status.name),
@@ -204,30 +245,68 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
             (i) => i.fields.assignee?.emailAddress === myEmail || i.fields.assignee?.displayName === myEmail,
           );
 
-          console.log('<sprint>');
-          console.log(`  <name>${escapeXml(sprint.sprintName)}</name>`);
-          console.log(`  <project>${escapeXml(sprint.projectKey)}</project>`);
-          console.log(`  <total_issues>${allIssues.length}</total_issues>`);
-          console.log(`  <completed>${doneIssues.length}</completed>`);
-          console.log(`  <todo>${todoIssues.length}</todo>`);
-          console.log(`  <in_progress>${inProgressIssues.length}</in_progress>`);
-          console.log(`  <done>${doneIssues.length}</done>`);
-          console.log(`  <my_issues_count>${myIssues.length}</my_issues_count>`);
+          if (options.pretty) {
+            // Pretty colored output for full sprint stats
+            console.log(chalk.bold.cyan(`${sprint.sprintName} (${sprint.projectKey})`));
+            console.log(chalk.gray('─'.repeat(50)));
 
-          if (myIssues.length > 0) {
-            console.log('  <my_issues>');
-            myIssues.forEach((issue) => {
-              console.log('    <issue>');
-              console.log(`      <key>${escapeXml(issue.key)}</key>`);
-              console.log(`      <title>${escapeXml(issue.fields.summary)}</title>`);
-              console.log(`      <status>${escapeXml(issue.fields.status.name)}</status>`);
-              console.log('    </issue>');
-            });
-            console.log('  </my_issues>');
+            // Sprint stats summary
+            console.log(`${chalk.white('Total issues:')} ${chalk.bold(allIssues.length.toString())}`);
+            console.log(
+              `${chalk.cyan('To Do:')} ${todoIssues.length} | ${chalk.yellow('In Progress:')} ${inProgressIssues.length} | ${chalk.green('Done:')} ${doneIssues.length}`,
+            );
+            console.log(
+              `${chalk.white('My issues:')} ${chalk.bold(myIssues.length.toString())} | ${chalk.gray('Unassigned:')} ${unassignedIssues.length}`,
+            );
+
+            if (myIssues.length > 0) {
+              console.log();
+              console.log(chalk.bold.white('My Issues:'));
+              console.log(chalk.gray('─'.repeat(30)));
+
+              myIssues.forEach((issue) => {
+                // Color code status
+                let statusColor = chalk.gray;
+                const status = issue.fields.status.name.toLowerCase();
+                if (status.includes('progress')) statusColor = chalk.yellow;
+                else if (status.includes('review')) statusColor = chalk.magenta;
+                else if (status.includes('todo') || status.includes('open')) statusColor = chalk.cyan;
+                else if (status.includes('done') || status.includes('closed')) statusColor = chalk.green;
+
+                console.log(`  ${chalk.bold(issue.key)} ${chalk.white(issue.fields.summary)}`);
+                console.log(`       ${statusColor(issue.fields.status.name)}`);
+                console.log();
+              });
+            } else {
+              console.log(chalk.gray('\nNo issues assigned to you in this sprint.\n'));
+            }
+          } else {
+            // XML output for full sprint stats
+            console.log('<sprint>');
+            console.log(`  <name>${escapeXml(sprint.sprintName)}</name>`);
+            console.log(`  <project>${escapeXml(sprint.projectKey)}</project>`);
+            console.log(`  <total_issues>${allIssues.length}</total_issues>`);
+            console.log(`  <completed>${doneIssues.length}</completed>`);
+            console.log(`  <todo>${todoIssues.length}</todo>`);
+            console.log(`  <in_progress>${inProgressIssues.length}</in_progress>`);
+            console.log(`  <done>${doneIssues.length}</done>`);
+            console.log(`  <my_issues_count>${myIssues.length}</my_issues_count>`);
+
+            if (myIssues.length > 0) {
+              console.log('  <my_issues>');
+              myIssues.forEach((issue) => {
+                console.log('    <issue>');
+                console.log(`      <key>${escapeXml(issue.key)}</key>`);
+                console.log(`      <title>${escapeXml(issue.fields.summary)}</title>`);
+                console.log(`      <status>${escapeXml(issue.fields.status.name)}</status>`);
+                console.log('    </issue>');
+              });
+              console.log('  </my_issues>');
+            }
+
+            console.log(`  <unassigned_count>${unassignedIssues.length}</unassigned_count>`);
+            console.log('</sprint>');
           }
-
-          console.log(`  <unassigned_count>${unassignedIssues.length}</unassigned_count>`);
-          console.log('</sprint>');
         }
       }
     },
