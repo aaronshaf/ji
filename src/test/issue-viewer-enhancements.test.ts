@@ -58,7 +58,7 @@ test('YAML comment formatting - proper array structure without count', async () 
               accountId: 'nathan-123',
             },
             created: '2024-01-02T10:47:00.000Z',
-            body: 'I created https://instructure.atlassian.net/browse/CNVS-67475 and updated this one to focus on the new SpeedGrader.',
+            body: 'I created https://example.atlassian.net/browse/ISSUE-12345 and updated this one to focus on the new SpeedGrader.',
           },
           {
             author: {
@@ -287,7 +287,7 @@ test('Description formatting - no artificial line breaks in YAML pipe literal', 
     fields: {
       summary: 'Issue with long description',
       description:
-        'Summary: • When launching the similarity report for TII LTI 1.1 or Plagiarism Framework with "Performance and Usability Upgrades for SpeedGrader" enabled, it fails to load.Expected behavior: • Instead it should launch into the similarity report.Link to reproduced behavior: • SpeedGrader with submission as the teacher: https://turnitin3.instructure.com/courses/709/gradebook/speed_grader?assignment_id=21843&anonymous_id=JbHRP&student_id=694&become_user_id=528Workaround: • Disable the new SpeedGrader as a teacher.',
+        'Summary: • When launching the similarity report for TII LTI 1.1 or Plagiarism Framework with "Performance and Usability Upgrades for SpeedGrader" enabled, it fails to load.Expected behavior: • Instead it should launch into the similarity report.Link to reproduced behavior: • SpeedGrader with submission as the teacher: https://example.com/courses/123/gradebook/speed_grader?assignment_id=456&anonymous_id=ABC123&student_id=789Workaround: • Disable the new SpeedGrader as a teacher.',
       status: { name: 'Open' },
       assignee: {
         displayName: 'Test User',
