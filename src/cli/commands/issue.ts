@@ -118,6 +118,70 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
       console.log(`  <assignee>Unassigned</assignee>`);
     }
 
+    // Epic information (check common epic link fields)
+    const epicField =
+      issue.fields.customfield_10014 || // Epic Link (common)
+      issue.fields.customfield_10008 || // Epic Link (alternative)
+      issue.fields.customfield_10001 || // Epic Link (alternative)
+      issue.fields.parent; // Parent issue (for subtasks and epics in next-gen projects)
+
+    if (epicField) {
+      // Handle different epic field formats
+      if (typeof epicField === 'string') {
+        // Epic key as string
+        console.log(`  <epic>`);
+        console.log(`    <key>${escapeXml(epicField)}</key>`);
+        console.log(`  </epic>`);
+      } else if (epicField && typeof epicField === 'object') {
+        // Epic as object with details
+        interface EpicField {
+          key?: string;
+          id?: string;
+          fields?: {
+            summary?: string;
+            description?: string | null | { content?: Array<{ content?: Array<{ text?: string }> }> };
+          };
+          summary?: string;
+          description?: string;
+        }
+        const epic = epicField as EpicField;
+        const epicKey = epic.key || epic.id;
+        const epicSummary = epic.fields?.summary || epic.summary;
+
+        // Try to get epic description
+        let epicDescription = '';
+        if (epic.fields?.description) {
+          epicDescription = formatDescription(epic.fields.description);
+        } else if (epic.description) {
+          epicDescription = formatDescription(epic.description);
+        }
+
+        if (epicKey || epicSummary || epicDescription) {
+          console.log(`  <epic>`);
+          if (epicKey) {
+            console.log(`    <key>${escapeXml(epicKey)}</key>`);
+          }
+          if (epicSummary) {
+            console.log(`    <summary>${escapeXml(epicSummary)}</summary>`);
+          }
+          if (epicDescription?.trim()) {
+            const cleanDescription = epicDescription
+              .split('\n')
+              .map((line) => line.replace(/\s+/g, ' ').trim())
+              .filter((line) => line.length > 0)
+              .join('\n');
+
+            console.log(`    <description>`);
+            cleanDescription.split('\n').forEach((line) => {
+              console.log(`      ${escapeXml(line)}`);
+            });
+            console.log(`    </description>`);
+          }
+          console.log(`  </epic>`);
+        }
+      }
+    }
+
     // Sprint information
     const sprintField =
       issue.fields.customfield_10020 ||

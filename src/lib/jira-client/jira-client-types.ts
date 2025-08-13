@@ -108,6 +108,10 @@ export const ISSUE_FIELDS = [
   'labels',
   'comment',
   'project',
+  'parent', // Parent issue (for subtasks and epics in next-gen projects)
+  'customfield_10014', // Epic Link (common)
+  'customfield_10008', // Epic Link (alternative)
+  'customfield_10001', // Epic Link (alternative)
   'customfield_10020', // Sprint (common field)
   'customfield_10021', // Sprint (alternative)
   'customfield_10016', // Sprint (alternative)
