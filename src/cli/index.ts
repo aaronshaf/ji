@@ -55,15 +55,19 @@ ${chalk.yellow('Subcommands:')}
 
 ${chalk.yellow('Options:')}
   --json                    Output in JSON format (for view)
-  --fetch                   Fetch fresh data from API (for view)
+  --local                   Use cached data instead of fetching from API
   --clean                   Clean sync - remove existing issues first
   --help                    Show this help message
 
+${chalk.yellow('Note:')}
+  By default, 'ji issue view' fetches fresh data from Jira.
+  Use --local to view cached data for offline/faster access.
+
 ${chalk.yellow('Examples:')}
-  ji issue view EVAL-123
-  ji issue view EVAL-123 --json
-  ji issue view EVAL-123 --fetch
-  ji issue sync EVAL --clean
+  ji issue view EVAL-123          # Fetches fresh data from Jira
+  ji issue view EVAL-123 --local  # Uses cached data
+  ji issue view EVAL-123 --json   # Fresh data in JSON format
+  ji issue sync EVAL --clean      # Sync all issues from project
 `);
 }
 
@@ -491,7 +495,8 @@ ${chalk.yellow('Issues:')}
   ji open <issue-key>                  Open issue in browser
   ji comment <issue-key> [comment]     Add a comment to an issue
   ji log <issue-key>                   Interactive comment viewer/editor
-  ji <issue-key>                       View issue details
+  ji <issue-key>                       View issue (fetches fresh data)
+  ji <issue-key> --local               View issue (cached data)
   ji issue view <issue-key>            View issue details (alias)
   ji issue sync <project-key>          Sync all issues from a project
 
@@ -687,7 +692,7 @@ async function main() {
         }
 
         if (subArgs[0] === 'view' && subArgs[1]) {
-          await viewIssue(subArgs[1], { json: args.includes('--json'), sync: args.includes('--fetch') });
+          await viewIssue(subArgs[1], { json: args.includes('--json'), local: args.includes('--local') });
         } else if (subArgs[0] === 'sync' && subArgs[1]) {
           await syncJiraProject(subArgs[1], { clean: args.includes('--clean') });
         } else {
@@ -874,7 +879,7 @@ async function main() {
       default:
         // Check if it's an issue key (e.g., ABC-123)
         if (/^[A-Z]+-\d+$/.test(command)) {
-          await viewIssue(command, { json: args.includes('--json'), sync: args.includes('--fetch') });
+          await viewIssue(command, { json: args.includes('--json'), local: args.includes('--local') });
         } else {
           console.error(`Unknown command: ${command}`);
           console.log('Run "ji help" for usage information');

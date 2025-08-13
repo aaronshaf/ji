@@ -106,7 +106,7 @@ test.skip('ji EVAL-5767 and ji issue view EVAL-5767 are identical aliases', asyn
 
   try {
     const { viewIssue } = await import('../cli/commands/issue');
-    await viewIssue('ALIAS-123', { json: false, sync: false });
+    await viewIssue('ALIAS-123', { json: false, local: true });
   } finally {
     console.log = originalLog;
   }
@@ -155,7 +155,7 @@ test.skip('ji EVAL-5767 and ji issue view EVAL-5767 are identical aliases', asyn
 
   try {
     const { viewIssue } = await import('../cli/commands/issue');
-    await viewIssue('ALIAS-123', { json: false, sync: false });
+    await viewIssue('ALIAS-123', { json: false, local: true });
   } finally {
     console.log = originalLog;
   }

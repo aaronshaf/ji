@@ -13,15 +13,15 @@ A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Featur
 
 ## Local-First Architecture
 
-**ji** is designed as a local-first application. This means:
+**ji** provides a hybrid approach for optimal performance:
 
-- **Instant responses** - All commands return cached data immediately from your local SQLite database
-- **Background sync** - Data updates happen silently in the background without blocking your workflow
-- **Sync transparency** - Every response includes a `# Last synced:` indicator showing data freshness
-- **Zero waiting** - No spinners, no progress bars, just instant results
-- **Offline capable** - Full functionality even without network access
+- **Remote-first for issues** - `ji PROJ-123` fetches fresh data from Jira by default
+- **Local-first for search** - Search and list operations use SQLite for instant results  
+- **XML output format** - Structured XML output optimized for LLM parsing
+- **Offline mode** - Add `--local` flag to any command to use cached data
+- **Background sync** - Data updates happen silently in the background
 
-When you run commands like `ji mine`, you get results instantly from your local cache. The data age is always visible, and fresh data syncs automatically in the background.
+Issue viewing commands fetch fresh data by default, ensuring you always see the latest status. Use `--local` for instant offline access when needed.
 
 ## Installation
 
