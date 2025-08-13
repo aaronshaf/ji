@@ -17,7 +17,6 @@ export type { SearchableContent, SearchableContentMetadata, SearchResult, ADFNod
 
 export class ContentManager {
   public db: Database;
-  private meilisearchErrorShown = { value: false };
 
   constructor() {
     const dbPath = join(homedir(), '.ji', 'data.db');
@@ -37,28 +36,24 @@ export class ContentManager {
         const projectKey = issue.key.split('-')[0];
         const content = buildJiraContent(issue);
 
-        return saveContentEffect(
-          this.db,
-          {
-            id: `jira:${issue.key}`,
-            source: 'jira',
-            type: 'issue',
-            title: `${issue.key}: ${issue.fields.summary}`,
-            content: content,
-            url: `/browse/${issue.key}`,
-            projectKey: projectKey,
-            metadata: {
-              status: issue.fields.status.name,
-              priority: issue.fields.priority?.name,
-              assignee: issue.fields.assignee?.displayName,
-              reporter: issue.fields.reporter.displayName,
-            },
-            createdAt: new Date(issue.fields.created).getTime(),
-            updatedAt: new Date(issue.fields.updated).getTime(),
-            syncedAt: Date.now(),
+        return saveContentEffect(this.db, {
+          id: `jira:${issue.key}`,
+          source: 'jira',
+          type: 'issue',
+          title: `${issue.key}: ${issue.fields.summary}`,
+          content: content,
+          url: `/browse/${issue.key}`,
+          projectKey: projectKey,
+          metadata: {
+            status: issue.fields.status.name,
+            priority: issue.fields.priority?.name,
+            assignee: issue.fields.assignee?.displayName,
+            reporter: issue.fields.reporter.displayName,
           },
-          this.meilisearchErrorShown,
-        );
+          createdAt: new Date(issue.fields.created).getTime(),
+          updatedAt: new Date(issue.fields.updated).getTime(),
+          syncedAt: Date.now(),
+        });
       }),
     );
   }
@@ -71,28 +66,24 @@ export class ContentManager {
     // Also save to searchable_content
     const projectKey = issue.key.split('-')[0];
     const content = buildJiraContent(issue);
-    await saveContent(
-      this.db,
-      {
-        id: `jira:${issue.key}`,
-        source: 'jira',
-        type: 'issue',
-        title: `${issue.key}: ${issue.fields.summary}`,
-        content: content,
-        url: `/browse/${issue.key}`,
-        projectKey: projectKey,
-        metadata: {
-          status: issue.fields.status.name,
-          priority: issue.fields.priority?.name,
-          assignee: issue.fields.assignee?.displayName,
-          reporter: issue.fields.reporter.displayName,
-        },
-        createdAt: new Date(issue.fields.created).getTime(),
-        updatedAt: new Date(issue.fields.updated).getTime(),
-        syncedAt: Date.now(),
+    await saveContent(this.db, {
+      id: `jira:${issue.key}`,
+      source: 'jira',
+      type: 'issue',
+      title: `${issue.key}: ${issue.fields.summary}`,
+      content: content,
+      url: `/browse/${issue.key}`,
+      projectKey: projectKey,
+      metadata: {
+        status: issue.fields.status.name,
+        priority: issue.fields.priority?.name,
+        assignee: issue.fields.assignee?.displayName,
+        reporter: issue.fields.reporter.displayName,
       },
-      this.meilisearchErrorShown,
-    );
+      createdAt: new Date(issue.fields.created).getTime(),
+      updatedAt: new Date(issue.fields.updated).getTime(),
+      syncedAt: Date.now(),
+    });
   }
 
   /**
@@ -101,12 +92,12 @@ export class ContentManager {
   saveContentEffect(
     content: SearchableContent,
   ): Effect.Effect<void, ValidationError | ContentTooLargeError | QueryError | ContentError> {
-    return saveContentEffect(this.db, content, this.meilisearchErrorShown);
+    return saveContentEffect(this.db, content);
   }
 
   // Backward compatible version
   async saveContent(content: SearchableContent): Promise<void> {
-    return saveContent(this.db, content, this.meilisearchErrorShown);
+    return saveContent(this.db, content);
   }
 
   /**

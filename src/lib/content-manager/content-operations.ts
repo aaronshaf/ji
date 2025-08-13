@@ -5,7 +5,6 @@
 import type { Database } from 'bun:sqlite';
 import { Effect, pipe } from 'effect';
 import { ContentError, ContentTooLargeError, QueryError, ValidationError } from '../effects/errors.js';
-import { MeilisearchAdapter } from '../meilisearch-adapter.js';
 import { OllamaClient } from '../ollama.js';
 import type { SearchableContent } from './types.js';
 
@@ -15,7 +14,6 @@ import type { SearchableContent } from './types.js';
 export function saveContentEffect(
   db: Database,
   content: SearchableContent,
-  meilisearchErrorShown: { value: boolean },
 ): Effect.Effect<void, ValidationError | ContentTooLargeError | QueryError | ContentError> {
   return pipe(
     // Validate content
@@ -86,34 +84,13 @@ export function saveContentEffect(
         })();
       }).pipe(Effect.mapError((error) => new QueryError(`Failed to save content: ${error}`)));
     }),
-    // Try to index to Meilisearch but don't fail if unavailable
-    Effect.tap(() =>
-      Effect.tryPromise({
-        try: async () => {
-          const meilisearch = new MeilisearchAdapter();
-          await meilisearch.indexContent(content);
-        },
-        catch: (error) => {
-          if (!meilisearchErrorShown.value) {
-            console.error('Meilisearch error:', error);
-            console.error('Meilisearch is not available. Continuing with SQLite search only.');
-            meilisearchErrorShown.value = true;
-          }
-          return undefined; // Don't fail the operation
-        },
-      }).pipe(Effect.catchAll(() => Effect.succeed(undefined))),
-    ),
   );
 }
 
 /**
  * Legacy async version of saveContent
  */
-export async function saveContent(
-  db: Database,
-  content: SearchableContent,
-  meilisearchErrorShown: { value: boolean },
-): Promise<void> {
+export async function saveContent(db: Database, content: SearchableContent): Promise<void> {
   // Calculate content hash
   const contentHash = OllamaClient.contentHash(content.content);
 
@@ -153,19 +130,6 @@ export async function saveContent(
   `);
 
   ftsStmt.run(content.id, content.title, content.content);
-
-  // Also index to Meilisearch
-  try {
-    const meilisearch = new MeilisearchAdapter();
-    await meilisearch.indexContent(content);
-  } catch (error) {
-    // Log but don't fail if Meilisearch is unavailable
-    if (!meilisearchErrorShown.value) {
-      console.error('Meilisearch error in saveIssue:', error);
-      console.error('Meilisearch is not available. Continuing with SQLite search only.');
-      meilisearchErrorShown.value = true;
-    }
-  }
 }
 
 /**

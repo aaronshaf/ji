@@ -21,17 +21,6 @@
   curl -fsSL https://bun.sh/install | bash
   ```
 
-- **Meilisearch** (required): Fast search engine
-  ```bash
-  # macOS
-  brew install meilisearch
-  brew services start meilisearch
-
-  # Linux/WSL
-  curl -L https://install.meilisearch.com | sh
-  ./meilisearch
-  ```
-
 - **Ollama** (optional): AI features
   ```bash
   # macOS/Linux
@@ -669,14 +658,6 @@ done
 #### "No configuration found"
 Run `ji init` or `ji auth` to set up authentication.
 
-#### "Meilisearch is not running"
-```bash
-# macOS
-brew services start meilisearch
-
-# Linux/Manual
-meilisearch --db-path ./meili-data
-```
 
 #### "Ollama is not available"
 ```bash
@@ -695,9 +676,8 @@ ollama pull llama3.2
 
 #### Search Not Working
 
-1. Ensure Meilisearch is running
-2. Rebuild index: `ji index --clean`
-3. Check logs: `~/.ji/sync.log`
+1. Check logs: `~/.ji/sync.log`
+2. Try searching with different terms
 
 ### Debug Mode
 
@@ -709,8 +689,6 @@ ji search "query" --verbose
 sqlite3 ~/.ji/data.db ".tables"
 sqlite3 ~/.ji/data.db "SELECT COUNT(*) FROM searchable_content"
 
-# Check Meilisearch
-curl http://localhost:7700/health
 ```
 
 ### Reset & Clean
@@ -732,16 +710,14 @@ ji init
 
 - **Runtime**: Bun (no Node.js dependencies)
 - **Database**: SQLite with FTS5 (full-text search)
-- **Search**: Meilisearch (typo-tolerant, fast)
 - **AI**: Ollama (local LLM, optional)
 - **Language**: TypeScript with Effect and Effect Schema validation
 
 ### Data Flow
 
 1. **API Fetch** → Jira/Confluence REST APIs
-2. **Storage** → SQLite with normalized schema
-3. **Indexing** → Meilisearch for search
-4. **AI Processing** → Ollama for embeddings/Q&A
+2. **Storage** → SQLite with normalized schema and FTS5 search
+3. **AI Processing** → Ollama for embeddings/Q&A
 5. **Memory** → Automatic fact extraction
 
 ### Database Schema

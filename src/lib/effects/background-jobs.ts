@@ -573,10 +573,8 @@ export class JobWorker {
         }
 
         const { ContentManager } = await import('../content-manager.js');
-        const { MeilisearchAdapter } = await import('../meilisearch-adapter.js');
 
         const contentManager = new ContentManager();
-        new MeilisearchAdapter();
 
         try {
           let indexed = 0;

@@ -6,7 +6,6 @@ import { addComment } from './commands/comment.js';
 import { configureCustomFields } from './commands/config.js';
 import { showRecentConfluencePages, viewConfluencePage } from './commands/confluence.js';
 import { markIssueDone } from './commands/done.js';
-import { syncToMeilisearch } from './commands/index.js';
 import { viewIssue } from './commands/issue.js';
 import { showIssueLog } from './commands/log.js';
 import { addMemory, clearMemories, deleteMemory, listMemories, showMemoryStats } from './commands/memory.js';
@@ -436,25 +435,6 @@ ${chalk.yellow('Examples:')}
 `);
 }
 
-function showIndexHelp() {
-  console.log(`
-${chalk.bold('ji index - Rebuild search index')}
-
-${chalk.yellow('Usage:')}
-  ji index
-
-${chalk.yellow('Description:')}
-  Rebuilds the Meilisearch index from the local SQLite database.
-  Use this if search results seem out of date or after major syncs.
-
-${chalk.yellow('Options:')}
-  --help                    Show this help message
-
-${chalk.yellow('Examples:')}
-  ji index
-`);
-}
-
 function showTestHelp() {
   console.log(`
 ${chalk.bold('ji test - Testing framework')}
@@ -535,9 +515,8 @@ ${chalk.yellow('Memory:')}
   ji memories stats                    Show memory statistics
   ji memories clear [--all]            Clear memories
 
-${chalk.yellow('Sync & Index:')}
+${chalk.yellow('Sync:')}
   ji sync                              Sync all active workspaces
-  ji index                             Rebuild search index
 
 ${chalk.yellow('Setup:')}
   ji init                              Interactive setup wizard
@@ -882,14 +861,6 @@ async function main() {
           process.exit(0);
         }
         await configureModels();
-        break;
-
-      case 'index':
-        if (args.includes('--help')) {
-          showIndexHelp();
-          process.exit(0);
-        }
-        await syncToMeilisearch();
         break;
 
       case 'test':
