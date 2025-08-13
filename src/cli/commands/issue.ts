@@ -154,8 +154,19 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
     // Description - always show full description
     const description = formatDescription(issue.fields.description);
     if (description.trim()) {
-      const cleanDescription = description.replace(/\s+/g, ' ').trim();
-      console.log(`  <description>${escapeXml(cleanDescription)}</description>`);
+      // Preserve newlines but normalize other whitespace
+      const cleanDescription = description
+        .split('\n')
+        .map((line) => line.replace(/\s+/g, ' ').trim())
+        .filter((line) => line.length > 0)
+        .join('\n');
+
+      console.log(`  <description>`);
+      // Indent each line of the description for better readability
+      cleanDescription.split('\n').forEach((line) => {
+        console.log(`    ${escapeXml(line)}`);
+      });
+      console.log(`  </description>`);
     }
 
     // Comments - show all comments
@@ -175,11 +186,22 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
 
         // Show all comments in XML format
         comments.forEach((comment) => {
-          const commentBody = formatDescription(comment.body).replace(/\s+/g, ' ').trim();
+          // Preserve newlines but normalize other whitespace
+          const commentBody = formatDescription(comment.body)
+            .split('\n')
+            .map((line) => line.replace(/\s+/g, ' ').trim())
+            .filter((line) => line.length > 0)
+            .join('\n');
+
           console.log(`    <comment>`);
           console.log(`      <author>${escapeXml(comment.author.displayName)}</author>`);
           console.log(`      <created>${formatSmartDate(comment.created)}</created>`);
-          console.log(`      <body>${escapeXml(commentBody)}</body>`);
+          console.log(`      <body>`);
+          // Indent each line of the body for better readability
+          commentBody.split('\n').forEach((line) => {
+            console.log(`        ${escapeXml(line)}`);
+          });
+          console.log(`      </body>`);
           console.log(`    </comment>`);
         });
         console.log(`  </comments>`);
