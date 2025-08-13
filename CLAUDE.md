@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a **local-first, fast CLI** for Jira & Confluence built with:
+This is a **fast, local-capable CLI** for Jira & Confluence built with:
 - Bun (runtime, package manager, and SQLite provider)
 - TypeScript
 - Effect and Effect Schema (functional programming with type-safe error handling)
@@ -12,14 +12,15 @@ This is a **local-first, fast CLI** for Jira & Confluence built with:
 Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 
 **Core Philosophy**: 
-- This app is meant to be a local-first fast CLI for Jira and Confluence
-- All searches and data access should prioritize local SQLite database over API calls for instant response times
-- We aim for YAML responses to help LLMs make sense of things
+- Fast CLI with local caching capabilities
+- SQLite database enables offline functionality and instant responses
+- `--local` flag for cached data access
+- XML/YAML output formats optimized for LLM consumption
 - Use Effect comprehensively for type-safe, composable operations with proper error handling
 
 ## Key Design Decisions
 
-1. **Local-first architecture**: All operations prioritize local SQLite database for instant response
+1. **Local caching architecture**: SQLite database provides offline capability and instant responses
 2. **Bun-first**: This project uses Bun as the primary runtime and build tool
 3. **Local SQLite storage**: Cached data stored in `~/.ji/data.db`
 4. **Separate auth storage**: Credentials in `~/.ji/auth.json` (600 permissions)

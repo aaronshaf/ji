@@ -8,20 +8,19 @@ A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Featur
 **Key benefits:**
 - **Lightning fast** - local caching means instant responses
 - **Always fresh** - automatic background sync
-- **LLM-friendly** - YAML output format, minimal tokens, no color codes
-- **Offline capable** - full functionality without network access
+- **LLM-friendly** - XML/YAML output formats optimized for LLM parsing
+- **Local-capable** - full offline functionality with cached data
 
-## Local-First Architecture
+## Architecture
 
-**ji** provides a hybrid approach for optimal performance:
+**ji** combines API access with local caching:
 
-- **Remote-first for issues** - `ji PROJ-123` fetches fresh data from Jira by default
-- **Local-first for search** - Search and list operations use SQLite for instant results  
-- **XML output format** - Structured XML output optimized for LLM parsing
-- **Offline mode** - Add `--local` flag to any command to use cached data
+- **SQLite cache** - Enables offline functionality and instant responses
+- **XML output format** - Structured output optimized for both humans and LLMs
+- **`--local` flag** - Use cached data for offline access or faster responses
 - **Background sync** - Data updates happen silently in the background
 
-Issue viewing commands fetch fresh data by default, ensuring you always see the latest status. Use `--local` for instant offline access when needed.
+Use `--local` when you need instant responses or are working offline.
 
 ## Installation
 
