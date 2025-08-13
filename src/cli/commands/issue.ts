@@ -91,79 +91,84 @@ const refreshInBackgroundEffect = (_config: { jiraUrl: string }, issue: Issue) =
   });
 
 // Effect for formatting issue output in XML format for better LLM parsing
-const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
-  Effect.sync(() => {
-    // XML output for better LLM parsing
-    console.log('<issue>');
-    console.log(`  <type>issue</type>`);
-    console.log(`  <key>${issue.key}</key>`);
-    console.log(`  <link>${config.jiraUrl}/browse/${issue.key}</link>`);
-    console.log(`  <title>${escapeXml(issue.fields.summary)}</title>`);
-    console.log(`  <updated>${formatSmartDate(issue.fields.updated)}</updated>`);
-    console.log(`  <created>${formatSmartDate(issue.fields.created)}</created>`);
-    console.log(`  <status>${escapeXml(issue.fields.status.name)}</status>`);
+const formatIssueOutputEffect = (
+  issue: Issue,
+  config: { jiraUrl: string },
+  jiraClient: JiraClient,
+  cacheManager: CacheManager,
+  fetchFromApi: boolean,
+) =>
+  Effect.tryPromise({
+    try: async () => {
+      // XML output for better LLM parsing
+      console.log('<issue>');
+      console.log(`  <type>issue</type>`);
+      console.log(`  <key>${issue.key}</key>`);
+      console.log(`  <link>${config.jiraUrl}/browse/${issue.key}</link>`);
+      console.log(`  <title>${escapeXml(issue.fields.summary)}</title>`);
+      console.log(`  <updated>${formatSmartDate(issue.fields.updated)}</updated>`);
+      console.log(`  <created>${formatSmartDate(issue.fields.created)}</created>`);
+      console.log(`  <status>${escapeXml(issue.fields.status.name)}</status>`);
 
-    // Priority
-    if (issue.fields.priority) {
-      const priority = issue.fields.priority.name;
-      console.log(`  <priority>${escapeXml(priority)}</priority>`);
-    }
+      // Priority
+      if (issue.fields.priority) {
+        const priority = issue.fields.priority.name;
+        console.log(`  <priority>${escapeXml(priority)}</priority>`);
+      }
 
-    // Reporter before Assignee
-    console.log(`  <reporter>${escapeXml(issue.fields.reporter.displayName)}</reporter>`);
+      // Reporter before Assignee
+      console.log(`  <reporter>${escapeXml(issue.fields.reporter.displayName)}</reporter>`);
 
-    if (issue.fields.assignee) {
-      console.log(`  <assignee>${escapeXml(issue.fields.assignee.displayName)}</assignee>`);
-    } else {
-      console.log(`  <assignee>Unassigned</assignee>`);
-    }
+      if (issue.fields.assignee) {
+        console.log(`  <assignee>${escapeXml(issue.fields.assignee.displayName)}</assignee>`);
+      } else {
+        console.log(`  <assignee>Unassigned</assignee>`);
+      }
 
-    // Epic information (check common epic link fields)
-    const epicField =
-      issue.fields.customfield_10014 || // Epic Link (common)
-      issue.fields.customfield_10008 || // Epic Link (alternative)
-      issue.fields.customfield_10001 || // Epic Link (alternative)
-      issue.fields.parent; // Parent issue (for subtasks and epics in next-gen projects)
+      // Epic information (check common epic link fields)
+      const epicField =
+        issue.fields.customfield_10014 || // Epic Link (common)
+        issue.fields.customfield_10008 || // Epic Link (alternative)
+        issue.fields.customfield_10001 || // Epic Link (alternative)
+        issue.fields.parent; // Parent issue (for subtasks and epics in next-gen projects)
 
-    if (epicField) {
-      // Handle different epic field formats
-      if (typeof epicField === 'string') {
-        // Epic key as string
-        console.log(`  <epic>`);
-        console.log(`    <key>${escapeXml(epicField)}</key>`);
-        console.log(`  </epic>`);
-      } else if (epicField && typeof epicField === 'object') {
-        // Epic as object with details
-        interface EpicField {
-          key?: string;
-          id?: string;
-          fields?: {
-            summary?: string;
-            description?: string | null | { content?: Array<{ content?: Array<{ text?: string }> }> };
-          };
-          summary?: string;
-          description?: string;
-        }
-        const epic = epicField as EpicField;
-        const epicKey = epic.key || epic.id;
-        const epicSummary = epic.fields?.summary || epic.summary;
+      if (epicField) {
+        let epicKey: string | undefined;
+        let epicSummary: string | undefined;
+        let epicDescription: string | undefined;
 
-        // Try to get epic description
-        let epicDescription = '';
-        if (epic.fields?.description) {
-          epicDescription = formatDescription(epic.fields.description);
-        } else if (epic.description) {
-          epicDescription = formatDescription(epic.description);
+        // Extract epic key
+        if (typeof epicField === 'string') {
+          epicKey = epicField;
+        } else if (epicField && typeof epicField === 'object') {
+          const epic = epicField as { key?: string; id?: string; fields?: { summary?: string } };
+          epicKey = epic.key || epic.id;
+          epicSummary = epic.fields?.summary;
         }
 
-        if (epicKey || epicSummary || epicDescription) {
-          console.log(`  <epic>`);
-          if (epicKey) {
-            console.log(`    <key>${escapeXml(epicKey)}</key>`);
+        // If we have an epic key, fetch the full epic details
+        if (epicKey) {
+          try {
+            // Fetch the epic issue to get its full details including description
+            const epicIssue = fetchFromApi ? await jiraClient.getIssue(epicKey) : await cacheManager.getIssue(epicKey);
+
+            if (epicIssue) {
+              epicSummary = epicIssue.fields.summary || epicSummary;
+              epicDescription = formatDescription(epicIssue.fields.description);
+            }
+          } catch (_error) {
+            // If we can't fetch the epic, continue with what we have
+            console.error(`  <!-- Failed to fetch epic details for ${epicKey} -->`);
           }
+
+          // Display epic information
+          console.log(`  <epic>`);
+          console.log(`    <key>${escapeXml(epicKey)}</key>`);
+
           if (epicSummary) {
             console.log(`    <summary>${escapeXml(epicSummary)}</summary>`);
           }
+
           if (epicDescription?.trim()) {
             const cleanDescription = epicDescription
               .split('\n')
@@ -177,103 +182,105 @@ const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }) =>
             });
             console.log(`    </description>`);
           }
+
           console.log(`  </epic>`);
         }
       }
-    }
 
-    // Sprint information
-    const sprintField =
-      issue.fields.customfield_10020 ||
-      issue.fields.customfield_10021 ||
-      issue.fields.customfield_10016 ||
-      issue.fields.customfield_10018 ||
-      issue.fields.customfield_10019;
+      // Sprint information
+      const sprintField =
+        issue.fields.customfield_10020 ||
+        issue.fields.customfield_10021 ||
+        issue.fields.customfield_10016 ||
+        issue.fields.customfield_10018 ||
+        issue.fields.customfield_10019;
 
-    if (sprintField) {
-      let sprintName = 'Unknown Sprint';
-      if (Array.isArray(sprintField) && sprintField.length > 0) {
-        const sprintInfo = sprintField[0];
-        if (typeof sprintInfo === 'string' && sprintInfo.includes('name=')) {
-          const match = sprintInfo.match(/name=([^,\]]+)/);
-          if (match) sprintName = match[1];
-        } else if (sprintInfo && typeof sprintInfo === 'object' && 'name' in sprintInfo) {
-          sprintName = (sprintInfo as { name: string }).name;
+      if (sprintField) {
+        let sprintName = 'Unknown Sprint';
+        if (Array.isArray(sprintField) && sprintField.length > 0) {
+          const sprintInfo = sprintField[0];
+          if (typeof sprintInfo === 'string' && sprintInfo.includes('name=')) {
+            const match = sprintInfo.match(/name=([^,\]]+)/);
+            if (match) sprintName = match[1];
+          } else if (sprintInfo && typeof sprintInfo === 'object' && 'name' in sprintInfo) {
+            sprintName = (sprintInfo as { name: string }).name;
+          }
+        } else if (sprintField && typeof sprintField === 'object' && 'name' in sprintField) {
+          sprintName = (sprintField as { name: string }).name;
         }
-      } else if (sprintField && typeof sprintField === 'object' && 'name' in sprintField) {
-        sprintName = (sprintField as { name: string }).name;
+        console.log(`  <sprint>${escapeXml(sprintName)}</sprint>`);
       }
-      console.log(`  <sprint>${escapeXml(sprintName)}</sprint>`);
-    }
 
-    // Labels
-    if (issue.fields.labels && issue.fields.labels.length > 0) {
-      console.log(`  <labels>`);
-      issue.fields.labels.forEach((label) => {
-        console.log(`    <label>${escapeXml(label)}</label>`);
-      });
-      console.log(`  </labels>`);
-    }
-
-    // Description - always show full description
-    const description = formatDescription(issue.fields.description);
-    if (description.trim()) {
-      // Preserve newlines but normalize other whitespace
-      const cleanDescription = description
-        .split('\n')
-        .map((line) => line.replace(/\s+/g, ' ').trim())
-        .filter((line) => line.length > 0)
-        .join('\n');
-
-      console.log(`  <description>`);
-      // Indent each line of the description for better readability
-      cleanDescription.split('\n').forEach((line) => {
-        console.log(`    ${escapeXml(line)}`);
-      });
-      console.log(`  </description>`);
-    }
-
-    // Comments - show all comments
-    if (
-      issue.fields.comment &&
-      typeof issue.fields.comment === 'object' &&
-      'comments' in issue.fields.comment &&
-      Array.isArray((issue.fields.comment as { comments: unknown[] }).comments) &&
-      (issue.fields.comment as { comments: unknown[] }).comments.length > 0
-    ) {
-      const comments = (
-        issue.fields.comment as { comments: { author: { displayName: string }; created: string; body: unknown }[] }
-      ).comments;
-
-      if (comments.length > 0) {
-        console.log(`  <comments>`);
-
-        // Show all comments in XML format
-        comments.forEach((comment) => {
-          // Preserve newlines but normalize other whitespace
-          const commentBody = formatDescription(comment.body)
-            .split('\n')
-            .map((line) => line.replace(/\s+/g, ' ').trim())
-            .filter((line) => line.length > 0)
-            .join('\n');
-
-          console.log(`    <comment>`);
-          console.log(`      <author>${escapeXml(comment.author.displayName)}</author>`);
-          console.log(`      <created>${formatSmartDate(comment.created)}</created>`);
-          console.log(`      <body>`);
-          // Indent each line of the body for better readability
-          commentBody.split('\n').forEach((line) => {
-            console.log(`        ${escapeXml(line)}`);
-          });
-          console.log(`      </body>`);
-          console.log(`    </comment>`);
+      // Labels
+      if (issue.fields.labels && issue.fields.labels.length > 0) {
+        console.log(`  <labels>`);
+        issue.fields.labels.forEach((label) => {
+          console.log(`    <label>${escapeXml(label)}</label>`);
         });
-        console.log(`  </comments>`);
+        console.log(`  </labels>`);
       }
-    }
 
-    // Close the issue XML tag
-    console.log('</issue>');
+      // Description - always show full description
+      const description = formatDescription(issue.fields.description);
+      if (description.trim()) {
+        // Preserve newlines but normalize other whitespace
+        const cleanDescription = description
+          .split('\n')
+          .map((line) => line.replace(/\s+/g, ' ').trim())
+          .filter((line) => line.length > 0)
+          .join('\n');
+
+        console.log(`  <description>`);
+        // Indent each line of the description for better readability
+        cleanDescription.split('\n').forEach((line) => {
+          console.log(`    ${escapeXml(line)}`);
+        });
+        console.log(`  </description>`);
+      }
+
+      // Comments - show all comments
+      if (
+        issue.fields.comment &&
+        typeof issue.fields.comment === 'object' &&
+        'comments' in issue.fields.comment &&
+        Array.isArray((issue.fields.comment as { comments: unknown[] }).comments) &&
+        (issue.fields.comment as { comments: unknown[] }).comments.length > 0
+      ) {
+        const comments = (
+          issue.fields.comment as { comments: { author: { displayName: string }; created: string; body: unknown }[] }
+        ).comments;
+
+        if (comments.length > 0) {
+          console.log(`  <comments>`);
+
+          // Show all comments in XML format
+          comments.forEach((comment) => {
+            // Preserve newlines but normalize other whitespace
+            const commentBody = formatDescription(comment.body)
+              .split('\n')
+              .map((line) => line.replace(/\s+/g, ' ').trim())
+              .filter((line) => line.length > 0)
+              .join('\n');
+
+            console.log(`    <comment>`);
+            console.log(`      <author>${escapeXml(comment.author.displayName)}</author>`);
+            console.log(`      <created>${formatSmartDate(comment.created)}</created>`);
+            console.log(`      <body>`);
+            // Indent each line of the body for better readability
+            commentBody.split('\n').forEach((line) => {
+              console.log(`        ${escapeXml(line)}`);
+            });
+            console.log(`      </body>`);
+            console.log(`    </comment>`);
+          });
+          console.log(`  </comments>`);
+        }
+      }
+
+      // Close the issue XML tag
+      console.log('</issue>');
+    },
+    catch: (error) => new Error(`Failed to format issue output: ${error}`),
   });
 
 // Pure Effect-based viewIssue implementation - remote-first approach
@@ -288,7 +295,7 @@ const viewIssueEffect = (issueKey: string, options: { json?: boolean; local?: bo
           if (options.local && cachedIssue) {
             // User explicitly requested local cached data
             return pipe(
-              formatIssueOutputEffect(cachedIssue, config),
+              formatIssueOutputEffect(cachedIssue, config, jiraClient, cacheManager, false),
               // Optionally refresh in background for next time
               Effect.tap(() => refreshInBackgroundEffect(config, cachedIssue)),
               Effect.tap(() =>
@@ -307,7 +314,7 @@ const viewIssueEffect = (issueKey: string, options: { json?: boolean; local?: bo
                 pipe(
                   updateCacheEffect(cacheManager, issue),
                   Effect.flatMap(() => updateSearchIndexEffect(contentManager, issue)),
-                  Effect.flatMap(() => formatIssueOutputEffect(issue, config)),
+                  Effect.flatMap(() => formatIssueOutputEffect(issue, config, jiraClient, cacheManager, true)),
                   Effect.tap(() =>
                     Effect.sync(() => {
                       cacheManager.close();
@@ -322,7 +329,7 @@ const viewIssueEffect = (issueKey: string, options: { json?: boolean; local?: bo
                 if (cachedIssue) {
                   return pipe(
                     Console.log('⚠️  Using cached data (API unavailable)'),
-                    Effect.flatMap(() => formatIssueOutputEffect(cachedIssue, config)),
+                    Effect.flatMap(() => formatIssueOutputEffect(cachedIssue, config, jiraClient, cacheManager, false)),
                     Effect.tap(() =>
                       Effect.sync(() => {
                         cacheManager.close();
