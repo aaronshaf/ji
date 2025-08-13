@@ -5,6 +5,16 @@ import { ConfigManager } from '../../lib/config.js';
 import { JiraClient } from '../../lib/jira-client.js';
 import { formatTimeAgo } from '../formatters/time.js';
 
+// Helper function to escape XML special characters
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 interface Issue {
   key: string;
   project_key: string;
@@ -70,7 +80,7 @@ const groupIssuesByProject = (issues: Issue[]): GroupedIssues => {
   return grouped;
 };
 
-export async function showMyIssues(projectFilter?: string, pretty = false) {
+export async function showMyIssues(projectFilter?: string, pretty = false, useLocal = false) {
   const configManager = new ConfigManager();
   let cacheManager: CacheManager | null = null;
 
@@ -82,18 +92,16 @@ export async function showMyIssues(projectFilter?: string, pretty = false) {
     }
 
     cacheManager = new CacheManager();
+    let displayIssues: Issue[] = [];
 
-    // Get cached issues immediately
-    const cachedIssues = await cacheManager.listMyOpenIssues(config.email);
-
-    // Apply project filter if specified
-    let displayIssues = cachedIssues;
-    if (projectFilter) {
-      displayIssues = cachedIssues.filter((issue) => issue.project_key === projectFilter.toUpperCase());
-    }
-
-    // If no cached data, do a blocking sync (silent, no output)
-    if (displayIssues.length === 0) {
+    if (useLocal) {
+      // Use cached data when --local flag is used
+      const cachedIssues = await cacheManager.listMyOpenIssues(config.email);
+      displayIssues = projectFilter
+        ? cachedIssues.filter((issue) => issue.project_key === projectFilter.toUpperCase())
+        : cachedIssues;
+    } else {
+      // Default: Fetch fresh data from API (remote-first)
       const jiraClient = new JiraClient(config);
 
       // Get all projects from cache or do a basic sync
@@ -187,41 +195,52 @@ export async function showMyIssues(projectFilter?: string, pretty = false) {
           });
       }
     } else {
-      // Simple YAML output (default)
+      // XML output (default)
+      console.log('<my_issues>');
+
       if (lastSyncTime) {
-        console.log(`# Last synced: ${formatTimeAgo(lastSyncTime.getTime())}`);
+        console.log(`  <last_synced>${formatTimeAgo(lastSyncTime.getTime())}</last_synced>`);
       }
 
       if (displayIssues.length === 0) {
-        console.log('projects: []');
         console.log(
-          `# No open issues assigned to you${projectFilter ? ` in project ${projectFilter.toUpperCase()}` : ''}`,
+          `  <message>No open issues assigned to you${projectFilter ? ` in project ${projectFilter.toUpperCase()}` : ''}</message>`,
         );
       } else {
         const groupedIssues = groupIssuesByProject(displayIssues);
-
-        console.log('projects:');
+        console.log('  <projects>');
 
         Object.entries(groupedIssues)
           .sort(([a], [b]) => a.localeCompare(b))
           .forEach(([projectKey, issues]) => {
-            console.log(`  - name: ${projectKey}`);
-            console.log('    issues:');
+            console.log(`    <project>`);
+            console.log(`      <name>${escapeXml(projectKey)}</name>`);
+            console.log(`      <issues>`);
 
             issues.forEach((issue) => {
               const updatedTime = formatTimeAgo(new Date(issue.updated).getTime());
 
-              console.log(`      - key: ${issue.key}`);
-              console.log(`        title: ${issue.summary}`);
-              console.log(`        status: ${issue.status}`);
-              console.log(`        updated: ${updatedTime}`);
+              console.log(`        <issue>`);
+              console.log(`          <key>${escapeXml(issue.key)}</key>`);
+              console.log(`          <title>${escapeXml(issue.summary)}</title>`);
+              console.log(`          <status>${escapeXml(issue.status)}</status>`);
+              console.log(`          <priority>${escapeXml(issue.priority)}</priority>`);
+              console.log(`          <updated>${updatedTime}</updated>`);
+              console.log(`        </issue>`);
             });
+
+            console.log(`      </issues>`);
+            console.log(`    </project>`);
           });
+
+        console.log('  </projects>');
       }
+
+      console.log('</my_issues>');
     }
 
     // Spawn background sync process (non-blocking)
-    if (cachedIssues.length > 0) {
+    if (displayIssues.length > 0 && useLocal) {
       const args = ['internal-sync-mine', config.email];
       if (projectFilter) {
         args.push(projectFilter);

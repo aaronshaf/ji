@@ -164,13 +164,17 @@ function showSprintHelp() {
 ${chalk.bold('ji sprint - Show active sprint')}
 
 ${chalk.yellow('Usage:')}
-  ji sprint [project-key]
+  ji sprint [project-key] [options]
 
 ${chalk.yellow('Description:')}
   Shows the active sprint for a project. If no project is specified,
   shows sprints for all projects.
+  By default, fetches fresh data from Jira API.
+  Output is in XML format for better LLM parsing.
 
 ${chalk.yellow('Options:')}
+  --unassigned              Show only unassigned issues
+  --local                   Use cached data instead of fetching from API
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
@@ -188,11 +192,13 @@ ${chalk.yellow('Usage:')}
 
 ${chalk.yellow('Description:')}
   Shows all issues assigned to you that are not closed.
-  Displays cached data immediately, then updates with fresh data.
+  By default, fetches fresh data from Jira API.
+  Output is in XML format for better LLM parsing (use --pretty for colored text).
 
 ${chalk.yellow('Options:')}
   --project <key>           Filter by project key (e.g., CFA, EVAL)
-  --pretty                  Show colored output with formatting
+  --pretty                  Show colored text output instead of XML
+  --local                   Use cached data instead of fetching from API
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
@@ -614,8 +620,9 @@ async function main() {
 
         // Check for --pretty flag
         const pretty = args.includes('--pretty');
+        const useLocal = args.includes('--local');
 
-        await showMyIssues(projectFilter, pretty);
+        await showMyIssues(projectFilter, pretty, useLocal);
         break;
       }
 
@@ -715,7 +722,10 @@ async function main() {
           showSprintHelp();
           process.exit(0);
         }
-        await showSprint(subArgs[0]);
+        await showSprint(subArgs[0], {
+          unassigned: args.includes('--unassigned'),
+          local: args.includes('--local'),
+        });
         break;
 
       case 'confluence':
