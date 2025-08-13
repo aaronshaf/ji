@@ -722,16 +722,20 @@ async function main() {
         await showMyBoards(subArgs[0], args.includes('--local'));
         break;
 
-      case 'sprint':
+      case 'sprint': {
         if (args.includes('--help')) {
           showSprintHelp();
           process.exit(0);
         }
-        await showSprint(subArgs[0], {
+        // Find the first non-flag argument for project filter
+        const sprintProjectFilter = subArgs.find((arg) => !arg.startsWith('--'));
+        await showSprint(sprintProjectFilter, {
           unassigned: args.includes('--unassigned'),
           local: args.includes('--local'),
+          pretty: args.includes('--pretty'),
         });
         break;
+      }
 
       case 'confluence':
         if (args.includes('--help') || !subArgs[0]) {
