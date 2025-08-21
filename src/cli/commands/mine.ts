@@ -1,9 +1,8 @@
-import { spawn } from 'node:child_process';
 import chalk from 'chalk';
-import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
 import { JiraClient } from '../../lib/jira-client.js';
 import { formatTimeAgo } from '../formatters/time.js';
+import { formatSinceTime, parseSinceExpression, parseStatusFilter } from '../utils/time-parser.js';
 
 // Helper function to escape XML special characters
 function escapeXml(str: string): string {
@@ -80,9 +79,47 @@ const groupIssuesByProject = (issues: Issue[]): GroupedIssues => {
   return grouped;
 };
 
-export async function showMyIssues(projectFilter?: string, pretty = false, useLocal = false) {
+// Build JQL query from filters
+function buildJql(projectFilter?: string, statusFilter?: string, sinceFilter?: string): string {
+  const jqlParts: string[] = ['assignee = currentUser()'];
+
+  // Handle project filter
+  if (projectFilter) {
+    jqlParts.push(`project = ${projectFilter.toUpperCase()}`);
+  }
+
+  // Parse and handle status filter
+  const statuses = statusFilter ? parseStatusFilter(statusFilter) : undefined;
+  if (statuses === undefined) {
+    // Default: exclude closed issues
+    jqlParts.push('status NOT IN (Closed, Done, Resolved, Cancelled)');
+  } else if (statuses.length > 0) {
+    if (statuses.includes('open')) {
+      jqlParts.push('status NOT IN (Closed, Done, Resolved, Cancelled)');
+    } else {
+      // Use specific statuses with proper JQL case-insensitive matching
+      const statusList = statuses.map((s) => `"${s}"`).join(', ');
+      jqlParts.push(`status IN (${statusList})`);
+    }
+  }
+  // If statuses is empty array, no status filter (show all)
+
+  // Handle time filter
+  if (sinceFilter) {
+    try {
+      const since = parseSinceExpression(sinceFilter);
+      const jiraDate = new Date(since).toISOString().split('T')[0];
+      jqlParts.push(`updated >= "${jiraDate}"`);
+    } catch (error) {
+      throw new Error(`Invalid time expression: ${sinceFilter}`);
+    }
+  }
+
+  return jqlParts.join(' AND ');
+}
+
+export async function showMyIssues(projectFilter?: string, xml = false, statusFilter?: string, sinceFilter?: string) {
   const configManager = new ConfigManager();
-  let cacheManager: CacheManager | null = null;
 
   try {
     const config = await configManager.getConfig();
@@ -91,174 +128,154 @@ export async function showMyIssues(projectFilter?: string, pretty = false, useLo
       process.exit(1);
     }
 
-    cacheManager = new CacheManager();
-    let displayIssues: Issue[] = [];
+    // Always fetch fresh data from API
+    const jiraClient = new JiraClient(config);
 
-    if (useLocal) {
-      // Use cached data when --local flag is used
-      const cachedIssues = await cacheManager.listMyOpenIssues(config.email);
-      displayIssues = projectFilter
-        ? cachedIssues.filter((issue) => issue.project_key === projectFilter.toUpperCase())
-        : cachedIssues;
-    } else {
-      // Default: Fetch fresh data from API (remote-first)
-      const jiraClient = new JiraClient(config);
+    // Build JQL query from filters
+    const jql = buildJql(projectFilter, statusFilter, sinceFilter);
 
-      // Get all projects from cache or do a basic sync
-      const allProjects = await cacheManager.getAllProjects();
-      const projectKeys = projectFilter
-        ? [projectFilter.toUpperCase()]
-        : allProjects.length > 0
-          ? allProjects.map((p) => p.key)
-          : [''];
+    try {
+      // Fetch issues using JQL
+      const searchResult = await jiraClient.searchIssues(jql);
 
-      // Fetch issues for each project
-      const allIssues: Issue[] = [];
-      for (const projectKey of projectKeys) {
-        if (!projectKey) continue;
+      // Convert to our display format
+      const displayIssues: Issue[] = searchResult.issues.map((jiraIssue) => ({
+        key: jiraIssue.key,
+        project_key: jiraIssue.key.split('-')[0],
+        summary: jiraIssue.fields.summary,
+        status: jiraIssue.fields.status.name,
+        priority: jiraIssue.fields.priority?.name || 'None',
+        assignee_name: jiraIssue.fields.assignee?.displayName || null,
+        updated: jiraIssue.fields.updated.toString(),
+      }));
 
-        try {
-          const jql = `project = ${projectKey} AND assignee = currentUser() AND status NOT IN (Closed, Done, Resolved)`;
-          const searchResult = await jiraClient.searchIssues(jql);
-
-          for (const jiraIssue of searchResult.issues) {
-            // Save to cache
-            await cacheManager.saveIssue(jiraIssue);
-
-            // Add to display list
-            allIssues.push({
-              key: jiraIssue.key,
-              project_key: projectKey,
-              summary: jiraIssue.fields.summary,
-              status: jiraIssue.fields.status.name,
-              priority: jiraIssue.fields.priority?.name || 'None',
-              assignee_name: jiraIssue.fields.assignee?.displayName || null,
-              updated: jiraIssue.fields.updated.toString(),
-            });
+      // Build filter description for display
+      const getFilterDescription = () => {
+        const parts: string[] = [];
+        if (statusFilter) {
+          if (statusFilter === 'all') {
+            parts.push('all statuses');
+          } else {
+            parts.push(`status: ${statusFilter}`);
           }
-        } catch (_err) {
-          // Continue with other projects
+        } else {
+          parts.push('open issues');
         }
-      }
+        if (projectFilter) {
+          parts.push(`project: ${projectFilter.toUpperCase()}`);
+        }
+        if (sinceFilter) {
+          const since = parseSinceExpression(sinceFilter);
+          parts.push(`updated since: ${formatSinceTime(since)}`);
+        }
+        return parts.join(', ');
+      };
 
-      displayIssues = allIssues;
-    }
+      // Output results
+      if (!xml) {
+        // Pretty colored output (default)
+        if (displayIssues.length === 0) {
+          console.log(chalk.gray(`No issues found (${getFilterDescription()})`));
+        } else {
+          console.log(
+            chalk.gray(
+              `Showing ${displayIssues.length} issue${displayIssues.length !== 1 ? 's' : ''} (${getFilterDescription()})\n`,
+            ),
+          );
 
-    // Get last sync time for user's issues
-    const lastSyncTime = await cacheManager.getMyIssuesLastSync(config.email);
+          const groupedIssues = groupIssuesByProject(displayIssues);
 
-    // Output YAML with data sync indicator
-    if (pretty) {
-      // Pretty colored output
-      if (lastSyncTime) {
-        console.log(chalk.gray(`Last synced: ${formatTimeAgo(lastSyncTime.getTime())}\n`));
-      }
+          Object.entries(groupedIssues)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .forEach(([projectKey, issues]) => {
+              console.log(chalk.bold.cyan(`${projectKey}`));
+              console.log(chalk.gray('─'.repeat(40)));
 
-      if (displayIssues.length === 0) {
-        console.log(
-          chalk.gray(
-            `No open issues assigned to you${projectFilter ? ` in project ${projectFilter.toUpperCase()}` : ''}`,
-          ),
-        );
-      } else {
-        const groupedIssues = groupIssuesByProject(displayIssues);
+              issues.forEach((issue) => {
+                const updatedTime = formatTimeAgo(new Date(issue.updated).getTime());
 
-        Object.entries(groupedIssues)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .forEach(([projectKey, issues]) => {
-            console.log(chalk.bold.cyan(`${projectKey}`));
-            console.log(chalk.gray('─'.repeat(40)));
+                // Color code priority
+                let priorityColor = chalk.gray;
+                const priority = issue.priority;
+                if (priority === 'Highest' || priority === 'P1') priorityColor = chalk.red;
+                else if (priority === 'High' || priority === 'P2') priorityColor = chalk.yellow;
+                else if (priority === 'Medium' || priority === 'P3') priorityColor = chalk.blue;
 
-            issues.forEach((issue) => {
-              const updatedTime = formatTimeAgo(new Date(issue.updated).getTime());
+                // Color code status
+                let statusColor = chalk.gray;
+                const status = issue.status.toLowerCase();
+                if (status.includes('progress')) statusColor = chalk.yellow;
+                else if (status.includes('review')) statusColor = chalk.magenta;
+                else if (status.includes('todo') || status.includes('open')) statusColor = chalk.cyan;
 
-              // Color code priority
-              let priorityColor = chalk.gray;
-              const priority = issue.priority;
-              if (priority === 'Highest' || priority === 'P1') priorityColor = chalk.red;
-              else if (priority === 'High' || priority === 'P2') priorityColor = chalk.yellow;
-              else if (priority === 'Medium' || priority === 'P3') priorityColor = chalk.blue;
-
-              // Color code status
-              let statusColor = chalk.gray;
-              const status = issue.status.toLowerCase();
-              if (status.includes('progress')) statusColor = chalk.yellow;
-              else if (status.includes('review')) statusColor = chalk.magenta;
-              else if (status.includes('todo') || status.includes('open')) statusColor = chalk.cyan;
-
-              console.log(`  ${chalk.bold(issue.key)} ${chalk.white(issue.summary)}`);
-              console.log(
-                `       ${statusColor(issue.status)} • ${priorityColor(issue.priority)} • ${chalk.gray(updatedTime)}`,
-              );
-              console.log();
+                console.log(`  ${chalk.bold(issue.key)} ${chalk.white(issue.summary)}`);
+                console.log(
+                  `       ${statusColor(issue.status)} • ${priorityColor(issue.priority)} • ${chalk.gray(updatedTime)}`,
+                );
+                console.log();
+              });
             });
-          });
-      }
-    } else {
-      // XML output (default)
-      console.log('<my_issues>');
-
-      if (lastSyncTime) {
-        console.log(`  <last_synced>${formatTimeAgo(lastSyncTime.getTime())}</last_synced>`);
-      }
-
-      if (displayIssues.length === 0) {
-        console.log(
-          `  <message>No open issues assigned to you${projectFilter ? ` in project ${projectFilter.toUpperCase()}` : ''}</message>`,
-        );
+        }
       } else {
-        const groupedIssues = groupIssuesByProject(displayIssues);
-        console.log('  <projects>');
+        // XML output (for LLMs)
+        console.log('<my_issues>');
 
-        Object.entries(groupedIssues)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .forEach(([projectKey, issues]) => {
-            console.log(`    <project>`);
-            console.log(`      <name>${escapeXml(projectKey)}</name>`);
-            console.log(`      <issues>`);
+        // Add filter information
+        console.log(`  <filters>`);
+        if (statusFilter) {
+          console.log(`    <status>${escapeXml(statusFilter)}</status>`);
+        }
+        if (projectFilter) {
+          console.log(`    <project>${escapeXml(projectFilter.toUpperCase())}</project>`);
+        }
+        if (sinceFilter) {
+          const since = parseSinceExpression(sinceFilter);
+          console.log(`    <since>${escapeXml(sinceFilter)} (${formatSinceTime(since)})</since>`);
+        }
+        console.log(`  </filters>`);
 
-            issues.forEach((issue) => {
-              const updatedTime = formatTimeAgo(new Date(issue.updated).getTime());
+        if (displayIssues.length === 0) {
+          console.log(`  <message>No issues found with the specified filters</message>`);
+        } else {
+          const groupedIssues = groupIssuesByProject(displayIssues);
+          console.log('  <projects>');
 
-              console.log(`        <issue>`);
-              console.log(`          <key>${escapeXml(issue.key)}</key>`);
-              console.log(`          <title>${escapeXml(issue.summary)}</title>`);
-              console.log(`          <status>${escapeXml(issue.status)}</status>`);
-              console.log(`          <priority>${escapeXml(issue.priority)}</priority>`);
-              console.log(`          <updated>${updatedTime}</updated>`);
-              console.log(`        </issue>`);
+          Object.entries(groupedIssues)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .forEach(([projectKey, issues]) => {
+              console.log(`    <project>`);
+              console.log(`      <name>${escapeXml(projectKey)}</name>`);
+              console.log(`      <issues>`);
+
+              issues.forEach((issue) => {
+                const updatedTime = formatTimeAgo(new Date(issue.updated).getTime());
+
+                console.log(`        <issue>`);
+                console.log(`          <key>${escapeXml(issue.key)}</key>`);
+                console.log(`          <title>${escapeXml(issue.summary)}</title>`);
+                console.log(`          <status>${escapeXml(issue.status)}</status>`);
+                console.log(`          <priority>${escapeXml(issue.priority)}</priority>`);
+                console.log(`          <updated>${updatedTime}</updated>`);
+                console.log(`        </issue>`);
+              });
+
+              console.log(`      </issues>`);
+              console.log(`    </project>`);
             });
 
-            console.log(`      </issues>`);
-            console.log(`    </project>`);
-          });
+          console.log('  </projects>');
+        }
 
-        console.log('  </projects>');
+        console.log('</my_issues>');
       }
-
-      console.log('</my_issues>');
-    }
-
-    // Spawn background sync process (non-blocking)
-    if (displayIssues.length > 0 && useLocal) {
-      const args = ['internal-sync-mine', config.email];
-      if (projectFilter) {
-        args.push(projectFilter);
-      }
-
-      const child = spawn(process.argv[0], [process.argv[1], ...args], {
-        detached: true,
-        stdio: 'ignore',
-      });
-      child.unref();
+    } catch (apiError) {
+      console.error(`Error fetching from Jira API: ${apiError instanceof Error ? apiError.message : 'Unknown error'}`);
+      process.exit(1);
     }
   } catch (error) {
     console.error(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   } finally {
-    if (cacheManager) {
-      cacheManager.close();
-    }
     configManager.close();
   }
 }

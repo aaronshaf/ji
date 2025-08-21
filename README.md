@@ -3,24 +3,22 @@
 [![CI](https://github.com/aaronshaf/ji/actions/workflows/ci.yml/badge.svg)](https://github.com/aaronshaf/ji/actions/workflows/ci.yml)
 [![Code Quality](https://img.shields.io/badge/warnings-0-brightgreen)](https://github.com/aaronshaf/ji/actions/workflows/ci.yml)
 
-A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Features local caching for instant access.
+A fast, modern CLI for Jira and Confluence built with Bun and TypeScript. Direct API access for always-fresh data.
 
 **Key benefits:**
-- **Lightning fast** - local caching means instant responses
-- **Always fresh** - automatic background sync
-- **LLM-friendly** - XML/YAML output formats optimized for LLM parsing
-- **Local-capable** - full offline functionality with cached data
+- **Always fresh** - direct API access means current data
+- **Fast and reliable** - optimized API queries with intelligent filtering
+- **Human-first** - Pretty colored output by default, with --xml flag for LLM parsing
+- **Smart filtering** - powerful status, time, and assignee filtering
 
 ## Architecture
 
-**ji** combines API access with local caching:
+**ji** is a pure API client with intelligent query optimization:
 
-- **SQLite cache** - Enables offline functionality and instant responses
-- **XML output format** - Structured output optimized for both humans and LLMs
-- **`--local` flag** - Use cached data for offline access or faster responses
-- **Background sync** - Data updates happen silently in the background
-
-Use `--local` when you need instant responses or are working offline.
+- **Direct API access** - Always shows current, fresh data
+- **Flexible output** - Pretty colored output by default, XML format available with --xml flag
+- **Smart filtering** - JQL-powered filtering for status, time ranges, and assignees
+- **Effect-based error handling** - Type-safe operations with comprehensive error handling
 
 ## Installation
 
@@ -56,6 +54,11 @@ This interactive wizard will:
 # View your assigned issues
 ji mine
 
+# View your assigned issues with filtering
+ji mine --status "In Progress"        # Filter by status
+ji mine --since 24h                   # Issues updated in last 24h
+ji mine --status "Closed" --since 7d  # Closed issues from last week
+
 # View a specific issue (two ways)
 ji PROJ-123                  # Shorthand
 ji issue view PROJ-123       # Full command
@@ -67,25 +70,22 @@ ji take PROJ-456
 ji sprint
 ```
 
-### Sync Data
+### Search and Filter
 
 ```bash
-# Sync a Jira project
-ji issue sync PROJ
+# Search across all content
+ji search "authentication error"
 
-# Sync a Confluence space
-ji confluence sync DOCS
-
-# Sync all your workspaces
-ji sync
+# Advanced filtering with JQL
+ji mine --status "To Do,In Progress" --since 30d
 ```
 
 ## Key Features
 
-### Smart Sync
-- Incremental sync only fetches changes
-- Background refresh keeps data current
-- Works offline with cached data
+### Smart Filtering
+- Status-based filtering with JQL queries
+- Time range filtering (24h, 7d, 30d, etc.)
+- Always shows current, fresh data from API
 
 ### Sprint Management
 ```bash
@@ -108,14 +108,14 @@ Features:
 
 ## Tips & Tricks
 
-1. **Sync in background**:
+1. **Filter your issues efficiently**:
    ```bash
-   ji confluence sync LARGE_SPACE --background
+   ji mine --status "In Progress,Review" --since 48h
    ```
 
-2. **View recent changes**:
+2. **Search across all accessible content**:
    ```bash
-   ji confluence recent ENG
+   ji search "authentication bug" 
    ```
 
 ## Documentation
@@ -127,25 +127,19 @@ Features:
 
 ```bash
 # Setup
-ji init                      # First-time setup
 ji auth                      # Configure credentials
 
 # Jira
 ji mine                      # Your issues
+ji mine --status "In Progress" --since 24h  # Filtered issues
 ji <ISSUE-KEY>               # View issue (shorthand)
-ji <ISSUE-KEY> --fetch       # View issue (fetch fresh from API)
 ji issue view <KEY>          # View issue (full command)
-ji issue view <KEY> --fetch  # View issue (fetch fresh from API)
 ji take <KEY>                # Assign to yourself
 ji comment <KEY> ["text"]    # Add comment (supports wiki markup)
 ji sprint [PROJECT]          # Sprint overview
 
-# Confluence
-ji confluence sync <SPACE>   # Sync space
-ji confluence recent <SPACE> # Recent changes
-
-# Maintenance
-ji sync                      # Sync all workspaces
+# Search
+ji search "bug authentication"  # Search across all content
 
 # Testing
 ji test --setup              # Configure environment tests

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { spawn } from 'bun';
 import chalk from 'chalk';
 import { Effect, pipe, Schema } from 'effect';
-import { CacheManager } from '../../lib/cache.js';
+
 import { ConfigManager } from '../../lib/config.js';
 import { JiraClient } from '../../lib/jira-client.js';
 
@@ -146,24 +146,7 @@ const addCommentEffect = (issueKey: string, comment: string) =>
             );
           }),
         ),
-        Effect.tap(() =>
-          pipe(
-            Effect.tryPromise({
-              try: async () => {
-                // Update local cache
-                const cacheManager = new CacheManager();
-                try {
-                  const issue = await jiraClient.getIssue(issueKey);
-                  await cacheManager.saveIssue(issue);
-                } finally {
-                  cacheManager.close();
-                }
-              },
-              catch: (error) => new Error(`Cache update failed: ${error}`),
-            }),
-            Effect.ignore, // Silently ignore any cache update errors
-          ),
-        ),
+        // Comment added successfully - no local cache update needed
         Effect.tap(() => Effect.sync(() => configManager.close())),
       );
     }),

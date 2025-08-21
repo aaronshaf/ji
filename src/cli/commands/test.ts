@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
 import { Console, Effect, pipe, Schema } from 'effect';
-import { CacheManager } from '../../lib/cache.js';
+
 import { ConfigManager } from '../../lib/config.js';
 import { OllamaClient } from '../../lib/ollama.js';
 
@@ -142,34 +142,12 @@ class TestManager {
     );
   }
 
-  // Effect-based environment info gathering
+  // Effect-based environment info gathering - API-only mode
   getEnvironmentInfoEffect(): Effect.Effect<{ projectKeys: string[]; confluenceSpaces: string[] }, TestExecutionError> {
-    return Effect.scoped(
-      pipe(
-        Effect.acquireRelease(
-          Effect.sync(() => new CacheManager()),
-          (cacheManager) => Effect.sync(() => cacheManager.close()),
-        ),
-        Effect.flatMap((cacheManager) =>
-          pipe(
-            Effect.all([
-              Effect.tryPromise({
-                try: () => cacheManager.getAllProjects(),
-                catch: (error) => new TestExecutionError(`Failed to get projects: ${error}`),
-              }),
-              Effect.tryPromise({
-                try: () => cacheManager.getActiveWorkspaces(),
-                catch: (error) => new TestExecutionError(`Failed to get workspaces: ${error}`),
-              }),
-            ]),
-            Effect.map(([projects, workspaces]) => ({
-              projectKeys: projects.map((p) => p.key),
-              confluenceSpaces: workspaces.filter((w) => w.type === 'confluence_space').map((w) => w.keyOrId),
-            })),
-          ),
-        ),
-      ),
-    );
+    return Effect.succeed({
+      projectKeys: [], // No cached projects in API-only mode
+      confluenceSpaces: [], // No cached confluence spaces in API-only mode
+    });
   }
 
   // Backward compatibility methods

@@ -2,8 +2,8 @@
 
 ## Project Overview
 
-This is a **fast, local-capable CLI** for Jira & Confluence built with:
-- Bun (runtime, package manager, and SQLite provider)
+This is a **fast, API-driven CLI** for Jira & Confluence built with:
+- Bun (runtime and package manager)
 - TypeScript
 - Effect and Effect Schema (functional programming with type-safe error handling)
 - chalk (color highlighting)
@@ -12,23 +12,21 @@ This is a **fast, local-capable CLI** for Jira & Confluence built with:
 Inspired by [jira-cli](https://github.com/ankitpokhrel/jira-cli).
 
 **Core Philosophy**: 
-- Fast CLI with local caching capabilities
-- SQLite database enables offline functionality and instant responses
-- `--local` flag for cached data access
-- XML/YAML output formats optimized for LLM consumption
+- Fast CLI with direct API access for always-fresh data
+- Smart filtering using JQL (Jira Query Language) for efficient queries
+- Human-first design with pretty colored output by default, XML available for LLM consumption
 - Use Effect comprehensively for type-safe, composable operations with proper error handling
 
 ## Key Design Decisions
 
-1. **Local caching architecture**: SQLite database provides offline capability and instant responses
+1. **API-only architecture**: Direct API calls for always-fresh data without local storage complexity
 2. **Bun-first**: This project uses Bun as the primary runtime and build tool
-3. **Local SQLite storage**: Cached data stored in `~/.ji/data.db`
-4. **Separate auth storage**: Credentials in `~/.ji/auth.json` (600 permissions)
-5. **Background refresh**: Auto-refresh data in background for instant access
-6. **Security**: API keys stored securely, never in git or environment variables
-7. **Full-text search**: SQLite FTS5 for searching across all content  
-8. **YAML output**: All command outputs should be in YAML format for LLM compatibility
-10. **Effect-first**: Use Effect and Effect Schema comprehensively for type-safe operations, proper error handling, and composable functions
+3. **Secure auth storage**: Credentials in `~/.ji/auth.json` (600 permissions)
+4. **Smart filtering**: JQL-powered queries for efficient status, time, and assignee filtering
+5. **Security**: API keys stored securely, never in git or environment variables
+6. **Cross-platform search**: API-based search across Jira and Confluence content
+7. **Human-first output**: Pretty colored output by default, with --xml flag for LLM compatibility
+8. **Effect-first**: Use Effect and Effect Schema comprehensively for type-safe operations, proper error handling, and composable functions
 
 ## Development Guidelines
 
@@ -117,14 +115,14 @@ const loadConfig = (path: string) =>
 #### 3. Resource Management with Effect.scoped
 ```typescript
 // ✅ Use Effect.scoped for automatic cleanup
-const withDatabase = <A, E>(
-  operation: (db: Database) => Effect.Effect<A, E>
-): Effect.Effect<A, E | DatabaseError> =>
+const withHttpClient = <A, E>(
+  operation: (client: HttpClient) => Effect.Effect<A, E>
+): Effect.Effect<A, E | NetworkError> =>
   Effect.scoped(
     pipe(
       Effect.acquireRelease(
-        Effect.sync(() => new Database(DB_PATH)),
-        (db) => Effect.sync(() => db.close())
+        Effect.sync(() => new HttpClient()),
+        (client) => Effect.sync(() => client.close())
       ),
       Effect.flatMap(operation)
     )
@@ -186,7 +184,7 @@ export async function command(args: Args): Promise<void> {
 
 **Use Effect for:**
 - Operations that can fail (file I/O, network, parsing)
-- Resource management (databases, connections)
+- Resource management (HTTP clients, connections)
 - Composable operations
 - Complex error handling
 - Operations that need to be testable
@@ -213,18 +211,19 @@ src/
 ├── cli.ts                    # Main CLI entry point
 ├── cli/                      # CLI command structure
 │   ├── index.ts              # Command router
+│   ├── utils/                # CLI utilities
+│   │   └── time-parser.ts    # Parse human time formats to JQL
 │   └── commands/             # Individual command implementations
 │       ├── auth.ts           # Authentication setup
-│       ├── issue.ts          # Issue viewing (Effect-based)
-│       ├── search.ts         # Search and AI (Effect-based)
-│       ├── sync.ts           # Data synchronization (Effect-based)
+│       ├── issue.ts          # Issue viewing (API-only, Effect-based)
+│       ├── mine.ts           # Personal issues with filtering (API-only)
+│       ├── search.ts         # Search across Jira/Confluence (API-only)
 │       ├── memory.ts         # Memory management
 │       ├── comment.ts        # Add comments to issues (Effect-based)
+│       ├── board.ts          # Board and sprint management
 │       └── test.ts           # Testing framework (comprehensive Effect usage)
 └── lib/                      # Shared libraries
-    ├── cache.ts              # SQLite caching layer (partial Effect integration)
     ├── config.ts             # Configuration & auth management (Effect-based)
-    ├── content-manager.ts    # Unified content storage (Effect-based)
     ├── ollama.ts             # Ollama integration for LLM
     ├── jira-client.ts        # Jira API client (LARGE FILE - needs splitting)
     ├── confluence-client.ts  # Confluence API client
@@ -245,29 +244,27 @@ src/
 
 - NEVER commit API keys or tokens
 - Authentication stored separately in `~/.ji/auth.json` (600 permissions)
-- Database at `~/.ji/data.db` contains only cached content
 - Test configuration stored in `~/.ji/test-config.json` (gitignored, contains environment-specific data)
 - `.gitignore` configured to exclude all sensitive files including test configs
 - All sensitive configuration files use 600 permissions for security
+- No local storage of sensitive data - only cached in memory during API calls
 
 ## Current Features
 
-- ✅ Jira issue viewing with caching (Effect-based)
-- ✅ Confluence space syncing and page viewing
-- ✅ Local SQLite FTS5 search (instant, no external dependencies)
+- ✅ Jira issue viewing with direct API access (Effect-based)
+- ✅ Advanced filtering: status, time ranges, assignees (JQL-powered)
+- ✅ Cross-platform search across Jira and Confluence content
 - ✅ AI-powered Q&A with `ji ask` (uses Ollama + gemma3n)
-- ✅ Background refresh for instant access
+- ✅ Always-fresh data from live API calls
 - ✅ Secure credential storage
-- ✅ `ji mine` command to show your open issues (YAML output)
+- ✅ `ji mine` command with powerful filtering (YAML output)
 - ✅ `ji take` command to assign issues to yourself
-- ✅ `--clean` flag for fresh sync
 - ✅ Memory management system (`ji remember`, `ji memories`)
 - ✅ Comprehensive testing framework (`ji test --setup`, `ji test`)
 - ✅ Effect-based error handling and type safety
-- ✅ YAML output for LLM compatibility
-- ✅ `ji sync` now syncs BOTH Jira projects and Confluence spaces
-- ✅ Metadata-first sync strategy for --clean flag (fast 250 pages/batch)
-- ✅ Incremental sync with version tracking to avoid re-fetching unchanged pages
+- ✅ Human-first pretty output with XML option for LLM compatibility
+- ✅ Sprint and board management (`ji sprint`, `ji board`)
+- ✅ Human-readable time parsing (24h, 7d, 30d) to JQL conversion
 
 ## Testing Framework
 
@@ -297,7 +294,7 @@ ji test            # Run all configured tests
 - `ji search "query"` - Pattern validation for YAML output
 - `ji issue view KEY` - Issue data structure validation
 - `ji ask "question"` - LLM-based answer quality assessment
-- `ji sync` - Synchronization success pattern matching
+- `ji mine --status "In Progress" --since 24h` - Filtered issue retrieval validation
 - `ji mine` - Personal issue retrieval validation
 
 ## Future Features
@@ -305,6 +302,7 @@ ji test            # Run all configured tests
 - Complete Effect migration for remaining async/Promise code
 - More Jira commands (create, update issues) with Effect-based operations
 - Confluence page creation/editing
-- Watch mode for real-time updates
+- Advanced filtering combinations (multiple projects, custom JQL)
 - Batch operations (bulk update issues)
 - CI/CD integration with seeded test data
+- Performance optimizations for large result sets

@@ -4,7 +4,7 @@ import { auth } from './commands/auth.js';
 import { showMyBoards } from './commands/board.js';
 import { addComment } from './commands/comment.js';
 import { configureCustomFields } from './commands/config.js';
-import { showRecentConfluencePages, viewConfluencePage } from './commands/confluence.js';
+
 import { markIssueDone } from './commands/done.js';
 import { viewIssue } from './commands/issue.js';
 import { showIssueLog } from './commands/log.js';
@@ -12,12 +12,11 @@ import { addMemory, clearMemories, deleteMemory, listMemories, showMemoryStats }
 import { showMyIssues, takeIssue } from './commands/mine.js';
 import { configureModels } from './commands/models.js';
 import { openCommand } from './commands/open.js';
-import { ask, search } from './commands/search.js';
+import { askQuestion, search } from './commands/search.js';
 import { initializeSetup } from './commands/setup.js';
 import { showSprint } from './commands/sprint.js';
-import { syncConfluence, syncJiraProject, syncWorkspaces } from './commands/sync.js';
+
 import { testCommand } from './commands/test.js';
-import { refreshInBackground, refreshSprintInBackground, syncMyIssuesInBackground } from './utils/background.js';
 
 // Command-specific help functions
 function showSearchHelp() {
@@ -51,44 +50,18 @@ ${chalk.yellow('Usage:')}
 
 ${chalk.yellow('Subcommands:')}
   view <issue-key>          View issue details
-  sync <project-key>        Sync all issues from a project
+
 
 ${chalk.yellow('Options:')}
   --json                    Output in JSON format (for view)
-  --local                   Use cached data instead of fetching from API
-  --clean                   Clean sync - remove existing issues first
+
   --help                    Show this help message
 
 ${chalk.yellow('Note:')}
   By default, 'ji issue view' fetches fresh data from Jira.
-  Use --local to view cached data for offline/faster access.
-
 ${chalk.yellow('Examples:')}
-  ji issue view EVAL-123          # Fetches fresh data from Jira
-  ji issue view EVAL-123 --local  # Uses cached data
-  ji issue view EVAL-123 --json   # Fresh data in JSON format
-  ji issue sync EVAL --clean      # Sync all issues from project
-`);
-}
-
-function showSyncHelp() {
-  console.log(`
-${chalk.bold('ji sync - Synchronize Jira and Confluence data')}
-
-${chalk.yellow('Usage:')}
-  ji sync [options]
-
-${chalk.yellow('Options:')}
-  --clean                   Clean sync - remove existing data first
-  --help                    Show this help message
-
-${chalk.yellow('Description:')}
-  Syncs all active workspaces (both Jira projects and Confluence spaces).
-  Use --clean to perform a fresh sync, removing all existing data first.
-
-${chalk.yellow('Examples:')}
-  ji sync
-  ji sync --clean
+  ji issue view EVAL-123    # View issue details
+  ji sprint ABC             # Show current sprint for project ABC
 `);
 }
 
@@ -153,14 +126,14 @@ ${chalk.yellow('Description:')}
   Output is in XML format for better LLM parsing.
 
 ${chalk.yellow('Options:')}
-  --local                   Use cached board data instead of fetching from API
+
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
   ji board                  Show all boards (fresh data)
   ji board EVAL             Show boards for EVAL project (fresh data)
-  ji board --local          Show all boards from cache
-  ji board EVAL --local     Show EVAL boards from cache
+  ji board                  Show all boards with colored output (default)
+  ji board --xml            Show all boards in XML format for LLMs
 `);
 }
 
@@ -174,12 +147,11 @@ ${chalk.yellow('Usage:')}
 ${chalk.yellow('Description:')}
   Shows the active sprint for a project. If no project is specified,
   shows sprints for all projects.
-  By default, fetches fresh data from Jira API.
-  Output is in XML format for better LLM parsing.
+  By default, fetches fresh data from Jira API and displays colored output.
 
 ${chalk.yellow('Options:')}
   --unassigned              Show only unassigned issues
-  --local                   Use cached data instead of fetching from API
+  --xml                     Show XML output for LLM parsing
   --help                    Show this help message
 
 ${chalk.yellow('Examples:')}
@@ -190,26 +162,46 @@ ${chalk.yellow('Examples:')}
 
 function showMineHelp() {
   console.log(`
-${chalk.bold('ji mine - Show your open issues')}
+${chalk.bold('ji mine - Show your issues with flexible filtering')}
 
 ${chalk.yellow('Usage:')}
   ji mine [options]
 
 ${chalk.yellow('Description:')}
-  Shows all issues assigned to you that are not closed.
-  By default, fetches fresh data from Jira API.
-  Output is in XML format for better LLM parsing (use --pretty for colored text).
+  Shows issues assigned to you with flexible status and time filtering.
+  By default, shows open issues and fetches fresh data from Jira API.
+  Displays colored output by default (use --xml for LLM-friendly format).
 
 ${chalk.yellow('Options:')}
+  --status <filter>         Filter by status (see Status Filters below)
+  --since <time>            Show issues updated since (see Time Formats below)
   --project <key>           Filter by project key (e.g., CFA, EVAL)
-  --pretty                  Show colored text output instead of XML
-  --local                   Use cached data instead of fetching from API
+  --xml                     Show XML output for LLM parsing
   --help                    Show this help message
 
+${chalk.yellow('Status Filters:')}
+  open                      Not closed/done/resolved (default)
+  closed                    Closed, done, or resolved issues
+  all                       All statuses
+  done,closed               Comma-separated list of specific statuses
+  "in progress"             Specific status (use quotes if contains spaces)
+
+${chalk.yellow('Time Formats:')}
+  24h                       Last 24 hours
+  7d                        Last 7 days
+  1w                        Last week
+  yesterday                 Since yesterday
+  2024-01-15                Since specific date
+  "2024-01-15 10:00"        Since specific date and time
+
 ${chalk.yellow('Examples:')}
-  ji mine                   Show all your open issues
-  ji mine --project CFA     Show only issues from project CFA
-  ji mine --pretty          Show issues with colored formatting
+  ji mine                               Show all your open issues
+  ji mine --status closed --since 24h   Show issues closed in last 24 hours
+  ji mine --status all --since 7d       Show all issues updated in last 7 days
+  ji mine --status "in progress"        Show your in-progress issues
+  ji mine --project CFA --status done   Show done issues in project CFA
+  ji mine                               Show issues with colored output (default)
+  ji mine --xml                         Show issues in XML format for LLMs
 `);
 }
 
@@ -500,14 +492,14 @@ ${chalk.yellow('Authentication:')}
   ji auth                              Set up Jira/Confluence authentication
 
 ${chalk.yellow('Issues:')}
-  ji mine                              Show your open issues
+  ji mine [options]                    Show your issues with flexible filters
   ji take <issue-key>                  Assign an issue to yourself
   ji done <issue-key>                  Mark an issue as Done
   ji open <issue-key>                  Open issue in browser
   ji comment <issue-key> [comment]     Add a comment to an issue
   ji log <issue-key>                   Interactive comment viewer/editor
   ji <issue-key>                       View issue (fetches fresh data)
-  ji <issue-key> --local               View issue (cached data)
+
   ji issue view <issue-key>            View issue details (alias)
   ji issue sync <project-key>          Sync all issues from a project
 
@@ -570,20 +562,7 @@ async function main() {
 
   try {
     // Internal commands (hidden from users)
-    if (command === 'internal-refresh' && subArgs.length >= 2) {
-      await refreshInBackground(subArgs[0], subArgs[1]);
-      return;
-    }
-
-    if (command === 'internal-sprint-refresh' && subArgs.length >= 2) {
-      await refreshSprintInBackground(subArgs[0], subArgs[1]);
-      return;
-    }
-
-    if (command === 'internal-sync-mine' && subArgs.length >= 1) {
-      await syncMyIssuesInBackground(subArgs[0], subArgs[1]);
-      return;
-    }
+    // No background operations needed in API-only mode
 
     // Main commands
     switch (command) {
@@ -623,11 +602,38 @@ async function main() {
           }
         }
 
-        // Check for --pretty flag
-        const pretty = args.includes('--pretty');
-        const useLocal = args.includes('--local');
+        // Parse status filter
+        let statusFilter: string | undefined;
+        const statusIndex = args.findIndex((arg) => arg.startsWith('--status'));
+        if (statusIndex !== -1) {
+          const statusArg = args[statusIndex];
+          if (statusArg.includes('=')) {
+            // Format: --status=closed
+            statusFilter = statusArg.split('=')[1];
+          } else if (statusIndex + 1 < args.length) {
+            // Format: --status closed
+            statusFilter = args[statusIndex + 1];
+          }
+        }
 
-        await showMyIssues(projectFilter, pretty, useLocal);
+        // Parse since filter
+        let sinceFilter: string | undefined;
+        const sinceIndex = args.findIndex((arg) => arg.startsWith('--since'));
+        if (sinceIndex !== -1) {
+          const sinceArg = args[sinceIndex];
+          if (sinceArg.includes('=')) {
+            // Format: --since=24h
+            sinceFilter = sinceArg.split('=')[1];
+          } else if (sinceIndex + 1 < args.length) {
+            // Format: --since 24h
+            sinceFilter = args[sinceIndex + 1];
+          }
+        }
+
+        // Check for --xml flag
+        const xml = args.includes('--xml');
+
+        await showMyIssues(projectFilter, xml, statusFilter, sinceFilter);
         break;
       }
 
@@ -704,11 +710,9 @@ async function main() {
         }
 
         if (subArgs[0] === 'view' && subArgs[1]) {
-          await viewIssue(subArgs[1], { json: args.includes('--json'), local: args.includes('--local') });
-        } else if (subArgs[0] === 'sync' && subArgs[1]) {
-          await syncJiraProject(subArgs[1], { clean: args.includes('--clean') });
+          await viewIssue(subArgs[1], { json: args.includes('--json') });
         } else {
-          console.error('Invalid issue command. Use "ji issue view <key>" or "ji issue sync <project>"');
+          console.error('Invalid issue command. Use "ji issue view <key>"');
           showIssueHelp();
           process.exit(1);
         }
@@ -719,7 +723,7 @@ async function main() {
           showBoardHelp();
           process.exit(0);
         }
-        await showMyBoards(subArgs[0], args.includes('--local'));
+        await showMyBoards(subArgs[0], args.includes('--xml'));
         break;
 
       case 'sprint': {
@@ -731,8 +735,7 @@ async function main() {
         const sprintProjectFilter = subArgs.find((arg) => !arg.startsWith('--'));
         await showSprint(sprintProjectFilter, {
           unassigned: args.includes('--unassigned'),
-          local: args.includes('--local'),
-          pretty: args.includes('--pretty'),
+          xml: args.includes('--xml'),
         });
         break;
       }
@@ -743,27 +746,12 @@ async function main() {
           process.exit(0);
         }
 
-        if (subArgs[0] === 'sync' && subArgs[1]) {
-          await syncConfluence(subArgs[1], { clean: args.includes('--clean') });
-        } else if (subArgs[0] === 'recent' && subArgs[1]) {
-          const limit = subArgs[2] ? parseInt(subArgs[2]) : 10;
-          await showRecentConfluencePages(subArgs[1], limit);
-        } else if (subArgs[0] === 'view' && subArgs[1]) {
-          await viewConfluencePage(subArgs[1]);
-        } else {
-          console.error('Invalid confluence command');
-          showConfluenceHelp();
-          process.exit(1);
-        }
+        console.error('Confluence commands are no longer supported.');
         break;
 
       case 'sync':
-        if (args.includes('--help')) {
-          showSyncHelp();
-          process.exit(0);
-        }
-        await syncWorkspaces({ clean: args.includes('--clean') });
-        break;
+        console.error('Sync command is no longer supported.');
+        process.exit(1);
 
       case 'search': {
         if (args.includes('--help')) {
@@ -831,7 +819,7 @@ async function main() {
           process.exit(1);
         }
         const question = subArgs.join(' ');
-        await ask(question);
+        await askQuestion(question);
         break;
       }
 
@@ -898,7 +886,7 @@ async function main() {
       default:
         // Check if it's an issue key (e.g., ABC-123)
         if (/^[A-Z]+-\d+$/.test(command)) {
-          await viewIssue(command, { json: args.includes('--json'), local: args.includes('--local') });
+          await viewIssue(command, { json: args.includes('--json') });
         } else {
           console.error(`Unknown command: ${command}`);
           console.log('Run "ji help" for usage information');

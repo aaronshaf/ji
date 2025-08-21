@@ -3,7 +3,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import * as readline from 'node:readline/promises';
 import chalk from 'chalk';
 import { Console, Effect, pipe } from 'effect';
-import { CacheManager } from '../../lib/cache.js';
+
 import { type Config, ConfigManager } from '../../lib/config.js';
 
 // Effect wrapper for readline operations with default value
@@ -490,23 +490,7 @@ const setupEffect = (rl: readline.Interface) =>
 
     // Step 4: Initial sync
     Effect.flatMap(() => Console.log(chalk.bold('\nStep 4: Initial Sync'))),
-    Effect.flatMap(() =>
-      Effect.tryPromise({
-        try: async () => {
-          const cacheManager = new CacheManager();
-          try {
-            const projects = await cacheManager.getAllProjects();
-            return projects;
-          } finally {
-            cacheManager.close();
-          }
-        },
-        catch: (error) => {
-          console.error('Error fetching projects:', error);
-          return [];
-        },
-      }),
-    ),
+    Effect.succeed([] as { key: string; name: string }[]), // No cached projects in API-only mode
     Effect.flatMap((existingProjects) => {
       if (existingProjects.length > 0) {
         return pipe(

@@ -1,7 +1,5 @@
 import { Console, Effect, pipe } from 'effect';
-import { CacheManager } from '../../lib/cache.js';
 import { ConfigManager } from '../../lib/config.js';
-import { ContentManager } from '../../lib/content-manager.js';
 import { type Issue, JiraClient } from '../../lib/jira-client.js';
 import { formatSmartDate } from '../../lib/utils/date-formatter.js';
 import { formatDescription } from '../formatters/issue.js';
@@ -16,8 +14,8 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
-// Effect wrapper for getting configuration and managers
-const getManagersEffect = () =>
+// Effect wrapper for getting configuration
+const getConfigEffect = () =>
   Effect.tryPromise({
     try: async () => {
       const configManager = new ConfigManager();
@@ -26,10 +24,8 @@ const getManagersEffect = () =>
         if (!config) {
           throw new Error('No configuration found. Please run "ji auth" first.');
         }
-        const cacheManager = new CacheManager();
-        const contentManager = new ContentManager();
         const jiraClient = new JiraClient(config);
-        return { config, configManager, cacheManager, contentManager, jiraClient };
+        return { config, configManager, jiraClient };
       } catch (error) {
         configManager.close();
         throw error;
@@ -56,48 +52,8 @@ const getIssueFromJiraEffect = (jiraClient: JiraClient, issueKey: string) =>
     },
   });
 
-// Effect wrapper for updating cache
-const updateCacheEffect = (cacheManager: CacheManager, issue: Issue) =>
-  Effect.tryPromise({
-    try: () => cacheManager.saveIssue(issue),
-    catch: (error) => new Error(`Failed to update cache: ${error}`),
-  });
-
-// Effect wrapper for updating search index
-const updateSearchIndexEffect = (contentManager: ContentManager, issue: Issue) =>
-  Effect.tryPromise({
-    try: () => contentManager.saveJiraIssue(issue),
-    catch: (error) => new Error(`Failed to update search index: ${error}`),
-  });
-
-// Effect wrapper for getting cached issue
-const getCachedIssueEffect = (cacheManager: CacheManager, issueKey: string) =>
-  Effect.tryPromise({
-    try: () => cacheManager.getIssue(issueKey),
-    catch: (error) => new Error(`Failed to get cached issue: ${error}`),
-  });
-
-// Effect wrapper for background refresh
-const refreshInBackgroundEffect = (_config: { jiraUrl: string }, issue: Issue) =>
-  Effect.tryPromise({
-    try: async () => {
-      // Background refresh logic would go here
-      // For now, just a placeholder
-      const args = ['internal-refresh', issue.key, issue.fields.project?.key || 'unknown'];
-      // Would spawn a background process here
-      return args;
-    },
-    catch: (error) => new Error(`Failed to trigger background refresh: ${error}`),
-  });
-
 // Effect for formatting issue output in XML format for better LLM parsing
-const formatIssueOutputEffect = (
-  issue: Issue,
-  config: { jiraUrl: string },
-  jiraClient: JiraClient,
-  cacheManager: CacheManager,
-  fetchFromApi: boolean,
-) =>
+const formatIssueOutputEffect = (issue: Issue, config: { jiraUrl: string }, jiraClient: JiraClient) =>
   Effect.tryPromise({
     try: async () => {
       // XML output for better LLM parsing
@@ -149,8 +105,8 @@ const formatIssueOutputEffect = (
         // If we have an epic key, fetch the full epic details
         if (epicKey) {
           try {
-            // Fetch the epic issue to get its full details including description
-            const epicIssue = fetchFromApi ? await jiraClient.getIssue(epicKey) : await cacheManager.getIssue(epicKey);
+            // Always fetch fresh from API
+            const epicIssue = await jiraClient.getIssue(epicKey);
 
             if (epicIssue) {
               epicSummary = epicIssue.fields.summary || epicSummary;
@@ -283,76 +239,24 @@ const formatIssueOutputEffect = (
     catch: (error) => new Error(`Failed to format issue output: ${error}`),
   });
 
-// Pure Effect-based viewIssue implementation - remote-first approach
-const viewIssueEffect = (issueKey: string, options: { json?: boolean; local?: boolean } = {}) =>
+// Pure Effect-based viewIssue implementation - API-only approach
+const viewIssueEffect = (issueKey: string) =>
   pipe(
-    getManagersEffect(),
-    Effect.flatMap(({ config, configManager, cacheManager, contentManager, jiraClient }) =>
+    getConfigEffect(),
+    Effect.flatMap(({ config, configManager, jiraClient }) =>
       pipe(
-        // Check if we should use local cache or fetch fresh data
-        getCachedIssueEffect(cacheManager, issueKey),
-        Effect.flatMap((cachedIssue) => {
-          if (options.local && cachedIssue) {
-            // User explicitly requested local cached data
-            return pipe(
-              formatIssueOutputEffect(cachedIssue, config, jiraClient, cacheManager, false),
-              // Optionally refresh in background for next time
-              Effect.tap(() => refreshInBackgroundEffect(config, cachedIssue)),
-              Effect.tap(() =>
-                Effect.sync(() => {
-                  cacheManager.close();
-                  contentManager.close();
-                  configManager.close();
-                }),
-              ),
-            );
-          } else {
-            // Default behavior: fetch fresh data from API
-            return pipe(
-              getIssueFromJiraEffect(jiraClient, issueKey),
-              Effect.flatMap((issue) =>
-                pipe(
-                  updateCacheEffect(cacheManager, issue),
-                  Effect.flatMap(() => updateSearchIndexEffect(contentManager, issue)),
-                  Effect.flatMap(() => formatIssueOutputEffect(issue, config, jiraClient, cacheManager, true)),
-                  Effect.tap(() =>
-                    Effect.sync(() => {
-                      cacheManager.close();
-                      contentManager.close();
-                      configManager.close();
-                    }),
-                  ),
-                ),
-              ),
-              Effect.catchAll((apiError) => {
-                // API failed, try to use cache if we have it
-                if (cachedIssue) {
-                  return pipe(
-                    Console.log('⚠️  Using cached data (API unavailable)'),
-                    Effect.flatMap(() => formatIssueOutputEffect(cachedIssue, config, jiraClient, cacheManager, false)),
-                    Effect.tap(() =>
-                      Effect.sync(() => {
-                        cacheManager.close();
-                        contentManager.close();
-                        configManager.close();
-                      }),
-                    ),
-                  );
-                } else {
-                  // No cache and API failed
-                  return pipe(
-                    Effect.sync(() => {
-                      cacheManager.close();
-                      contentManager.close();
-                      configManager.close();
-                    }),
-                    Effect.flatMap(() => Effect.fail(apiError)),
-                  );
-                }
+        // Always fetch fresh data from API
+        getIssueFromJiraEffect(jiraClient, issueKey),
+        Effect.flatMap((issue) =>
+          pipe(
+            formatIssueOutputEffect(issue, config, jiraClient),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                configManager.close();
               }),
-            );
-          }
-        }),
+            ),
+          ),
+        ),
       ),
     ),
     Effect.catchAll((error) =>
@@ -363,9 +267,9 @@ const viewIssueEffect = (issueKey: string, options: { json?: boolean; local?: bo
     ),
   );
 
-export async function viewIssue(issueKey: string, options: { json?: boolean; local?: boolean } = {}) {
+export async function viewIssue(issueKey: string, _options: { json?: boolean } = {}) {
   try {
-    await Effect.runPromise(viewIssueEffect(issueKey, options));
+    await Effect.runPromise(viewIssueEffect(issueKey));
   } catch (_error) {
     process.exit(1);
   }

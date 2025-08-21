@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { Effect, pipe, Schema } from 'effect';
 import ora from 'ora';
-import { CacheManager } from '../../lib/cache.js';
+
 import { ConfigManager } from '../../lib/config.js';
 import { JiraClient } from '../../lib/jira-client.js';
 
@@ -100,36 +100,9 @@ const markIssueDoneEffect = (issueKey: string) =>
             ),
             Effect.tap(() =>
               Effect.sync(() => {
-                spinner.start('Updating local cache...');
-              }),
-            ),
-            Effect.flatMap(() =>
-              // Update local cache with the new issue state
-              Effect.tryPromise({
-                try: async () => {
-                  const cacheManager = new CacheManager();
-                  try {
-                    const updatedIssue = await jiraClient.getIssue(issueKey);
-                    await cacheManager.saveIssue(updatedIssue);
-                    return { cacheManager, updatedIssue };
-                  } catch (error) {
-                    cacheManager.close();
-                    throw error;
-                  }
-                },
-                catch: () => new Error('Failed to update local cache'),
-              }),
-            ),
-            Effect.tap(({ cacheManager, updatedIssue }) =>
-              Effect.sync(() => {
-                cacheManager.close();
-                spinner.succeed('Local cache updated');
-
-                // Show final status
+                spinner.succeed('Issue marked as Done successfully');
                 console.log('');
-                console.log(chalk.green('✓ Issue marked as Done successfully'));
-                console.log(`${chalk.bold(updatedIssue.key)}: ${updatedIssue.fields.summary}`);
-                console.log(`${chalk.dim('New Status:')} ${chalk.green(updatedIssue.fields.status.name)}`);
+                console.log(chalk.green('✓ Issue status updated'));
               }),
             ),
             Effect.catchAll((error) =>
