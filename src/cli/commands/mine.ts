@@ -110,7 +110,7 @@ function buildJql(projectFilter?: string, statusFilter?: string, sinceFilter?: s
       const since = parseSinceExpression(sinceFilter);
       const jiraDate = new Date(since).toISOString().split('T')[0];
       jqlParts.push(`updated >= "${jiraDate}"`);
-    } catch (error) {
+    } catch (_error) {
       throw new Error(`Invalid time expression: ${sinceFilter}`);
     }
   }
@@ -177,12 +177,6 @@ export async function showMyIssues(projectFilter?: string, xml = false, statusFi
         if (displayIssues.length === 0) {
           console.log(chalk.gray(`No issues found (${getFilterDescription()})`));
         } else {
-          console.log(
-            chalk.gray(
-              `Showing ${displayIssues.length} issue${displayIssues.length !== 1 ? 's' : ''} (${getFilterDescription()})\n`,
-            ),
-          );
-
           const groupedIssues = groupIssuesByProject(displayIssues);
 
           Object.entries(groupedIssues)

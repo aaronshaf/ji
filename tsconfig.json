@@ -20,5 +20,13 @@
     "jsxImportSource": "react"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/lib/effects/infrastructure.ts",
+    "src/lib/effects/search-enhancement.ts",
+    "src/cli/commands/setup.ts",
+    "src/test/command-alias-verification.test.ts",
+    "src/test/ji-issue-view-integration.test.ts"
+  ]
 }

@@ -41,7 +41,7 @@ export async function showSprint(projectFilter?: string, options: { unassigned?:
 
     // Get active sprints
     const boards = await jiraClient.getBoards();
-    let activeSprintIssues: SprintIssue[] = [];
+    const activeSprintIssues: SprintIssue[] = [];
 
     // Filter boards by project if specified
     const filteredBoards = projectFilter
