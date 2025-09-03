@@ -292,12 +292,13 @@ ${chalk.yellow('Usage:')}
 
 ${chalk.yellow('Description:')}
   Uses AI to analyze a Jira issue and output insights.
-  Automatically detects available tools (claude, gemini, opencode).
+  Automatically detects available tools (claude, gemini, codex).
   Accepts both issue keys (EVAL-123) and Jira URLs.
+  Uses Claude SDK for better performance when available.
 
 ${chalk.yellow('Options:')}
   --prompt <file>           Use custom prompt file (overrides config)
-  --tool <name>             Use specific tool (claude, gemini, opencode)
+  --tool <name>             Use specific tool (claude, gemini, codex)
   -c, --comment             Post analysis as a comment to the issue
   -y, --yes                 Skip confirmation when posting comment
   --help                    Show this help message
@@ -308,6 +309,7 @@ ${chalk.yellow('Examples:')}
   ji analyze EVAL-123 --comment                 # Analyze and prompt to post
   ji analyze EVAL-123 --comment --yes           # Post without confirmation
   ji analyze EVAL-123 --prompt ./custom.md      # Use custom prompt
+  ji analyze EVAL-123 --tool claude             # Use Claude specifically
 `);
 }
 

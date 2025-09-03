@@ -9,6 +9,7 @@ import { Console, Effect, pipe, Schema } from 'effect';
 import { type Config, ConfigManager } from '../../lib/config.js';
 import { type Issue, JiraClient } from '../../lib/jira-client.js';
 import { formatDescription } from '../formatters/issue.js';
+import { createAIClient, type AIProvider, type AIToolError } from '../../lib/ai-tools/index.ts';
 
 // ============= Schemas =============
 const IssueKeySchema = Schema.String.pipe(
@@ -19,17 +20,17 @@ const IssueKeySchema = Schema.String.pipe(
 
 const AnalyzeOptionsSchema = Schema.Struct({
   prompt: Schema.optional(Schema.String),
-  tool: Schema.optional(Schema.Union(Schema.Literal('claude'), Schema.Literal('gemini'), Schema.Literal('opencode'))),
+  tool: Schema.optional(
+    Schema.Union(
+      Schema.Literal('claude'),
+      Schema.Literal('gemini'),
+      Schema.Literal('codex'),
+      Schema.Literal('opencode'),
+    ),
+  ),
   comment: Schema.optional(Schema.Boolean),
   yes: Schema.optional(Schema.Boolean),
 });
-
-const ToolCommandSchema = Schema.String.pipe(
-  Schema.minLength(1),
-  Schema.pattern(/^[a-z]+(\s+-p)?$/, {
-    message: () => 'Tool command must be either "tool" or "tool -p"',
-  }),
-);
 
 // ============= Error Types =============
 export class AnalysisError extends Error {
@@ -77,38 +78,33 @@ export class JiraApiError extends Error {
 }
 
 // Type for all errors
-type AnalyzeError = AnalysisError | ToolNotFoundError | ResponseExtractionError | ConfigurationError | JiraApiError;
+type AnalyzeError =
+  | AnalysisError
+  | ToolNotFoundError
+  | ResponseExtractionError
+  | ConfigurationError
+  | JiraApiError
+  | AIToolError;
 
-// ============= Tool Detection =============
-const checkCommand = (command: string): Effect.Effect<boolean, never> =>
-  Effect.async<boolean, never>((resume) => {
-    const which = spawn('which', [command], { stdio: 'ignore' });
-    which.on('close', (code) => {
-      resume(Effect.succeed(code === 0));
-    });
-    which.on('error', () => {
-      resume(Effect.succeed(false));
-    });
-  });
-
-const findAvailableTool = (): Effect.Effect<string, ToolNotFoundError> =>
+// ============= AI Tool Management =============
+const getAvailableProvider = (): Effect.Effect<AIProvider, ToolNotFoundError> =>
   pipe(
-    Effect.all({
-      claude: checkCommand('claude'),
-      gemini: checkCommand('gemini'),
-      opencode: checkCommand('opencode'),
-    }),
-    Effect.flatMap(({ claude, gemini, opencode }) => {
-      if (claude) return Effect.succeed('claude -p');
-      if (gemini) return Effect.succeed('gemini -p');
-      if (opencode) return Effect.succeed('opencode -p');
-      return Effect.fail(
-        new ToolNotFoundError('No analysis tool found. Please install claude, gemini, or opencode.', [
-          'claude',
-          'gemini',
-          'opencode',
-        ]),
-      );
+    Effect.sync(() => createAIClient()),
+    Effect.flatMap((client) => client.getAvailableProviders()),
+    Effect.flatMap((providers) => {
+      if (providers.length === 0) {
+        return Effect.fail(
+          new ToolNotFoundError('No AI tools found. Please install claude, gemini, codex, or opencode.', [
+            'claude',
+            'gemini',
+            'codex',
+            'opencode',
+          ]),
+        );
+      }
+      // Prefer Claude first, then others
+      if (providers.includes('claude')) return Effect.succeed('claude' as AIProvider);
+      return Effect.succeed(providers[0]);
     }),
   );
 
@@ -307,40 +303,39 @@ Consider the following aspects in your analysis:
 Focus on providing practical, specific guidance that will help move this issue forward.`;
   });
 
-// ============= Tool Execution =============
-const executeTool = (toolCommand: string, input: string): Effect.Effect<string, AnalysisError> =>
-  Effect.async<string, AnalysisError>((resume) => {
-    const [command, ...args] = toolCommand.split(' ');
-    const child = spawn(command, args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+// ============= AI Tool Execution =============
+const executeAnalysis = (provider: AIProvider, input: string): Effect.Effect<string, AnalysisError | AIToolError> =>
+  pipe(
+    Effect.sync(() => createAIClient()),
+    Effect.flatMap((client) =>
+      client.execute(input, {
+        provider,
+        maxTurns: 1,
+        systemPrompt: `You are an expert Jira issue analyst. Analyze the provided issue data and provide actionable recommendations.
 
-    let output = '';
-    let error = '';
+CRITICAL FORMATTING REQUIREMENT:
+Your ENTIRE response must be wrapped in opening <ji-response> and closing </ji-response> tags EXACTLY like this:
 
-    child.stdout.on('data', (data) => {
-      output += data.toString();
-    });
+<ji-response>
+Your analysis goes here...
+</ji-response>
 
-    child.stderr.on('data', (data) => {
-      error += data.toString();
-    });
-
-    child.on('error', (err) => {
-      resume(Effect.fail(new AnalysisError(`Failed to spawn tool: ${err.message}`, err)));
-    });
-
-    child.on('close', (code) => {
-      if (code === 0) {
-        resume(Effect.succeed(output));
-      } else {
-        resume(Effect.fail(new AnalysisError(`Tool exited with code ${code}: ${error}`, { code, error })));
+REQUIREMENTS:
+- Use lowercase "ji-response" (not JI-Response, JI-RESPONSE, or ji-response with attributes)
+- Include BOTH opening <ji-response> and closing </ji-response> tags
+- Put ALL content between the tags
+- Do NOT include any text before <ji-response> or after </ji-response>
+- The tags must be on their own lines`,
+      }),
+    ),
+    Effect.map((response) => response.content),
+    Effect.mapError((error) => {
+      if (error._tag === 'AIProviderError' || error._tag === 'SDKError' || error._tag === 'ProcessExecutionError') {
+        return new AnalysisError(`AI tool execution failed: ${error.message}`, error);
       }
-    });
-
-    child.stdin.write(input);
-    child.stdin.end();
-  });
+      return new AnalysisError(`Analysis failed: ${String(error)}`, error);
+    }),
+  );
 
 // ============= Response Extraction =============
 const extractResponse = (output: string): Effect.Effect<string, ResponseExtractionError> =>
@@ -588,30 +583,30 @@ const analyzeIssueEffect = (
     // Get configuration
     const config = yield* getConfiguration;
 
-    // Determine tool to use
-    const toolCommand = yield* (() => {
+    // Determine AI provider to use
+    const provider: AIProvider = yield* (() => {
       if (options.tool) {
+        // Validate the tool exists and map old 'opencode' to 'codex'
+        const mappedTool = options.tool === 'opencode' ? 'codex' : options.tool;
         return pipe(
-          checkCommand(options.tool),
-          Effect.flatMap((exists) =>
-            exists
-              ? Effect.succeed(`${options.tool} -p`)
-              : Effect.fail(new ToolNotFoundError(`Tool '${options.tool}' not found`)),
+          Effect.sync(() => createAIClient()),
+          Effect.flatMap((client) => client.checkProviderAvailability(mappedTool as AIProvider)),
+          Effect.flatMap((available) =>
+            available
+              ? Effect.succeed(mappedTool as AIProvider)
+              : Effect.fail(new ToolNotFoundError(`AI provider '${options.tool}' not available`)),
           ),
         );
       }
       if (config.analysisCommand) {
-        // Ensure the command has the -p flag if it doesn't already
-        const cmd = config.analysisCommand;
-        return Effect.succeed(cmd.includes('-p') ? cmd : `${cmd} -p`);
+        // Map old commands to new providers
+        const cmd = config.analysisCommand.toLowerCase();
+        if (cmd.includes('claude')) return Effect.succeed('claude' as AIProvider);
+        if (cmd.includes('gemini')) return Effect.succeed('gemini' as AIProvider);
+        if (cmd.includes('opencode') || cmd.includes('codex')) return Effect.succeed('codex' as AIProvider);
       }
-      return findAvailableTool();
+      return getAvailableProvider();
     })();
-
-    // Validate tool command format
-    yield* Schema.decodeUnknown(ToolCommandSchema)(toolCommand).pipe(
-      Effect.mapError(() => new ConfigurationError(`Invalid tool command format: ${toolCommand}`)),
-    );
 
     // Load prompt
     const prompt = yield* loadPrompt(options.prompt);
@@ -633,37 +628,11 @@ const analyzeIssueEffect = (
     // Build complete issue data
     const fullIssueXml = commentsXml ? issueXml.replace('</issue>', `${commentsXml}</issue>`) : issueXml;
 
-    // Build input for tool
-    const systemPrompt = `CRITICAL FORMATTING REQUIREMENT:
+    // Build input for AI analysis
+    const fullInput = `${prompt}\n\n${fullIssueXml}`;
 
-Your ENTIRE response must be wrapped in opening <ji-response> and closing </ji-response> tags EXACTLY like this:
-
-<ji-response>
-Your analysis goes here...
-</ji-response>
-
-REQUIREMENTS:
-- Use lowercase "ji-response" (not JI-Response, JI-RESPONSE, or ji-response with attributes)
-- Include BOTH opening <ji-response> and closing </ji-response> tags
-- Put ALL content between the tags
-- Do NOT include any text before <ji-response> or after </ji-response>
-- The tags must be on their own lines
-
-EXAMPLE:
-<ji-response>
-## Analysis
-This issue appears to...
-
-## Recommendations
-1. First step...
-2. Second step...
-</ji-response>
-
-`;
-    const fullInput = `${systemPrompt}\n\n${prompt}\n\n${fullIssueXml}`;
-
-    // Run analysis
-    const toolOutput = yield* executeTool(toolCommand, fullInput);
+    // Run analysis using AI client
+    const toolOutput = yield* executeAnalysis(provider, fullInput);
 
     // Extract response
     const response = yield* extractResponse(toolOutput);
@@ -730,6 +699,18 @@ const handleAnalyzeError = (error: AnalyzeError | null): Effect.Effect<void, nev
         if (error.cause && process.env.DEBUG) {
           yield* Console.error(chalk.dim(`Cause: ${JSON.stringify(error.cause)}`));
         }
+        break;
+      case 'AIProviderError':
+        yield* Console.error(chalk.red(`AI Provider Error: ${error.message}`));
+        break;
+      case 'SDKError':
+        yield* Console.error(chalk.red(`SDK Error: ${error.message}`));
+        break;
+      case 'ProcessExecutionError':
+        yield* Console.error(chalk.red(`Process Execution Error: ${error.message}`));
+        break;
+      case 'StreamingError':
+        yield* Console.error(chalk.red(`Streaming Error: ${error.message}`));
         break;
       default:
         yield* Console.error(chalk.red(`Error: ${(error as Error).message || 'Unknown error'}`));

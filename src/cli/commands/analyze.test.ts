@@ -102,7 +102,7 @@ describe('analyzeIssue', () => {
         { comment: false, yes: true },
         { tool: 'claude' },
         { tool: 'gemini' },
-        { tool: 'opencode' },
+        { tool: 'codex' },
         { prompt: './custom.md' },
         { comment: true, yes: true, tool: 'claude', prompt: './test.md' },
       ];
