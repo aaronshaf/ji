@@ -586,16 +586,16 @@ const analyzeIssueEffect = (
     // Determine AI provider to use
     const provider: AIProvider = yield* (() => {
       if (options.tool) {
-        // Validate the tool exists and map old 'opencode' to 'codex'
-        const mappedTool = options.tool === 'opencode' ? 'codex' : options.tool;
+        // Validate the specified tool is available
         return pipe(
           Effect.sync(() => createAIClient()),
-          Effect.flatMap((client) => client.checkProviderAvailability(mappedTool as AIProvider)),
-          Effect.flatMap((available) =>
-            available
-              ? Effect.succeed(mappedTool as AIProvider)
-              : Effect.fail(new ToolNotFoundError(`AI provider '${options.tool}' not available`)),
-          ),
+          Effect.flatMap((client) => client.checkProviderAvailability(options.tool as AIProvider)),
+          Effect.flatMap((available) => {
+            if (!available) {
+              return Effect.fail(new ToolNotFoundError(`AI provider '${options.tool}' not available`));
+            }
+            return Effect.succeed(options.tool as AIProvider);
+          }),
         );
       }
       if (config.analysisCommand) {
@@ -603,7 +603,8 @@ const analyzeIssueEffect = (
         const cmd = config.analysisCommand.toLowerCase();
         if (cmd.includes('claude')) return Effect.succeed('claude' as AIProvider);
         if (cmd.includes('gemini')) return Effect.succeed('gemini' as AIProvider);
-        if (cmd.includes('opencode') || cmd.includes('codex')) return Effect.succeed('codex' as AIProvider);
+        if (cmd.includes('opencode')) return Effect.succeed('opencode' as AIProvider);
+        if (cmd.includes('codex')) return Effect.succeed('codex' as AIProvider);
       }
       return getAvailableProvider();
     })();

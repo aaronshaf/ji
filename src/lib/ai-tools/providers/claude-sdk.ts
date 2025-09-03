@@ -30,7 +30,7 @@ export const executeClaudePrompt = (
 
         return messages;
       },
-      catch: (error) => new SDKError('claude', 'Query execution failed', error),
+      catch: (error) => new SDKError('claude', `Query execution failed: ${String(error)}`, error),
     }),
 
     // Parse messages to extract result

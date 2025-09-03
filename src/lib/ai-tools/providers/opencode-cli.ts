@@ -31,9 +31,16 @@ export const executeOpencodePrompt = (
           return spawn('opencode', args, { stdio: 'pipe' });
         }),
         (process) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
             if (!process.killed) {
+              // Try graceful shutdown first
               process.kill('SIGTERM');
+
+              // Wait 3 seconds, then force kill if still alive
+              yield* Effect.sleep(3000);
+              if (!process.killed) {
+                process.kill('SIGKILL');
+              }
             }
           }),
       ),
