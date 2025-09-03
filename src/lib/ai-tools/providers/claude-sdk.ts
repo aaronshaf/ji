@@ -2,9 +2,25 @@ import { Effect, Stream, pipe } from 'effect';
 import { query } from '@anthropic-ai/claude-code';
 import { Schema } from 'effect';
 import type { AIToolConfig, AIResponse, StreamingMessage } from '../types.ts';
-import { AIProviderError, SDKError } from '../errors.ts';
+import { type AIProviderError, SDKError } from '../errors.ts';
 
-// Note: Claude-specific configuration would go here if needed
+// Claude SDK response schemas using Effect Schema
+const ClaudeUsage = Schema.Struct({
+  input_tokens: Schema.optional(Schema.Number),
+  output_tokens: Schema.optional(Schema.Number),
+  total_cost_usd: Schema.optional(Schema.Number),
+});
+
+const ClaudeResultMessage = Schema.Struct({
+  type: Schema.Literal('result'),
+  result: Schema.optional(Schema.String),
+  usage: Schema.optional(ClaudeUsage),
+  session_id: Schema.optional(Schema.String),
+  duration_ms: Schema.optional(Schema.Number),
+  num_turns: Schema.optional(Schema.Number),
+});
+
+// ClaudeResultMessage schema is used for parsing Claude SDK responses
 
 // Execute prompt with Claude SDK (simplified implementation)
 export const executeClaudePrompt = (
@@ -33,34 +49,51 @@ export const executeClaudePrompt = (
       catch: (error) => new SDKError('claude', `Query execution failed: ${String(error)}`, error),
     }),
 
-    // Parse messages to extract result
+    // Parse messages to extract result using Effect Schema
     Effect.flatMap((messages) =>
-      Effect.try({
-        try: () => {
-          const result = messages.find((m) => (m as any).type === 'result');
-          if (!result) {
-            throw new Error('No result message found in Claude response');
-          }
+      pipe(
+        Effect.try({
+          try: () => {
+            // Find result message
+            const rawResult = messages.find(
+              (m) => typeof m === 'object' && m !== null && 'type' in m && m.type === 'result',
+            );
 
-          return {
-            provider: 'claude' as const,
-            content: (result as any).result || '',
-            usage: (result as any).usage
-              ? {
-                  inputTokens: (result as any).usage.input_tokens || 0,
-                  outputTokens: (result as any).usage.output_tokens || 0,
-                  totalCost: (result as any).total_cost_usd,
-                }
-              : undefined,
-            sessionId: (result as any).session_id,
-            metadata: {
-              duration_ms: (result as any).duration_ms,
-              num_turns: (result as any).num_turns,
-            },
-          } satisfies AIResponse;
-        },
-        catch: (error) => new AIProviderError('claude', 'Failed to parse Claude response', error),
-      }),
+            if (!rawResult) {
+              throw new Error('No result message found in Claude response');
+            }
+
+            return rawResult;
+          },
+          catch: (error) => new SDKError('claude', `Failed to find result message: ${String(error)}`, error),
+        }),
+        Effect.flatMap((rawResult) =>
+          pipe(
+            Schema.decodeUnknown(ClaudeResultMessage)(rawResult),
+            Effect.mapError(
+              (error) => new SDKError('claude', `Failed to parse Claude response: ${String(error)}`, error),
+            ),
+            Effect.map(
+              (result): AIResponse => ({
+                provider: 'claude' as const,
+                content: result.result || '',
+                usage: result.usage
+                  ? {
+                      inputTokens: result.usage.input_tokens || 0,
+                      outputTokens: result.usage.output_tokens || 0,
+                      totalCost: result.usage.total_cost_usd,
+                    }
+                  : undefined,
+                sessionId: result.session_id,
+                metadata: {
+                  duration_ms: result.duration_ms,
+                  num_turns: result.num_turns,
+                },
+              }),
+            ),
+          ),
+        ),
+      ),
     ),
   );
 

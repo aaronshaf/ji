@@ -36,8 +36,11 @@ export class AIClient {
             return Codex.executeCodexPrompt(prompt, finalConfig) as Effect.Effect<AIResponse, AIToolError>;
           case 'opencode':
             return Opencode.executeOpencodePrompt(prompt, finalConfig) as Effect.Effect<AIResponse, AIToolError>;
-          default:
-            return Effect.fail(new ConfigurationError(`Unsupported provider: ${(finalConfig as any).provider}`));
+          default: {
+            // This should never happen if our types are correct, but we need to handle it for safety
+            const _exhaustiveCheck: never = finalConfig.provider;
+            return Effect.fail(new ConfigurationError(`Unsupported provider: ${String(finalConfig.provider)}`));
+          }
         }
       }),
     );
