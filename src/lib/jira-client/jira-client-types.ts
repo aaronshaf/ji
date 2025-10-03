@@ -9,9 +9,10 @@ export const IssueSchema = Schema.Struct({
 
 export const SearchResultSchema = Schema.Struct({
   issues: Schema.Array(IssueSchema),
-  startAt: Schema.Number,
-  maxResults: Schema.Number,
-  total: Schema.Number,
+  startAt: Schema.Number.pipe(Schema.optional),
+  maxResults: Schema.Number.pipe(Schema.optional),
+  total: Schema.Number.pipe(Schema.optional),
+  nextPageToken: Schema.String.pipe(Schema.optional),
 });
 
 export const BoardSchema = Schema.Struct({

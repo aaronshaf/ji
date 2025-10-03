@@ -108,14 +108,34 @@ describe('jira-client-types schemas', () => {
       expect(result).toEqual(emptySearchResult);
     });
 
+    it('should validate search results with optional fields (new /search/jql API)', async () => {
+      // The new /rest/api/3/search/jql API may return responses without startAt, maxResults, total
+      const minimalSearchResult = {
+        issues: [{ key: 'TEST-1', self: 'https://test.atlassian.net/rest/api/3/issue/1', fields: {} }],
+      };
+
+      const result = await Effect.runPromise(Schema.decodeUnknown(SearchResultSchema)(minimalSearchResult));
+
+      expect(result.issues).toHaveLength(1);
+      expect(result.issues[0].key).toBe('TEST-1');
+    });
+
+    it('should validate search results with nextPageToken', async () => {
+      const searchResultWithToken = {
+        issues: [],
+        nextPageToken: 'abc123',
+      };
+
+      const result = await Effect.runPromise(Schema.decodeUnknown(SearchResultSchema)(searchResultWithToken));
+
+      expect(result.nextPageToken).toBe('abc123');
+    });
+
     it('should reject invalid search results', async () => {
       const invalidSearchResults = [
         { startAt: 0, maxResults: 50, total: 0 }, // missing issues
-        { issues: [], maxResults: 50, total: 0 }, // missing startAt
-        { issues: [], startAt: 0, total: 0 }, // missing maxResults
-        { issues: [], startAt: 0, maxResults: 50 }, // missing total
         { issues: 'not-array', startAt: 0, maxResults: 50, total: 0 }, // issues not array
-        { issues: [], startAt: '0', maxResults: 50, total: 0 }, // startAt not number
+        { issues: [], startAt: '0', maxResults: 50, total: 0 }, // startAt not number when provided
       ];
 
       for (const invalid of invalidSearchResults) {
