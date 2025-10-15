@@ -1,3 +1,4 @@
+/** @jsxImportSource react */
 import chalk from 'chalk';
 import { Effect, pipe } from 'effect';
 import { Box, render, Text, useApp, useInput } from 'ink';
