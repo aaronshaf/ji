@@ -44,13 +44,10 @@ export class JiraClientIssues extends JiraClientBase {
       jql,
       startAt: (options?.startAt || 0).toString(),
       maxResults: (options?.maxResults || 50).toString(),
+      fields: options?.fields ? options.fields.join(',') : '*navigable',
     });
 
-    if (options?.fields) {
-      params.append('fields', options.fields.join(','));
-    }
-
-    const url = `${this.config.jiraUrl}/rest/api/3/search?${params}`;
+    const url = `${this.config.jiraUrl}/rest/api/3/search/jql?${params}`;
 
     const response = await fetch(url, {
       method: 'GET',
@@ -67,8 +64,8 @@ export class JiraClientIssues extends JiraClientBase {
 
     return {
       issues: result.issues as Issue[],
-      total: result.total,
-      startAt: result.startAt,
+      total: result.total ?? result.issues.length,
+      startAt: result.startAt ?? options?.startAt ?? 0,
     };
   }
 
@@ -195,13 +192,10 @@ export class JiraClientIssues extends JiraClientBase {
           jql,
           startAt: (options?.startAt || 0).toString(),
           maxResults: (options?.maxResults || 50).toString(),
+          fields: options?.fields ? options.fields.join(',') : '*navigable',
         });
 
-        if (options?.fields) {
-          params.append('fields', options.fields.join(','));
-        }
-
-        const url = `${this.config.jiraUrl}/rest/api/3/search?${params}`;
+        const url = `${this.config.jiraUrl}/rest/api/3/search/jql?${params}`;
 
         return Effect.tryPromise({
           try: async () => {
@@ -226,8 +220,8 @@ export class JiraClientIssues extends JiraClientBase {
 
             return {
               issues: result.issues as Issue[],
-              total: result.total,
-              startAt: result.startAt,
+              total: result.total ?? result.issues.length,
+              startAt: result.startAt ?? options?.startAt ?? 0,
             };
           },
           catch: (error) => {
