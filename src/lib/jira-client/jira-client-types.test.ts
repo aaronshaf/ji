@@ -131,17 +131,74 @@ describe('jira-client-types schemas', () => {
       expect(result.nextPageToken).toBe('abc123');
     });
 
+    it('should validate search results with only required fields (new /search/jql format)', async () => {
+      // The new /rest/api/3/search/jql API may return responses without startAt, maxResults, total
+      const minimalSearchResult = {
+        issues: [],
+      };
+
+      const result = await Effect.runPromise(Schema.decodeUnknown(SearchResultSchema)(minimalSearchResult));
+
+      expect(result.issues).toEqual([]);
+      expect(result.startAt).toBeUndefined();
+      expect(result.maxResults).toBeUndefined();
+      expect(result.total).toBeUndefined();
+    });
+
+    it('should validate mixed format response (old and new fields)', async () => {
+      const mixedFormatSearchResult = {
+        issues: [
+          {
+            key: 'PROJ-1',
+            self: 'url1',
+            fields: { summary: 'Issue 1' },
+          },
+        ],
+        startAt: 0,
+        total: 1,
+        // Missing maxResults - testing partial old format
+      };
+
+      const result = await Effect.runPromise(Schema.decodeUnknown(SearchResultSchema)(mixedFormatSearchResult));
+
+      expect(result.issues).toHaveLength(1);
+      expect(result.startAt).toBe(0);
+      expect(result.total).toBe(1);
+      expect(result.maxResults).toBeUndefined();
+    });
+
     it('should reject invalid search results', async () => {
       const invalidSearchResults = [
-        { startAt: 0, maxResults: 50, total: 0 }, // missing issues
+        { startAt: 0, maxResults: 50, total: 0 }, // missing issues (required)
         { issues: 'not-array', startAt: 0, maxResults: 50, total: 0 }, // issues not array
-        { issues: [], startAt: '0', maxResults: 50, total: 0 }, // startAt not number when provided
+        { issues: [], startAt: '0' }, // startAt not number when present
+        { issues: [], maxResults: 'fifty' }, // maxResults not number when present
+        { issues: [], total: 'zero' }, // total not number when present
       ];
 
       for (const invalid of invalidSearchResults) {
         const result = await Effect.runPromiseExit(Schema.decodeUnknown(SearchResultSchema)(invalid));
         expect(result._tag).toBe('Failure');
       }
+    });
+
+    it('should handle edge cases with total field', async () => {
+      // Test when total is 0 (valid number)
+      const zeroTotalResult = {
+        issues: [],
+        total: 0,
+      };
+
+      const result1 = await Effect.runPromise(Schema.decodeUnknown(SearchResultSchema)(zeroTotalResult));
+      expect(result1.total).toBe(0);
+
+      // Test when total is undefined (valid for new endpoint)
+      const undefinedTotalResult = {
+        issues: [{ key: 'PROJ-1', self: 'url', fields: {} }],
+      };
+
+      const result2 = await Effect.runPromise(Schema.decodeUnknown(SearchResultSchema)(undefinedTotalResult));
+      expect(result2.total).toBeUndefined();
     });
 
     it('should reject search results with invalid issues', async () => {
