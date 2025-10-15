@@ -32,6 +32,20 @@ export class JiraClientIssues extends JiraClientBase {
     return Schema.decodeUnknownSync(IssueSchema)(data) as Issue;
   }
 
+  /**
+   * Search for issues using JQL (Jira Query Language)
+   *
+   * @remarks
+   * **Migration Note**: This method now uses the `/rest/api/3/search/jql` endpoint
+   * (migrated from deprecated `/rest/api/3/search`). Key differences:
+   * - `total` field may be undefined in response (falls back to issue count)
+   * - Fields parameter is now required (defaults to *navigable if not specified)
+   * - Empty `fields` array will be replaced with defaults to avoid API errors
+   *
+   * @param jql - JQL query string
+   * @param options - Search options including pagination and field selection
+   * @returns Search results with issues array, total count (or fallback), and startAt position
+   */
   async searchIssues(
     jql: string,
     options?: {
@@ -168,6 +182,17 @@ export class JiraClientIssues extends JiraClientBase {
 
   /**
    * Effect-based version of searchIssues with structured error handling
+   *
+   * @remarks
+   * **Migration Note**: This method now uses the `/rest/api/3/search/jql` endpoint
+   * (migrated from deprecated `/rest/api/3/search`). Key differences:
+   * - `total` field may be undefined in response (falls back to issue count)
+   * - Fields parameter is now required (defaults to *navigable if not specified)
+   * - Empty `fields` array will be replaced with defaults to avoid API errors
+   *
+   * @param jql - JQL query string
+   * @param options - Search options including pagination and field selection
+   * @returns Effect yielding search results or structured errors
    */
   searchIssuesEffect(
     jql: string,

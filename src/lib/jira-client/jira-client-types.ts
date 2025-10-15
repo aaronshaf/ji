@@ -9,20 +9,22 @@ export const IssueSchema = Schema.Struct({
 
 export const SearchResultSchema = Schema.Struct({
   issues: Schema.Array(IssueSchema),
-  startAt: Schema.Number.pipe(Schema.optional),
-  maxResults: Schema.Number.pipe(Schema.optional),
-  total: Schema.Number.pipe(Schema.optional),
-  nextPageToken: Schema.String.pipe(Schema.optional),
+  startAt: Schema.optional(Schema.Number),
+  maxResults: Schema.optional(Schema.Number),
+  total: Schema.optional(Schema.Number),
+  nextPageToken: Schema.optional(Schema.String),
 });
 
 export const BoardSchema = Schema.Struct({
   id: Schema.Number,
   name: Schema.String,
   type: Schema.String,
-  location: Schema.Struct({
-    projectKey: Schema.String.pipe(Schema.optional),
-    projectName: Schema.String.pipe(Schema.optional),
-  }).pipe(Schema.optional),
+  location: Schema.optional(
+    Schema.Struct({
+      projectKey: Schema.optional(Schema.String),
+      projectName: Schema.optional(Schema.String),
+    }),
+  ),
 });
 
 export const BoardsResponseSchema = Schema.Struct({
@@ -37,10 +39,10 @@ export const SprintSchema = Schema.Struct({
   self: Schema.String,
   state: Schema.String,
   name: Schema.String,
-  startDate: Schema.String.pipe(Schema.optional),
-  endDate: Schema.String.pipe(Schema.optional),
+  startDate: Schema.optional(Schema.String),
+  endDate: Schema.optional(Schema.String),
   originBoardId: Schema.Number,
-  goal: Schema.String.pipe(Schema.optional),
+  goal: Schema.optional(Schema.String),
 });
 
 export const SprintsResponseSchema = Schema.Struct({
