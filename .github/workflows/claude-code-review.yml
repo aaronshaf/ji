@@ -49,24 +49,9 @@ jobs:
 
             Use the repository's CLAUDE.md for guidance on style and conventions. Be constructive and helpful in your feedback.
 
-            IMPORTANT: Use `gh pr review` with your Bash tool to leave inline review comments that will persist across new commits to the PR.
-
-            Instructions for creating sticky inline comments:
-            1. First, analyze the PR diff using `gh pr diff ${{ github.event.pull_request.number }}`
-            2. For each issue you identify, create an inline review comment with:
-               - `--body` for the main review summary
-               - `--comment-line` followed by line comments in format: `file.ts:123: Your comment here`
-            3. Use `--approve`, `--request-changes`, or `--comment` based on severity
-
-            Example command:
-            gh pr review ${{ github.event.pull_request.number }} --comment \
-              --body "Overall review summary" \
-              --comment-line "src/file.ts:42: Consider using Effect.tryPromise here" \
-              --comment-line "src/other.ts:15: This could cause a race condition"
-
-            These inline comments will "stick" to the code and move with it when new commits are pushed.
+            Use `gh pr comment` with your Bash tool to leave your review as a comment on the PR.
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://docs.claude.com/en/docs/claude-code/cli-reference for available options
-          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh pr review:*)"'
+          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
 
