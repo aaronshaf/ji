@@ -170,17 +170,6 @@ export class JiraClientIssuesMutations extends JiraClientBase {
   }
 
   async assignIssue(issueKey: string, accountId: string): Promise<void> {
-    const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}/assignee`;
-
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ accountId }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to assign issue: ${response.status} - ${errorText}`);
-    }
+    await Effect.runPromise(this.assignIssueEffect(issueKey, accountId));
   }
 }
