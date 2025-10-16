@@ -87,7 +87,8 @@ export class JiraClientIssuesRead extends JiraClientBase {
     return pipe(
       // Validate issue key format
       Effect.sync(() => {
-        if (!issueKey || !issueKey.match(/^[A-Z]+-\d+$/)) {
+        // Allow project keys with hyphens (e.g., MY-PROJECT-123)
+        if (!issueKey || !issueKey.match(/^[A-Z][A-Z0-9-]+-\d+$/)) {
           throw new ValidationError('Invalid issue key format. Expected format: PROJECT-123');
         }
       }),
@@ -312,7 +313,8 @@ export class JiraClientIssuesRead extends JiraClientBase {
     return pipe(
       // Validate issue key
       Effect.sync(() => {
-        if (!issueKey || !issueKey.match(/^[A-Z]+-\d+$/)) {
+        // Allow project keys with hyphens (e.g., MY-PROJECT-123)
+        if (!issueKey || !issueKey.match(/^[A-Z][A-Z0-9-]+-\d+$/)) {
           throw new ValidationError('Invalid issue key format. Expected format: PROJECT-123');
         }
       }),
