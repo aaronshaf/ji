@@ -338,15 +338,20 @@ export function createMockErrorResponse(
 }
 
 /**
- * Create a mock fetch handler for testing
+ * Create a mock fetch handler for testing with MSW
  *
+ * @deprecated Use MSW server.use() with http handlers instead
  * @example
+ * Use MSW instead:
  * ```ts
- * const mockFetch = createMockFetchHandler({
- *   '/rest/api/3/issue/PROJ-123': mockIssueMinimal,
- *   '/rest/api/3/search/jql': mockSearchResultNewFormat,
- * });
- * global.fetch = mockFetch;
+ * import { server } from '../setup-msw';
+ * import { http, HttpResponse } from 'msw';
+ *
+ * server.use(
+ *   http.get('https://test.atlassian.net/rest/api/3/issue/PROJ-123', () => {
+ *     return HttpResponse.json(mockIssueMinimal);
+ *   })
+ * );
  * ```
  */
 export function createMockFetchHandler(
