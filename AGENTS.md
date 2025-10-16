@@ -237,6 +237,80 @@ src/
 - Use composition pattern for unified interfaces
 - Use barrel exports (`index.ts`) to maintain clean imports
 
+### Git Commit and PR Guidelines
+
+#### Commit Messages
+- **ALWAYS** use conventional commit format (e.g., `feat:`, `fix:`, `refactor:`, `test:`, `docs:`)
+- **NEVER** use `--no-verify` flag when committing (let pre-commit hooks run)
+- Keep commit messages concise and focused on the "why" rather than the "what"
+- Example: `refactor: delegate async methods to Effect versions for consistency`
+
+#### Pull Request Descriptions
+When creating PRs (via `gh pr create` or GitHub UI), follow these formatting rules:
+
+**Structure:**
+```markdown
+## Summary
+[Clear description of changes]
+
+## Changes
+- [Bullet point list of specific changes]
+
+## Testing
+- [How the changes were tested]
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+**CRITICAL RULES:**
+- **Only add the Claude Code attribution ONCE** at the very end as a footer
+- Use a separator line (`---`) before the footer
+- **DO NOT** add attribution comments scattered throughout the PR body text
+- Keep the main content clean and focused on technical details
+
+**Example of CORRECT formatting:**
+```markdown
+## Summary
+Refactor async methods to delegate to Effect versions for consistent error handling.
+
+## Changes
+- Updated getIssue() to delegate to getIssueEffect()
+- Fixed issue key validation regex to support hyphens
+- Added comprehensive JSDoc comments
+
+## Testing
+- All 465 tests passing
+- Verified with real Jira instance
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+**Example of INCORRECT formatting (DO NOT DO THIS):**
+```markdown
+## Summary
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Refactor async methods...
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+## Changes
+- Updated getIssue()...
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+#### Branch Management
+- Create feature branches from `main` for new work
+- Branch naming convention: `<type>/<description>` (e.g., `refactor/improve-error-handling`)
+- Always pull latest `main` before creating new branches
+- Use `git stash` to preserve uncommitted work when switching branches
+
 ## API Stability & Maintenance
 
 ### Jira API Version Strategy

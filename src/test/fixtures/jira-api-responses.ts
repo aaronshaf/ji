@@ -340,9 +340,30 @@ export function createMockErrorResponse(
 /**
  * Create a mock fetch handler for testing with MSW
  *
- * @deprecated Use MSW server.use() with http handlers instead
+ * @deprecated Use MSW server.use() with http handlers instead.
+ * This function will be removed in v2.0 (planned: Q2 2025).
+ *
+ * @remarks
+ * **Why deprecated?** MSW provides better:
+ * - Request inspection and validation
+ * - TypeScript type safety for responses
+ * - Network behavior simulation (delays, errors)
+ * - Standard MSW patterns across the codebase
+ *
+ * **Migration Guide**: See test files for examples of MSW usage:
+ * - `jira-client-issues-read.test.ts:42-45` - Basic GET mocking
+ * - `jira-client-issues-mutations.test.ts:36-40` - POST/PUT mocking
+ * - `setup-msw.ts` - MSW server configuration
+ *
  * @example
- * Use MSW instead:
+ * **Before (deprecated):**
+ * ```ts
+ * global.fetch = createMockFetchHandler({
+ *   '/rest/api/3/issue/PROJ-123': mockIssueMinimal,
+ * });
+ * ```
+ *
+ * **After (recommended):**
  * ```ts
  * import { server } from '../setup-msw';
  * import { http, HttpResponse } from 'msw';
@@ -353,6 +374,7 @@ export function createMockErrorResponse(
  *   })
  * );
  * ```
+ * Note: You can use wildcard patterns like `'*' + '/rest/api/...'` in MSW handlers
  */
 export function createMockFetchHandler(
   routes: Record<string, unknown | Response>,

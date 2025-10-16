@@ -58,7 +58,8 @@ describe('JiraClientIssuesRead', () => {
         }),
       );
 
-      await expect(client.getIssue('NONEXIST-1')).rejects.toThrow('Failed to fetch issue');
+      // Delegates to getIssueEffect which throws NotFoundError
+      await expect(client.getIssue('NONEXIST-1')).rejects.toThrow('Issue NONEXIST-1 not found');
     });
   });
 
@@ -253,7 +254,16 @@ describe('JiraClientIssuesRead', () => {
         http.get('*/rest/api/3/search/jql', ({ request }) => {
           const url = new URL(request.url);
           const startAt = parseInt(url.searchParams.get('startAt') || '0');
+          const maxResults = parseInt(url.searchParams.get('maxResults') || '100');
           requestCount++;
+
+          // Delegates to getAllProjectIssuesEffect which makes initial count request with maxResults=1
+          if (maxResults === 1) {
+            return HttpResponse.json({
+              issues: [mockIssueMinimal],
+              total: 150,
+            });
+          }
 
           if (startAt === 0) {
             return HttpResponse.json({
@@ -275,7 +285,8 @@ describe('JiraClientIssuesRead', () => {
       const issues = await client.getAllProjectIssues('PROJ');
 
       expect(issues).toHaveLength(150);
-      expect(requestCount).toBe(2);
+      // Expects 3 requests: 1 count + 2 data pages
+      expect(requestCount).toBe(3);
     });
 
     it('should call onProgress callback', async () => {
