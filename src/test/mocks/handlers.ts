@@ -6,6 +6,9 @@ import { createValidUser, validateAndReturn } from '../msw-schema-validation';
 /**
  * Shared MSW handlers with schema validation
  * These handlers ensure all mock responses conform to our Effect schemas
+ *
+ * IMPORTANT: These are DEFAULT/FALLBACK handlers that prevent unhandled requests.
+ * Individual tests should override these with server.use() for specific test scenarios.
  */
 export const handlers = [
   // Jira user info mock with schema validation
@@ -31,6 +34,29 @@ export const handlers = [
     return HttpResponse.json(validateAndReturn(SearchResultSchema, emptySearchResult, 'Empty Search Results'));
   }),
 
-  // Note: Individual tests should override these handlers with specific mocks
-  // This prevents tests from accidentally getting wrong data
+  // CATCH-ALL: Return 404 for any unhandled requests
+  // This ensures tests fail fast if they forget to mock an endpoint
+  http.get('*', ({ request }) => {
+    console.warn(`[MSW] Unhandled GET request: ${request.url}`);
+    return HttpResponse.json(
+      { errorMessages: ['Unhandled request - add a handler for this endpoint'] },
+      { status: 404 },
+    );
+  }),
+
+  http.post('*', ({ request }) => {
+    console.warn(`[MSW] Unhandled POST request: ${request.url}`);
+    return HttpResponse.json(
+      { errorMessages: ['Unhandled request - add a handler for this endpoint'] },
+      { status: 404 },
+    );
+  }),
+
+  http.put('*', ({ request }) => {
+    console.warn(`[MSW] Unhandled PUT request: ${request.url}`);
+    return HttpResponse.json(
+      { errorMessages: ['Unhandled request - add a handler for this endpoint'] },
+      { status: 404 },
+    );
+  }),
 ];

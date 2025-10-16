@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { Schema } from 'effect';
+import { HttpResponse, http } from 'msw';
+import { server } from './setup-msw';
 import { IssueSchema, UserSchema } from '../lib/effects/jira/schemas';
 import {
   createArbitraryIssue,
@@ -8,15 +10,14 @@ import {
   createValidIssue,
   validateAndReturn,
 } from './msw-schema-validation';
-import { installFetchMock, restoreFetch } from './test-fetch-mock';
 
-// Bun Native HTTP Mocking for `ji mine` command testing
+// MSW-based HTTP Mocking for `ji mine` command testing
 // Tests the complete flow: search for assigned issues -> cache updates -> display
 
 beforeEach(() => {});
 
 afterEach(() => {
-  restoreFetch();
+  // MSW's global afterEach will reset handlers automatically
   delete process.env.ALLOW_REAL_API_CALLS;
 });
 
@@ -98,117 +99,81 @@ test('ji mine command - mock complete user issue search flow', async () => {
     active: true,
   });
 
-  // Mock HTTP endpoints for complete mine command flow
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
+  // Mock HTTP endpoints for complete mine command flow using MSW
+  server.use(
     // Mock current user endpoint
-    if (urlString.includes('/rest/api/3/myself')) {
+    http.get('*/rest/api/3/myself', () => {
       const validatedUser = validateAndReturn(UserSchema, currentUser, 'Current User');
-      return new Response(JSON.stringify(validatedUser), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+      return HttpResponse.json(validatedUser);
+    }),
 
-    // Mock JQL search for ALPHA project - handle URL encoded parameters
-    if (
-      urlString.includes('/rest/api/3/search') &&
-      (urlString.includes('project%20%3D%20ALPHA') || urlString.includes('project+%3D+ALPHA'))
-    ) {
-      const searchResponse = {
-        issues: projectAlphaIssues,
-        total: projectAlphaIssues.length,
-        startAt: 0,
-        maxResults: 50,
-      };
+    // Mock JQL search endpoint (handles both /search and /search/jql)
+    http.get('*/rest/api/3/search*', ({ request }) => {
+      const url = new URL(request.url);
+      const jql = url.searchParams.get('jql') || '';
 
-      // Validate each issue in the search response
-      searchResponse.issues.forEach((issue, index) => {
-        validateAndReturn(IssueSchema, issue, `Search Result Issue ${index + 1}`);
-      });
+      if (jql.includes('project = ALPHA') || jql.includes('project%20%3D%20ALPHA')) {
+        const searchResponse = {
+          issues: projectAlphaIssues,
+          total: projectAlphaIssues.length,
+          startAt: 0,
+          maxResults: 50,
+        };
+        searchResponse.issues.forEach((issue, index) => {
+          validateAndReturn(IssueSchema, issue, `Search Result Issue ${index + 1}`);
+        });
+        return HttpResponse.json(searchResponse);
+      }
 
-      return new Response(JSON.stringify(searchResponse), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+      // Mock JQL search for BETA project
+      if (jql.includes('project = BETA') || jql.includes('project%20%3D%20BETA')) {
+        const searchResponse = {
+          issues: projectBetaIssues,
+          total: projectBetaIssues.length,
+          startAt: 0,
+          maxResults: 50,
+        };
+        searchResponse.issues.forEach((issue, index) => {
+          validateAndReturn(IssueSchema, issue, `Beta Search Result Issue ${index + 1}`);
+        });
+        return HttpResponse.json(searchResponse);
+      }
 
-    // Mock JQL search for BETA project - handle URL encoded parameters
-    if (
-      urlString.includes('/rest/api/3/search') &&
-      (urlString.includes('project%20%3D%20BETA') || urlString.includes('project+%3D+BETA'))
-    ) {
-      const searchResponse = {
-        issues: projectBetaIssues,
-        total: projectBetaIssues.length,
-        startAt: 0,
-        maxResults: 50,
-      };
+      // Mock general JQL search (without project filter)
+      if (jql.includes('assignee = currentUser')) {
+        const allIssues = [...projectAlphaIssues, ...projectBetaIssues];
+        const searchResponse = {
+          issues: allIssues,
+          total: allIssues.length,
+          startAt: 0,
+          maxResults: 50,
+        };
+        searchResponse.issues.forEach((issue, index) => {
+          validateAndReturn(IssueSchema, issue, `All Issues Search Result ${index + 1}`);
+        });
+        return HttpResponse.json(searchResponse);
+      }
 
-      // Validate each issue in the search response
-      searchResponse.issues.forEach((issue, index) => {
-        validateAndReturn(IssueSchema, issue, `Beta Search Result Issue ${index + 1}`);
-      });
+      // Default empty search
+      return HttpResponse.json({ issues: [], total: 0, startAt: 0, maxResults: 50 });
+    }),
 
-      return new Response(JSON.stringify(searchResponse), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Mock individual issue endpoints for cache updates
-    if (urlString.includes('/rest/api/3/issue/ALPHA-101')) {
+    // Mock individual issue endpoints
+    http.get('*/rest/api/3/issue/ALPHA-101', () => {
       const validatedIssue = validateAndReturn(IssueSchema, projectAlphaIssues[0], 'Issue ALPHA-101');
-      return new Response(JSON.stringify(validatedIssue), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+      return HttpResponse.json(validatedIssue);
+    }),
 
-    if (urlString.includes('/rest/api/3/issue/ALPHA-102')) {
+    http.get('*/rest/api/3/issue/ALPHA-102', () => {
       const validatedIssue = validateAndReturn(IssueSchema, projectAlphaIssues[1], 'Issue ALPHA-102');
-      return new Response(JSON.stringify(validatedIssue), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+      return HttpResponse.json(validatedIssue);
+    }),
 
-    if (urlString.includes('/rest/api/3/issue/BETA-205')) {
+    http.get('*/rest/api/3/issue/BETA-205', () => {
       const validatedIssue = validateAndReturn(IssueSchema, projectBetaIssues[0], 'Issue BETA-205');
-      return new Response(JSON.stringify(validatedIssue), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Mock general JQL search (without project filter) - handle URL encoded parameters
-    if (
-      urlString.includes('/rest/api/3/search') &&
-      (urlString.includes('assignee%20%3D%20currentUser') || urlString.includes('assignee+%3D+currentUser'))
-    ) {
-      const allIssues = [...projectAlphaIssues, ...projectBetaIssues];
-      const searchResponse = {
-        issues: allIssues,
-        total: allIssues.length,
-        startAt: 0,
-        maxResults: 50,
-      };
-
-      // Validate all issues
-      searchResponse.issues.forEach((issue, index) => {
-        validateAndReturn(IssueSchema, issue, `All Issues Search Result ${index + 1}`);
-      });
-
-      return new Response(JSON.stringify(searchResponse), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Unhandled request protection
-    throw new Error(`Unhandled HTTP request in mine command test: ${urlString}`);
-  });
+      return HttpResponse.json(validatedIssue);
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -262,9 +227,6 @@ test('ji mine command - mock complete user issue search flow', async () => {
   expect(user.emailAddress).toBe('test@company.com');
   expect(user.displayName).toBe('Test User');
 
-  // Verify all HTTP calls were made correctly
-  expect(global.fetch).toHaveBeenCalled();
-
   // Verify all responses conform to schemas
   for (const issue of allMyIssues.issues) {
     const validationResult = Schema.decodeUnknownEither(IssueSchema)(issue);
@@ -280,28 +242,22 @@ test('ji mine command - handles empty results', async () => {
     active: true,
   });
 
-  // Mock empty search results
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    if (urlString.includes('/rest/api/3/myself')) {
+  // Mock empty search results using MSW
+  server.use(
+    http.get('*/rest/api/3/myself', () => {
       const validatedUser = validateAndReturn(UserSchema, currentUser, 'Current User');
-      return new Response(JSON.stringify(validatedUser), { status: 200 });
-    }
+      return HttpResponse.json(validatedUser);
+    }),
 
-    if (urlString.includes('/rest/api/3/search')) {
-      const emptySearchResponse = {
+    http.get('*/rest/api/3/search*', () => {
+      return HttpResponse.json({
         issues: [],
         total: 0,
         startAt: 0,
         maxResults: 50,
-      };
-
-      return new Response(JSON.stringify(emptySearchResponse), { status: 200 });
-    }
-
-    throw new Error(`Unhandled request: ${urlString}`);
-  });
+      });
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -317,26 +273,15 @@ test('ji mine command - handles empty results', async () => {
 
   expect(noIssues.issues).toHaveLength(0);
   expect(noIssues.total).toBe(0);
-
-  expect(global.fetch).toHaveBeenCalled();
 });
 
 test('ji mine command - handles search API errors', async () => {
-  // Mock 500 error for search endpoint
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    if (urlString.includes('/rest/api/3/search')) {
-      return new Response(
-        JSON.stringify({
-          errorMessages: ['Internal server error during search'],
-        }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
-
-    throw new Error(`Unexpected request: ${urlString}`);
-  });
+  // Mock 500 error for search endpoint using MSW
+  server.use(
+    http.get('*/rest/api/3/search*', () => {
+      return HttpResponse.json({ errorMessages: ['Internal server error during search'] }, { status: 500 });
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -350,8 +295,6 @@ test('ji mine command - handles search API errors', async () => {
   // Should throw due to 500 error
   const jqlQuery = 'assignee = currentUser() AND status NOT IN (Closed, Done, Resolved)';
   await expect(client.searchIssues(jqlQuery)).rejects.toThrow();
-
-  expect(global.fetch).toHaveBeenCalledTimes(1);
 });
 
 test('ji mine command - validates issue schema compliance', async () => {
@@ -406,10 +349,9 @@ test('ji mine command - validates issue schema compliance', async () => {
     }),
   ];
 
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    if (urlString.includes('/rest/api/3/search')) {
+  // Mock search endpoint using MSW
+  server.use(
+    http.get('*/rest/api/3/search*', () => {
       const searchResponse = {
         issues: diverseIssues,
         total: diverseIssues.length,
@@ -422,11 +364,9 @@ test('ji mine command - validates issue schema compliance', async () => {
         validateAndReturn(IssueSchema, issue, `Diverse Issue ${index + 1}`);
       });
 
-      return new Response(JSON.stringify(searchResponse), { status: 200 });
-    }
-
-    throw new Error(`Unhandled request: ${urlString}`);
-  });
+      return HttpResponse.json(searchResponse);
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -459,6 +399,4 @@ test('ji mine command - validates issue schema compliance', async () => {
     const validationResult = Schema.decodeUnknownEither(IssueSchema)(issue);
     expect(validationResult._tag).toBe('Right');
   });
-
-  expect(global.fetch).toHaveBeenCalledTimes(1);
 });

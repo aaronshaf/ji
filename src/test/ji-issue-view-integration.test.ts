@@ -2,9 +2,10 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { HttpResponse, http } from 'msw';
+import { server } from './setup-msw';
 import { IssueSchema } from '../lib/effects/jira/schemas';
 import { createValidIssue, validateAndReturn } from './msw-schema-validation';
-import { installFetchMock, restoreFetch } from './test-fetch-mock';
 
 // Integration tests for the actual `ji EVAL-5767` command flow
 // Tests the real viewIssue function from issue.ts with comments
@@ -26,7 +27,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  restoreFetch();
+  // MSW's global afterEach will reset handlers automatically
   delete process.env.ALLOW_REAL_API_CALLS;
   delete process.env.JI_CONFIG_DIR;
 
@@ -93,42 +94,35 @@ test('ji EVAL-5767 command - real issue viewing with comments array processing',
     },
   });
 
-  // Mock the Jira API endpoints
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    // Mock config endpoint (for ConfigManager)
-    if (urlString.includes('/rest/api/3/myself')) {
-      return new Response(
-        JSON.stringify({
-          accountId: 'current-user-123',
-          displayName: 'Test User',
-          emailAddress: 'test@example.com',
-          active: true,
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-    }
-
-    // Mock the specific issue endpoint
-    if (urlString.includes('/rest/api/3/issue/EVAL-5767')) {
-      const validatedIssue = validateAndReturn(IssueSchema, issueWithComments, 'EVAL-5767 Issue');
-      return new Response(JSON.stringify(validatedIssue), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
+  // Mock the Jira API endpoints using MSW
+  server.use(
+    http.get('*/rest/api/3/myself', () => {
+      return HttpResponse.json({
+        accountId: 'current-user-123',
+        displayName: 'Test User',
+        emailAddress: 'test@example.com',
+        active: true,
       });
-    }
+    }),
+
+    http.get('*/rest/api/3/issue/EVAL-5767', () => {
+      const validatedIssue = validateAndReturn(IssueSchema, issueWithComments, 'EVAL-5767 Issue');
+      return HttpResponse.json(validatedIssue);
+    }),
 
     // Mock Meilisearch endpoints to prevent real HTTP calls
-    if (urlString.includes('localhost:7700') || urlString.includes('meilisearch')) {
-      return new Response(JSON.stringify({ taskUid: 123, status: 'enqueued' }), { status: 200 });
-    }
+    http.post('*localhost:7700*', () => {
+      return HttpResponse.json({ taskUid: 123, status: 'enqueued' });
+    }),
 
-    throw new Error(`Unhandled request in ji issue view test: ${urlString}`);
-  });
+    http.get('*localhost:7700*', () => {
+      return HttpResponse.json({ taskUid: 123, status: 'enqueued' });
+    }),
+
+    http.patch('*localhost:7700*', () => {
+      return HttpResponse.json({ taskUid: 123, status: 'enqueued' });
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -217,33 +211,26 @@ test('ji EVAL-5767 command - handles issues with no comments', async () => {
     },
   });
 
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
+  server.use(
+    http.get('*/rest/api/3/myself', () => {
+      return HttpResponse.json({
+        accountId: 'current-user-123',
+        displayName: 'Test User',
+        emailAddress: 'test@example.com',
+        active: true,
+      });
+    }),
 
-    if (urlString.includes('/rest/api/3/myself')) {
-      return new Response(
-        JSON.stringify({
-          accountId: 'current-user-123',
-          displayName: 'Test User',
-          emailAddress: 'test@example.com',
-          active: true,
-        }),
-        { status: 200 },
-      );
-    }
-
-    if (urlString.includes('/rest/api/3/issue/EVAL-1234')) {
+    http.get('*/rest/api/3/issue/EVAL-1234', () => {
       const validatedIssue = validateAndReturn(IssueSchema, issueWithoutComments, 'No Comments Issue');
-      return new Response(JSON.stringify(validatedIssue), { status: 200 });
-    }
+      return HttpResponse.json(validatedIssue);
+    }),
 
-    // Mock Meilisearch endpoints to prevent real HTTP calls
-    if (urlString.includes('localhost:7700') || urlString.includes('meilisearch')) {
-      return new Response(JSON.stringify({ taskUid: 123, status: 'enqueued' }), { status: 200 });
-    }
-
-    throw new Error(`Unhandled request: ${urlString}`);
-  });
+    // Mock Meilisearch endpoints
+    http.post('*localhost:7700*', () => HttpResponse.json({ taskUid: 123, status: 'enqueued' })),
+    http.get('*localhost:7700*', () => HttpResponse.json({ taskUid: 123, status: 'enqueued' })),
+    http.patch('*localhost:7700*', () => HttpResponse.json({ taskUid: 123, status: 'enqueued' })),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -300,33 +287,26 @@ test('ji EVAL-5767 command - handles issues with empty comments array', async ()
     },
   });
 
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
+  server.use(
+    http.get('*/rest/api/3/myself', () => {
+      return HttpResponse.json({
+        accountId: 'current-user-123',
+        displayName: 'Test User',
+        emailAddress: 'test@example.com',
+        active: true,
+      });
+    }),
 
-    if (urlString.includes('/rest/api/3/myself')) {
-      return new Response(
-        JSON.stringify({
-          accountId: 'current-user-123',
-          displayName: 'Test User',
-          emailAddress: 'test@example.com',
-          active: true,
-        }),
-        { status: 200 },
-      );
-    }
-
-    if (urlString.includes('/rest/api/3/issue/EVAL-5678')) {
+    http.get('*/rest/api/3/issue/EVAL-5678', () => {
       const validatedIssue = validateAndReturn(IssueSchema, issueWithEmptyComments, 'Empty Comments Issue');
-      return new Response(JSON.stringify(validatedIssue), { status: 200 });
-    }
+      return HttpResponse.json(validatedIssue);
+    }),
 
-    // Mock Meilisearch endpoints to prevent real HTTP calls
-    if (urlString.includes('localhost:7700') || urlString.includes('meilisearch')) {
-      return new Response(JSON.stringify({ taskUid: 123, status: 'enqueued' }), { status: 200 });
-    }
-
-    throw new Error(`Unhandled request: ${urlString}`);
-  });
+    // Mock Meilisearch endpoints
+    http.post('*localhost:7700*', () => HttpResponse.json({ taskUid: 123, status: 'enqueued' })),
+    http.get('*localhost:7700*', () => HttpResponse.json({ taskUid: 123, status: 'enqueued' })),
+    http.patch('*localhost:7700*', () => HttpResponse.json({ taskUid: 123, status: 'enqueued' })),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 

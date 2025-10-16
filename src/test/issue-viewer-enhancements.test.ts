@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { Schema } from 'effect';
+import { HttpResponse, http } from 'msw';
+import { server } from './setup-msw';
 import { IssueSchema } from '../lib/effects/jira/schemas';
 import { createValidIssue, validateAndReturn } from './msw-schema-validation';
-import { installFetchMock, restoreFetch } from './test-fetch-mock';
 
 // Tests for issue viewer enhancements:
 // 1. YAML comment formatting improvements
@@ -14,7 +15,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  restoreFetch();
+  // MSW's global afterEach will reset handlers automatically
   delete process.env.ALLOW_REAL_API_CALLS;
 });
 
@@ -74,20 +75,13 @@ test('YAML comment formatting - proper array structure without count', async () 
     },
   });
 
-  // Mock the issue endpoint
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    if (urlString.includes('/issue/COMMENT-123')) {
+  // Mock the issue endpoint using MSW
+  server.use(
+    http.get('*/rest/api/3/issue/COMMENT-123', () => {
       const validatedIssue = validateAndReturn(IssueSchema, issueWithComments, 'Issue with Comments');
-      return new Response(JSON.stringify(validatedIssue), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    throw new Error(`Unhandled request: ${urlString}`);
-  });
+      return HttpResponse.json(validatedIssue);
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -143,11 +137,9 @@ test('YAML comment formatting - proper array structure without count', async () 
 });
 
 test('API response validation - handles malformed data gracefully', async () => {
-  // Mock malformed API response (issue with key but no fields)
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    if (urlString.includes('/issue/MALFORMED-123')) {
+  // Mock malformed API response (issue with key but no fields) using MSW
+  server.use(
+    http.get('*/rest/api/3/issue/MALFORMED-123', () => {
       // Return malformed response that has key but missing fields
       const malformedIssue = {
         key: 'MALFORMED-123',
@@ -155,14 +147,9 @@ test('API response validation - handles malformed data gracefully', async () => 
         // Missing 'fields' property entirely
       };
 
-      return new Response(JSON.stringify(malformedIssue), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    throw new Error(`Unhandled request: ${urlString}`);
-  });
+      return HttpResponse.json(malformedIssue);
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -187,25 +174,18 @@ test('API response validation - handles malformed data gracefully', async () => 
 });
 
 test('API response validation - handles missing fields property', async () => {
-  // Mock response with fields set to null/undefined
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    if (urlString.includes('/issue/NULL-FIELDS-123')) {
+  // Mock response with fields set to null/undefined using MSW
+  server.use(
+    http.get('*/rest/api/3/issue/NULL-FIELDS-123', () => {
       const issueWithNullFields = {
         key: 'NULL-FIELDS-123',
         self: 'https://test.atlassian.net/rest/api/3/issue/NULL-FIELDS-123',
         fields: null, // Explicit null fields
       };
 
-      return new Response(JSON.stringify(issueWithNullFields), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    throw new Error(`Unhandled request: ${urlString}`);
-  });
+      return HttpResponse.json(issueWithNullFields);
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -247,19 +227,12 @@ test('Schema validation - well-formed issue passes validation', async () => {
     },
   });
 
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    if (urlString.includes('/issue/VALID-123')) {
+  server.use(
+    http.get('*/rest/api/3/issue/VALID-123', () => {
       const validatedIssue = validateAndReturn(IssueSchema, wellFormedIssue, 'Valid Issue');
-      return new Response(JSON.stringify(validatedIssue), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    throw new Error(`Unhandled request: ${urlString}`);
-  });
+      return HttpResponse.json(validatedIssue);
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -306,19 +279,12 @@ test('Description formatting - no artificial line breaks in YAML pipe literal', 
     },
   });
 
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    if (urlString.includes('/issue/LONG-DESC-123')) {
+  server.use(
+    http.get('*/rest/api/3/issue/LONG-DESC-123', () => {
       const validatedIssue = validateAndReturn(IssueSchema, issueWithLongDescription, 'Long Description Issue');
-      return new Response(JSON.stringify(validatedIssue), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    throw new Error(`Unhandled request: ${urlString}`);
-  });
+      return HttpResponse.json(validatedIssue);
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 

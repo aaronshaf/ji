@@ -229,12 +229,201 @@ src/
 ### Code Organization Guidelines
 
 **File Size Management**: When files grow too large (>500 lines), split them into smaller, focused modules:
-- `jira-client.ts` is getting large and should be split into:
-  - `jira-client-core.ts` - Basic API methods
-  - `jira-client-effects.ts` - Effect-based implementations
-  - `jira-client-types.ts` - Schemas and type definitions
+- Split by responsibility:
+  - `*-read.ts` - Read/query operations
+  - `*-mutations.ts` - Write/update operations
+  - `*-types.ts` - Schemas and type definitions
 - Keep related functionality together but separate concerns
+- Use composition pattern for unified interfaces
 - Use barrel exports (`index.ts`) to maintain clean imports
+
+## API Stability & Maintenance
+
+### Jira API Version Strategy
+
+**Current Version**: `/rest/api/3` (Jira Cloud REST API v3)
+
+**Important Context**: In 2025, Atlassian deprecated the `/rest/api/3/search` endpoint in favor of `/rest/api/3/search/jql`. This required immediate migration and taught us valuable lessons about API monitoring.
+
+#### API Endpoint Evolution
+
+```typescript
+// ❌ Deprecated (May 2025)
+const url = `${jiraUrl}/rest/api/3/search?jql=${jql}`;
+
+// ✅ Current (migrated 2025)
+const url = `${jiraUrl}/rest/api/3/search/jql?jql=${jql}`;
+```
+
+**Key differences in new endpoint:**
+- `total` field is now optional (may be undefined)
+- `startAt` field is now optional (may be undefined)
+- `maxResults` field is now optional (may be undefined)
+- Fields parameter is required (defaults to `*navigable`)
+- Supports cursor-based pagination via `nextPageToken`
+
+### Handling Optional Response Fields
+
+Always handle optional fields defensively with fallbacks:
+
+```typescript
+// ✅ Good: Handle missing total field
+const result = await searchIssues(jql);
+return {
+  issues: result.issues,
+  total: result.total ?? result.issues.length,  // Fallback to issue count
+  startAt: result.startAt ?? 0,                 // Fallback to 0
+};
+
+// ❌ Bad: Assume total is always present
+const total = result.total; // May be undefined!
+```
+
+**Schema patterns for optional fields:**
+```typescript
+// ✅ Use Schema.optional() for new API optional fields
+export const SearchResultSchema = Schema.Struct({
+  issues: Schema.Array(IssueSchema),           // Required
+  startAt: Schema.optional(Schema.Number),     // Optional in new API
+  maxResults: Schema.optional(Schema.Number),  // Optional in new API
+  total: Schema.optional(Schema.Number),       // Optional in new API
+  nextPageToken: Schema.optional(Schema.String), // Cursor pagination
+});
+```
+
+### API Deprecation Monitoring
+
+#### Detection Strategy
+
+1. **Monitor response headers** for deprecation warnings:
+```typescript
+private checkDeprecationWarnings(response: Response): void {
+  const deprecation = response.headers.get('Deprecation');
+  const sunset = response.headers.get('Sunset');
+
+  if (deprecation) {
+    console.warn(
+      `⚠️  Jira API deprecation warning:\n` +
+      `   Endpoint: ${response.url}\n` +
+      `   Sunset date: ${sunset || 'not specified'}\n` +
+      `   See: https://developer.atlassian.com/cloud/jira/platform/deprecation-notices/`
+    );
+  }
+}
+```
+
+2. **Log API version in requests** for debugging:
+```typescript
+protected getHeaders() {
+  return {
+    Authorization: `Basic ${token}`,
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    'User-Agent': 'ji-cli/1.0.0', // Track which client version
+  };
+}
+```
+
+3. **Monitor Atlassian's deprecation notices**:
+   - https://developer.atlassian.com/cloud/jira/platform/deprecation-notices/
+   - Subscribe to Atlassian Developer newsletter
+   - Check quarterly for breaking changes
+
+#### Recommended: Add Health Check Command
+
+```typescript
+// Future enhancement: ji doctor
+export async function doctor(): Promise<void> {
+  const client = await getJiraClient();
+
+  // Test API connectivity
+  await client.testConnection();
+
+  // Check for deprecation warnings
+  await client.checkApiHealth();
+
+  // Verify authentication
+  await client.getCurrentUser();
+
+  console.log('✅ All Jira API checks passed');
+}
+```
+
+### Testing with Mock API Responses
+
+**Fixture Location**: `src/test/fixtures/jira-api-responses.ts`
+
+Use fixtures for consistent, maintainable tests:
+
+```typescript
+import {
+  mockSearchResultNewFormat,
+  mockSearchResultOldFormat,
+  mockSearchResultMixed,
+  createMockFetchHandler,
+} from '../test/fixtures/jira-api-responses.js';
+
+// ✅ Test both old and new API response formats
+it('should handle new /search/jql API format', async () => {
+  global.fetch = createMockFetchHandler({
+    '/rest/api/3/search/jql': mockSearchResultNewFormat,
+  });
+
+  const result = await client.searchIssues('project = PROJ');
+  expect(result.total).toBeDefined(); // Should have fallback
+});
+
+// ✅ Test backward compatibility
+it('should handle mixed response format', async () => {
+  global.fetch = createMockFetchHandler({
+    '/rest/api/3/search/jql': mockSearchResultMixed, // Has startAt/total but not maxResults
+  });
+
+  const result = await client.searchIssues('project = PROJ');
+  expect(result.startAt).toBe(0);
+});
+```
+
+**Test Coverage Requirements:**
+- Old API format (for backward compatibility tests)
+- New API format (minimal fields only)
+- Mixed format (some optional fields present)
+- Error responses (401, 403, 404, 410)
+- Deprecation header handling
+- Pagination edge cases (total undefined, cursor-based)
+
+### MSW Configuration
+
+When using Mock Service Worker (MSW) for integration tests:
+
+```typescript
+// vitest.config.ts or test setup
+export default defineConfig({
+  test: {
+    setupFiles: ['./src/test/setup.ts'],
+    msw: {
+      mode: 'bypass', // ✅ Bypass unhandled requests (don't fail tests)
+    },
+  },
+});
+```
+
+**Why 'bypass' mode?**: Tests should only mock what they explicitly need. Unhandled requests indicate missing mocks, not test failures.
+
+### Migration Checklist for API Changes
+
+When Atlassian announces a new API version or deprecation:
+
+- [ ] Update endpoint URLs in affected files
+- [ ] Update schemas to handle new optional/required fields
+- [ ] Add fallback logic for optional response fields
+- [ ] Update JSDoc comments with migration notes
+- [ ] Add tests for new API response format
+- [ ] Keep backward compatibility for transition period
+- [ ] Update CLAUDE.md with new API patterns
+- [ ] Test with real Jira instance (use `ji test`)
+- [ ] Add deprecation warnings if old patterns are still used
+- [ ] Update error messages to reference new endpoints
 
 ## Important Security Notes
 

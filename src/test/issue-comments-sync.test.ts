@@ -1,6 +1,13 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { HttpResponse, http } from 'msw';
+import { server } from './setup-msw';
 import { JiraClientIssues } from '../lib/jira-client/jira-client-issues';
 import { ISSUE_FIELDS } from '../lib/jira-client/jira-client-types';
+
+afterEach(() => {
+  // MSW's global afterEach will reset handlers automatically
+  delete process.env.ALLOW_REAL_API_CALLS;
+});
 
 describe('Issue Comments Sync', () => {
   test('getAllProjectIssues includes comment field in API requests', async () => {
@@ -12,47 +19,38 @@ describe('Issue Comments Sync', () => {
 
     let capturedFields: string | undefined;
 
-    // Mock fetch to capture the URL and fields
-    const originalFetch = global.fetch;
-    global.fetch = mock(async (url: string) => {
-      const urlObj = new URL(url);
-      capturedFields = urlObj.searchParams.get('fields') || undefined;
+    // Mock fetch using MSW to capture the URL and fields
+    server.use(
+      http.get('*/rest/api/3/search*', ({ request }) => {
+        const url = new URL(request.url);
+        capturedFields = url.searchParams.get('fields') || undefined;
 
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return HttpResponse.json({
           issues: [],
           total: 0,
           startAt: 0,
           maxResults: 100,
-        }),
-      };
-    }) as unknown as typeof fetch;
+        });
+      }),
+    );
 
     // Temporarily allow real API calls to create the client
-    const originalEnv = process.env.ALLOW_REAL_API_CALLS;
     process.env.ALLOW_REAL_API_CALLS = 'true';
     const client = new JiraClientIssues(mockConfig);
-    process.env.ALLOW_REAL_API_CALLS = originalEnv;
 
-    try {
-      await client.getAllProjectIssues('TEST');
+    await client.getAllProjectIssues('TEST');
 
-      // Verify that the fields parameter includes 'comment'
-      expect(capturedFields).toBeDefined();
-      expect(capturedFields).toContain('comment');
+    // Verify that the fields parameter includes 'comment'
+    expect(capturedFields).toBeDefined();
+    expect(capturedFields).toContain('comment');
 
-      // Verify all ISSUE_FIELDS are included
-      const requestedFields = capturedFields?.split(',') || [];
-      expect(requestedFields).toContain('comment');
-      expect(requestedFields).toContain('summary');
-      expect(requestedFields).toContain('status');
-      expect(requestedFields).toContain('assignee');
-      expect(requestedFields).toContain('description');
-    } finally {
-      global.fetch = originalFetch;
-    }
+    // Verify all ISSUE_FIELDS are included
+    const requestedFields = capturedFields?.split(',') || [];
+    expect(requestedFields).toContain('comment');
+    expect(requestedFields).toContain('summary');
+    expect(requestedFields).toContain('status');
+    expect(requestedFields).toContain('assignee');
+    expect(requestedFields).toContain('description');
   });
 
   test('searchIssues includes fields parameter when provided', async () => {
@@ -64,41 +62,32 @@ describe('Issue Comments Sync', () => {
 
     let capturedFields: string | undefined;
 
-    // Mock fetch
-    const originalFetch = global.fetch;
-    global.fetch = mock(async (url: string) => {
-      const urlObj = new URL(url);
-      capturedFields = urlObj.searchParams.get('fields') || undefined;
+    // Mock fetch using MSW
+    server.use(
+      http.get('*/rest/api/3/search*', ({ request }) => {
+        const url = new URL(request.url);
+        capturedFields = url.searchParams.get('fields') || undefined;
 
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return HttpResponse.json({
           issues: [],
           total: 0,
           startAt: 0,
           maxResults: 100,
-        }),
-      };
-    }) as unknown as typeof fetch;
+        });
+      }),
+    );
 
     // Temporarily allow real API calls to create the client
-    const originalEnv = process.env.ALLOW_REAL_API_CALLS;
     process.env.ALLOW_REAL_API_CALLS = 'true';
     const client = new JiraClientIssues(mockConfig);
-    process.env.ALLOW_REAL_API_CALLS = originalEnv;
 
-    try {
-      // Test with fields parameter
-      await client.searchIssues('project = TEST', {
-        fields: ISSUE_FIELDS,
-      });
+    // Test with fields parameter
+    await client.searchIssues('project = TEST', {
+      fields: ISSUE_FIELDS,
+    });
 
-      expect(capturedFields).toBeDefined();
-      expect(capturedFields).toContain('comment');
-    } finally {
-      global.fetch = originalFetch;
-    }
+    expect(capturedFields).toBeDefined();
+    expect(capturedFields).toContain('comment');
   });
 
   test('getIssue always includes comment field', async () => {
@@ -110,16 +99,13 @@ describe('Issue Comments Sync', () => {
 
     let capturedFields: string | undefined;
 
-    // Mock fetch
-    const originalFetch = global.fetch;
-    global.fetch = mock(async (url: string) => {
-      const urlObj = new URL(url);
-      capturedFields = urlObj.searchParams.get('fields') || undefined;
+    // Mock fetch using MSW
+    server.use(
+      http.get('*/rest/api/3/issue/TEST-123', ({ request }) => {
+        const url = new URL(request.url);
+        capturedFields = url.searchParams.get('fields') || undefined;
 
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+        return HttpResponse.json({
           key: 'TEST-123',
           self: 'https://test.atlassian.net/rest/api/3/issue/TEST-123',
           fields: {
@@ -135,32 +121,26 @@ describe('Issue Comments Sync', () => {
               ],
             },
           },
-        }),
-      };
-    }) as unknown as typeof fetch;
+        });
+      }),
+    );
 
     // Temporarily allow real API calls to create the client
-    const originalEnv = process.env.ALLOW_REAL_API_CALLS;
     process.env.ALLOW_REAL_API_CALLS = 'true';
     const client = new JiraClientIssues(mockConfig);
-    process.env.ALLOW_REAL_API_CALLS = originalEnv;
 
-    try {
-      const issue = await client.getIssue('TEST-123');
+    const issue = await client.getIssue('TEST-123');
 
-      // Verify fields parameter included comment
-      expect(capturedFields).toBeDefined();
-      expect(capturedFields).toContain('comment');
+    // Verify fields parameter included comment
+    expect(capturedFields).toBeDefined();
+    expect(capturedFields).toContain('comment');
 
-      // Verify the issue has comments
-      expect(issue.fields).toBeDefined();
-      const fields = issue.fields as { comment?: { comments: unknown[] } };
-      expect(fields.comment).toBeDefined();
-      expect(fields.comment?.comments).toBeArray();
-      expect(fields.comment?.comments).toHaveLength(1);
-    } finally {
-      global.fetch = originalFetch;
-    }
+    // Verify the issue has comments
+    expect(issue.fields).toBeDefined();
+    const fields = issue.fields as { comment?: { comments: unknown[] } };
+    expect(fields.comment).toBeDefined();
+    expect(fields.comment?.comments).toBeArray();
+    expect(fields.comment?.comments).toHaveLength(1);
   });
 
   test('CLI recognizes --fetch flag for issue view command', () => {

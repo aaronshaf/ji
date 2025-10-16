@@ -15,7 +15,8 @@ type Comment = {
 
 import { IssueSchema } from '../lib/effects/jira/schemas.js';
 import { createValidIssue, validateAndReturn } from './msw-schema-validation.js';
-import { installFetchMock, restoreFetch } from './test-fetch-mock.js';
+import { HttpResponse, http } from 'msw';
+import { server } from './setup-msw';
 
 // ============= Test Schemas =============
 const TestConfigSchema = Schema.Struct({
@@ -182,7 +183,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
     // Clear all mocks
     mock.restore();
 
-    restoreFetch();
+    // MSW's global afterEach will reset handlers automatically
   });
 
   describe('Effect Schema Validation', () => {
@@ -224,38 +225,24 @@ describe.skip('Analyze Command with Effect and MSW', () => {
     test('intercepts all Jira API calls - no real network requests', async () => {
       let apiCallCount = 0;
 
-      installFetchMock(async (url: string | URL) => {
-        apiCallCount++;
-        const urlString = typeof url === 'string' ? url : url.toString();
+      server.use(
+        http.get('*/rest/api/3/issue/TEST-123', ({ request }) => {
+          apiCallCount++;
+          // Ensure we're not hitting real Atlassian
+          expect(request.url).not.toContain('atlassian.com');
+          expect(request.url).toContain('test.atlassian.net');
 
-        // Ensure we're not hitting real Atlassian
-        expect(urlString).not.toContain('atlassian.com');
-        expect(urlString).toContain('test.atlassian.net');
-
-        if (urlString.includes('/issue/TEST-123')) {
-          return new Response(JSON.stringify(mockIssue), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        if (urlString.includes('/issue/TEST-123/comment')) {
-          if (urlString.includes('GET')) {
-            return new Response(JSON.stringify({ comments: mockComments }), {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            });
-          }
-          // POST for adding comment
-          return new Response(JSON.stringify({ id: '3', created: new Date().toISOString() }), {
-            status: 201,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        // Fail on any unexpected API call
-        throw new Error(`Unexpected API call to: ${urlString}`);
-      });
+          return HttpResponse.json(mockIssue);
+        }),
+        http.get('*/rest/api/3/issue/TEST-123/comment', () => {
+          apiCallCount++;
+          return HttpResponse.json({ comments: mockComments });
+        }),
+        http.post('*/rest/api/2/issue/TEST-123/comment', () => {
+          apiCallCount++;
+          return HttpResponse.json({ id: '3', created: new Date().toISOString() }, { status: 201 });
+        }),
+      );
 
       // Mock tool execution
       mock.module('node:child_process', () => ({
@@ -292,7 +279,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
 
     test('fails immediately on unmocked API calls', async () => {
       // Don't install any fetch mock - should fail
-      restoreFetch();
+      // MSW's global afterEach will reset handlers automatically
 
       // This should fail because fetch is not mocked
       await analyzeIssue('TEST-123');
@@ -334,7 +321,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
       }));
 
       // Setup API mocks
-      installFetchMock(createMockApiHandler());
+      setupMockApiHandlers();
 
       // Remove analysisCommand to trigger detection
       mockConfig = createMockConfig({ analysisCommand: undefined });
@@ -363,7 +350,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
         }),
       }));
 
-      installFetchMock(createMockApiHandler());
+      setupMockApiHandlers();
       mockConfig = createMockConfig({ analysisCommand: undefined });
 
       await analyzeIssue('TEST-123', { yes: true });
@@ -387,7 +374,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
         },
       }));
 
-      installFetchMock(createMockApiHandler());
+      setupMockApiHandlers();
       mockToolExecution('<ji-response>Test</ji-response>');
 
       await analyzeIssue('TEST-123', { yes: true });
@@ -409,7 +396,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
         })),
       }));
 
-      installFetchMock(createMockApiHandler());
+      setupMockApiHandlers();
       mockToolExecution('<ji-response>Test comment</ji-response>');
 
       // Use comment flag but not yes flag to trigger confirmation
@@ -440,9 +427,11 @@ describe.skip('Analyze Command with Effect and MSW', () => {
     });
 
     test('uses Effect.catchTag for specific error handling', async () => {
-      installFetchMock(async () => {
-        throw new Error('Network error');
-      });
+      server.use(
+        http.get('*/rest/api/3/issue/TEST-123', () => {
+          return HttpResponse.error();
+        }),
+      );
 
       await analyzeIssue('TEST-123');
 
@@ -455,7 +444,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
       process.env.DEBUG = 'true';
 
       try {
-        installFetchMock(createMockApiHandler());
+        setupMockApiHandlers();
         mockToolExecution('Invalid output without tags');
 
         await analyzeIssue('TEST-123', { yes: true });
@@ -478,26 +467,15 @@ describe.skip('Analyze Command with Effect and MSW', () => {
       let issueFormatted = false;
       let commentsFetched = false;
 
-      installFetchMock(async (url: string | URL) => {
-        const urlString = typeof url === 'string' ? url : url.toString();
-
-        if (urlString.includes('/rest/api/3/issue/TEST-123') && !urlString.includes('/comment')) {
-          return new Response(JSON.stringify(createMockIssue()), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        if (urlString.includes('/rest/api/3/issue/TEST-123/comment')) {
+      server.use(
+        http.get('*/rest/api/3/issue/TEST-123', () => {
+          return HttpResponse.json(createMockIssue());
+        }),
+        http.get('*/rest/api/3/issue/TEST-123/comment', () => {
           commentsFetched = true;
-          return new Response(JSON.stringify({ comments: mockComments }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        return new Response('Not found', { status: 404 });
-      });
+          return HttpResponse.json({ comments: mockComments });
+        }),
+      );
 
       mockToolExecution('<ji-response>Analysis</ji-response>', (input: string) => {
         // Verify XML was properly formatted
@@ -514,28 +492,19 @@ describe.skip('Analyze Command with Effect and MSW', () => {
     });
 
     test('handles Effect.orElse for comment fetch failures', async () => {
-      installFetchMock(async (url: string | URL, init?: RequestInit) => {
-        const urlString = typeof url === 'string' ? url : url.toString();
-        const method = init?.method || 'GET';
-
-        if (urlString.includes('/rest/api/3/issue/TEST-123') && !urlString.includes('/comment')) {
-          return new Response(JSON.stringify(createMockIssue()), { status: 200 });
-        }
-
-        if (urlString.includes('/rest/api/3/issue/TEST-123/comment')) {
-          if (method === 'POST') {
-            // Allow posting comment even though GET failed
-            return new Response(JSON.stringify({ id: '3', created: new Date().toISOString() }), {
-              status: 201,
-              headers: { 'Content-Type': 'application/json' },
-            });
-          }
+      server.use(
+        http.get('*/rest/api/3/issue/TEST-123', () => {
+          return HttpResponse.json(createMockIssue());
+        }),
+        http.get('*/rest/api/3/issue/TEST-123/comment', () => {
           // Simulate comment GET failure
-          return new Response('Comments unavailable', { status: 500 });
-        }
-
-        return new Response('Not found', { status: 404 });
-      });
+          return HttpResponse.text('Comments unavailable', { status: 500 });
+        }),
+        http.post('*/rest/api/2/issue/TEST-123/comment', () => {
+          // Allow posting comment even though GET failed
+          return HttpResponse.json({ id: '3', created: new Date().toISOString() }, { status: 201 });
+        }),
+      );
 
       mockToolExecution('<ji-response>Analysis without comments</ji-response>');
 
@@ -567,18 +536,14 @@ describe.skip('Analyze Command with Effect and MSW', () => {
 
       let capturedXml = '';
 
-      installFetchMock(async (url: string | URL) => {
-        const urlString = typeof url === 'string' ? url : url.toString();
-
-        if (urlString.includes('/issue/TEST-123')) {
-          return new Response(JSON.stringify(issueWithSpecialChars), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        return new Response(JSON.stringify({}), { status: 200 });
-      });
+      server.use(
+        http.get('*/rest/api/3/issue/TEST-123', () => {
+          return HttpResponse.json(issueWithSpecialChars);
+        }),
+        http.get('*/rest/api/3/issue/TEST-123/comment', () => {
+          return HttpResponse.json({ comments: [] });
+        }),
+      );
 
       mockToolExecution('<ji-response>Test</ji-response>', (input: string) => {
         capturedXml = input;
@@ -610,7 +575,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
         }),
       }));
 
-      installFetchMock(createMockApiHandler());
+      setupMockApiHandlers();
       mockToolExecution('<ji-response>Test</ji-response>');
 
       await analyzeIssue('TEST-123', {
@@ -641,7 +606,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
       // Remove analysisCommand from config
       mockConfig = createMockConfig({ analysisCommand: undefined });
 
-      installFetchMock(createMockApiHandler());
+      setupMockApiHandlers();
       mockToolExecution('<ji-response>Test</ji-response>');
 
       await analyzeIssue('TEST-123', { yes: true });
@@ -653,6 +618,29 @@ describe.skip('Analyze Command with Effect and MSW', () => {
 });
 
 // ============= Helper Functions =============
+
+function setupMockApiHandlers(options?: { failIssue?: boolean; failComments?: boolean }) {
+  server.use(
+    http.get('*/rest/api/3/issue/TEST-123', () => {
+      if (options?.failIssue) {
+        return HttpResponse.text('Not found', { status: 404 });
+      }
+      const issue = createMockIssue();
+      return HttpResponse.json(issue);
+    }),
+    http.get('*/rest/api/3/issue/TEST-123/comment', () => {
+      if (options?.failComments) {
+        return HttpResponse.text('Failed to fetch comments', { status: 500 });
+      }
+      const comments = createMockComments();
+      return HttpResponse.json({ comments });
+    }),
+    http.post('*/rest/api/2/issue/TEST-123/comment', () => {
+      return HttpResponse.json({ id: '3', created: new Date().toISOString() }, { status: 201 });
+    }),
+  );
+}
+
 function createMockToolProcess(response: string, onInput?: (input: string) => void) {
   let stdinData = '';
 
@@ -687,41 +675,4 @@ function mockToolExecution(response: string, onInput?: (input: string) => void) 
   mock.module('node:child_process', () => ({
     spawn: mock(() => createMockToolProcess(response, onInput)),
   }));
-}
-
-function createMockApiHandler(options?: { failIssue?: boolean; failComments?: boolean }) {
-  return async (url: string | URL, init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-    const method = init?.method || 'GET';
-
-    if (urlString.includes('/rest/api/3/issue/TEST-123') && !urlString.includes('/comment')) {
-      if (options?.failIssue) {
-        return new Response('Not found', { status: 404 });
-      }
-      const issue = createMockIssue();
-      return new Response(JSON.stringify(issue), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (urlString.includes('/rest/api/3/issue/TEST-123/comment')) {
-      if (options?.failComments) {
-        return new Response('Failed to fetch comments', { status: 500 });
-      }
-      if (method === 'POST') {
-        return new Response(JSON.stringify({ id: '3', created: new Date().toISOString() }), {
-          status: 201,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      const comments = createMockComments();
-      return new Response(JSON.stringify({ comments }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    return new Response('Not found', { status: 404 });
-  };
 }
