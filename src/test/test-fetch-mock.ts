@@ -3,6 +3,9 @@
  */
 import { type Mock, mock } from 'bun:test';
 
+// Save the original fetch at module load time
+const originalFetch = global.fetch;
+
 /**
  * Create a properly typed fetch mock that satisfies the global fetch interface
  */
@@ -30,20 +33,11 @@ export function installFetchMock(handler: (url: string | URL, init?: RequestInit
 
 /**
  * Restore the original fetch
+ * IMPORTANT: This restores the fetch that was available when this module loaded,
+ * which allows MSW and other fetch interceptors to work correctly.
  */
 export function restoreFetch(): void {
-  // In Bun, we can't truly restore fetch, but we can set it to a no-op
-  // that throws to catch any unexpected calls
-  const errorFetch = Object.assign(
-    () => {
-      throw new Error('fetch was called after being restored. Did you forget to mock it?');
-    },
-    {
-      preconnect: () => {
-        throw new Error('fetch.preconnect was called after being restored');
-      },
-    },
-  ) as typeof fetch;
-
-  global.fetch = errorFetch;
+  // Restore the original fetch that was saved at module load time
+  // This ensures compatibility with MSW and other fetch interceptors
+  global.fetch = originalFetch;
 }

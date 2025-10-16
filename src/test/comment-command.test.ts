@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { Effect } from 'effect';
+import { HttpResponse, http } from 'msw';
+import { server } from './setup-msw';
 import {
   AuthenticationError,
   NetworkError,
   NotFoundError,
   ValidationError,
 } from '../lib/jira-client/jira-client-types';
-import { installFetchMock, restoreFetch } from './test-fetch-mock';
 
 // Create a simple comment formatting function for testing
 const formatCommentForJira = (comment: string): string => {
@@ -103,7 +104,7 @@ describe('Comment Command', () => {
   };
 
   afterEach(() => {
-    restoreFetch();
+    // MSW's global afterEach will reset handlers automatically
   });
 
   describe('addCommentEffect', () => {
@@ -111,9 +112,7 @@ describe('Comment Command', () => {
       const invalidKeys = ['invalid', 'ABC123', 'ABC-', '-123', 'abc-123'];
 
       // Mock fetch to never be called for invalid keys
-      installFetchMock(async () => {
-        throw new Error('Fetch should not be called for invalid issue keys');
-      });
+      server.use(http.post('*/rest/api/2/issue/:issueKey/comment', () => HttpResponse.error()));
 
       for (const key of invalidKeys) {
         const result = await Effect.runPromiseExit(testAddCommentEffect(key, 'test comment', mockConfig));
@@ -131,9 +130,7 @@ describe('Comment Command', () => {
       const emptyComments = ['', '   ', '\n\n', '\t'];
 
       // Mock fetch to never be called for empty comments
-      installFetchMock(async () => {
-        throw new Error('Fetch should not be called for empty comments');
-      });
+      server.use(http.post('*/rest/api/2/issue/:issueKey/comment', () => HttpResponse.error()));
 
       for (const comment of emptyComments) {
         const result = await Effect.runPromiseExit(testAddCommentEffect('TEST-123', comment, mockConfig));
@@ -148,9 +145,7 @@ describe('Comment Command', () => {
     });
 
     it('should successfully post a comment with wiki markup', async () => {
-      installFetchMock(async () => {
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(http.post('*/rest/api/2/issue/:issueKey/comment', () => new Response('', { status: 201 })));
 
       const wikiComment = `h1. Test Comment
 *bold text* and _italic text_
@@ -163,10 +158,12 @@ describe('Comment Command', () => {
 
     it('should use REST API v2 endpoint for wiki markup support', async () => {
       let capturedUrl = '';
-      installFetchMock(async (url) => {
-        capturedUrl = url.toString();
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', ({ request }) => {
+          capturedUrl = request.url;
+          return new Response('', { status: 201 });
+        }),
+      );
 
       await Effect.runPromise(testAddCommentEffect('TEST-123', 'test comment', mockConfig));
 
@@ -176,10 +173,12 @@ describe('Comment Command', () => {
 
     it('should send comment as plain text body for wiki markup', async () => {
       let capturedBody: any = null;
-      installFetchMock(async (_url, init) => {
-        capturedBody = JSON.parse(init?.body as string);
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', async ({ request }) => {
+          capturedBody = await request.json();
+          return new Response('', { status: 201 });
+        }),
+      );
 
       const wikiComment = '*bold* and _italic_';
       await Effect.runPromise(testAddCommentEffect('TEST-123', wikiComment, mockConfig));
@@ -191,12 +190,9 @@ describe('Comment Command', () => {
     });
 
     it('should handle 404 errors', async () => {
-      installFetchMock(async () => {
-        return new Response('Issue not found', {
-          status: 404,
-          statusText: 'Not Found',
-        });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', () => new Response('Issue not found', { status: 404 })),
+      );
 
       const result = await Effect.runPromiseExit(testAddCommentEffect('TEST-999', 'test comment', mockConfig));
 
@@ -209,12 +205,9 @@ describe('Comment Command', () => {
     });
 
     it('should handle authentication errors', async () => {
-      installFetchMock(async () => {
-        return new Response('Unauthorized', {
-          status: 401,
-          statusText: 'Unauthorized',
-        });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', () => new Response('Unauthorized', { status: 401 })),
+      );
 
       const result = await Effect.runPromiseExit(testAddCommentEffect('TEST-123', 'test comment', mockConfig));
 
@@ -227,12 +220,9 @@ describe('Comment Command', () => {
     });
 
     it('should handle network errors', async () => {
-      installFetchMock(async () => {
-        return new Response('Internal server error', {
-          status: 500,
-          statusText: 'Internal Server Error',
-        });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', () => new Response('Internal server error', { status: 500 })),
+      );
 
       const result = await Effect.runPromiseExit(testAddCommentEffect('TEST-123', 'test comment', mockConfig));
 
@@ -247,9 +237,7 @@ describe('Comment Command', () => {
 
   describe('Wiki Markup Examples', () => {
     it('should support all wiki markup formatting', async () => {
-      installFetchMock(async () => {
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(http.post('*/rest/api/2/issue/:issueKey/comment', () => new Response('', { status: 201 })));
 
       const formattingExamples = [
         // Text formatting
@@ -305,9 +293,7 @@ describe('Comment Command', () => {
     });
 
     it('should handle complex wiki markup documents', async () => {
-      installFetchMock(async () => {
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(http.post('*/rest/api/2/issue/:issueKey/comment', () => new Response('', { status: 201 })));
 
       const complexComment = `h1. Release Notes v2.0
 
@@ -349,10 +335,12 @@ For more information, see our [documentation|https://docs.example.com].`;
   describe('Comment Format Detection', () => {
     it('should detect analysis comments with h4 headers', async () => {
       let capturedBody: any = null;
-      installFetchMock(async (_url, init) => {
-        capturedBody = JSON.parse(init?.body as string);
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', async ({ request }) => {
+          capturedBody = await request.json();
+          return new Response('', { status: 201 });
+        }),
+      );
 
       const analysisComment = `h4. Summary
 This is an analysis comment with headers.
@@ -370,10 +358,12 @@ h4. Key findings
 
     it('should detect analysis comments with robot emoji', async () => {
       let capturedBody: any = null;
-      installFetchMock(async (_url, init) => {
-        capturedBody = JSON.parse(init?.body as string);
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', async ({ request }) => {
+          capturedBody = await request.json();
+          return new Response('', { status: 201 });
+        }),
+      );
 
       const robotComment = ':robot: Claude Code Analysis\n\nThis is a generated analysis comment.';
 
@@ -386,10 +376,12 @@ h4. Key findings
 
     it('should detect analysis comments with Claude Code attribution', async () => {
       let capturedBody: any = null;
-      installFetchMock(async (_url, init) => {
-        capturedBody = JSON.parse(init?.body as string);
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', async ({ request }) => {
+          capturedBody = await request.json();
+          return new Response('', { status: 201 });
+        }),
+      );
 
       const claudeComment = `🤖 Claude Code (Opus 4.1)
 
@@ -405,10 +397,12 @@ This is an AI-generated analysis.`;
 
     it('should detect analysis comments with typical analysis sections', async () => {
       let capturedBody: any = null;
-      installFetchMock(async (_url, init) => {
-        capturedBody = JSON.parse(init?.body as string);
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', async ({ request }) => {
+          capturedBody = await request.json();
+          return new Response('', { status: 201 });
+        }),
+      );
 
       const typicalAnalysis = `h4. Summary
 Brief summary here.
@@ -431,10 +425,12 @@ h4. Next steps
 
     it('should not detect regular comments as analysis comments', async () => {
       let capturedBody: any = null;
-      installFetchMock(async (_url, init) => {
-        capturedBody = JSON.parse(init?.body as string);
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', async ({ request }) => {
+          capturedBody = await request.json();
+          return new Response('', { status: 201 });
+        }),
+      );
 
       const regularComment = 'This is just a regular comment with some text. No special formatting here.';
 
@@ -446,10 +442,12 @@ h4. Next steps
 
     it('should not misidentify comments with h4 in the middle of text', async () => {
       let capturedBody: any = null;
-      installFetchMock(async (_url, init) => {
-        capturedBody = JSON.parse(init?.body as string);
-        return new Response('', { status: 201, statusText: 'Created' });
-      });
+      server.use(
+        http.post('*/rest/api/2/issue/:issueKey/comment', async ({ request }) => {
+          capturedBody = await request.json();
+          return new Response('', { status: 201 });
+        }),
+      );
 
       const falsePositive = 'This comment mentions h4 elements in HTML but should not be treated as analysis.';
 

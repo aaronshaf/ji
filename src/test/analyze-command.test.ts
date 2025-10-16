@@ -15,7 +15,8 @@ type Comment = {
 
 import { IssueSchema } from '../lib/effects/jira/schemas.js';
 import { createValidIssue, validateAndReturn } from './msw-schema-validation.js';
-import { installFetchMock, restoreFetch } from './test-fetch-mock.js';
+import { HttpResponse, http } from 'msw';
+import { server } from './setup-msw';
 
 // ============= Test Schemas =============
 const TestConfigSchema = Schema.Struct({
@@ -182,7 +183,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
     // Clear all mocks
     mock.restore();
 
-    restoreFetch();
+    // MSW's global afterEach will reset handlers automatically
   });
 
   describe('Effect Schema Validation', () => {
@@ -292,7 +293,7 @@ describe.skip('Analyze Command with Effect and MSW', () => {
 
     test('fails immediately on unmocked API calls', async () => {
       // Don't install any fetch mock - should fail
-      restoreFetch();
+      // MSW's global afterEach will reset handlers automatically
 
       // This should fail because fetch is not mocked
       await analyzeIssue('TEST-123');
@@ -653,6 +654,13 @@ describe.skip('Analyze Command with Effect and MSW', () => {
 });
 
 // ============= Helper Functions =============
+
+// TODO: Replace installFetchMock calls with MSW handlers when un-skipping these tests
+// This is a temporary stub to prevent TypeScript errors in skipped tests
+function installFetchMock(_handler: (url: string | URL, init?: RequestInit) => Promise<Response>) {
+  // No-op: Tests are skipped and need MSW migration
+}
+
 function createMockToolProcess(response: string, onInput?: (input: string) => void) {
   let stdinData = '';
 

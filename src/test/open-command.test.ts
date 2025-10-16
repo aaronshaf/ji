@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openCommand, setExecForTesting } from '../cli/commands/open';
 
@@ -16,32 +16,31 @@ const mockExec = ((command: string, callback: (error: Error | null, stdout: stri
 }) as any;
 
 // Test directory setup
-const TEST_DIR = join(homedir(), '.ji-test-open');
-const _TEST_DB_PATH = join(TEST_DIR, 'data.db');
-const TEST_CONFIG_PATH = join(TEST_DIR, 'config.json');
+const TEST_DIR_PREFIX = join(tmpdir(), 'ji-test-open-');
+let testDir: string;
+let testConfigPath: string;
 
 beforeEach(() => {
   // Set the mock exec for testing
   setExecForTesting(mockExec);
 
-  // Create test directory
-  if (!existsSync(TEST_DIR)) {
-    mkdirSync(TEST_DIR, { recursive: true });
-  }
+  // Create isolated test directory under the system temp folder
+  testDir = mkdtempSync(TEST_DIR_PREFIX);
+  testConfigPath = join(testDir, 'config.json');
 
-  // Create test auth file
+  // Create test auth file inside the isolated directory
   const testAuth = {
     jiraUrl: 'https://test.atlassian.net',
     email: 'test@example.com',
     apiToken: 'test-token',
     userId: 'test-user-id',
   };
-  Bun.write(TEST_CONFIG_PATH, JSON.stringify(testAuth, null, 2));
+  Bun.write(testConfigPath, JSON.stringify(testAuth, null, 2));
 
   // We don't actually need a database for the open command since we removed cache checking
 
   // Set test environment
-  process.env.JI_CONFIG_DIR = TEST_DIR;
+  process.env.JI_CONFIG_DIR = testDir;
   process.env.JI_TEST_MODE = 'true';
 
   // Clear exec calls
@@ -54,8 +53,8 @@ afterEach(() => {
   delete process.env.ALLOW_REAL_API_CALLS;
 
   // Clean up test directory
-  if (existsSync(TEST_DIR)) {
-    rmSync(TEST_DIR, { recursive: true, force: true });
+  if (testDir) {
+    rmSync(testDir, { recursive: true, force: true });
   }
 
   // Clear exec calls
@@ -269,7 +268,7 @@ test('ji open - handles trailing slash in jiraUrl', async () => {
     apiToken: 'test-token',
     userId: 'test-user-id',
   };
-  Bun.write(TEST_CONFIG_PATH, JSON.stringify(testAuth, null, 2));
+  Bun.write(testConfigPath, JSON.stringify(testAuth, null, 2));
 
   // Capture console output
   const logs: string[] = [];

@@ -2,9 +2,10 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { HttpResponse, http } from 'msw';
+import { server } from './setup-msw';
 import { IssueSchema } from '../lib/effects/jira/schemas';
 import { createValidIssue, validateAndReturn } from './msw-schema-validation';
-import { installFetchMock, restoreFetch } from './test-fetch-mock';
 
 // Test to verify that `ji EVAL-5767` and `ji issue view EVAL-5767`
 // produce identical output (they should be exact aliases)
@@ -26,7 +27,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  restoreFetch();
+  // MSW's global afterEach will reset handlers automatically
   delete process.env.ALLOW_REAL_API_CALLS;
   delete process.env.JI_CONFIG_DIR;
 
@@ -74,34 +75,35 @@ test('ji EVAL-5767 and ji issue view EVAL-5767 are identical aliases', async () 
     },
   });
 
-  // Mock the API endpoints
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
+  // Mock the API endpoints using MSW
+  server.use(
+    http.get('*/rest/api/3/myself', () => {
+      return HttpResponse.json({
+        accountId: 'current-user-123',
+        displayName: 'Test User',
+        emailAddress: 'test@example.com',
+        active: true,
+      });
+    }),
 
-    if (urlString.includes('/rest/api/3/myself')) {
-      return new Response(
-        JSON.stringify({
-          accountId: 'current-user-123',
-          displayName: 'Test User',
-          emailAddress: 'test@example.com',
-          active: true,
-        }),
-        { status: 200 },
-      );
-    }
-
-    if (urlString.includes('/rest/api/3/issue/ALIAS-123')) {
+    http.get('*/rest/api/3/issue/ALIAS-123', () => {
       const validatedIssue = validateAndReturn(IssueSchema, testIssue, 'Alias Test Issue');
-      return new Response(JSON.stringify(validatedIssue), { status: 200 });
-    }
+      return HttpResponse.json(validatedIssue);
+    }),
 
     // Mock Meilisearch endpoints to prevent real HTTP calls
-    if (urlString.includes('localhost:7700') || urlString.includes('meilisearch')) {
-      return new Response(JSON.stringify({ taskUid: 123, status: 'enqueued' }), { status: 200 });
-    }
+    http.post('*localhost:7700*', () => {
+      return HttpResponse.json({ taskUid: 123, status: 'enqueued' });
+    }),
 
-    throw new Error(`Unhandled request in alias test: ${urlString}`);
-  });
+    http.get('*localhost:7700*', () => {
+      return HttpResponse.json({ taskUid: 123, status: 'enqueued' });
+    }),
+
+    http.patch('*localhost:7700*', () => {
+      return HttpResponse.json({ taskUid: 123, status: 'enqueued' });
+    }),
+  );
 
   process.env.ALLOW_REAL_API_CALLS = 'true';
 
@@ -125,35 +127,7 @@ test('ji EVAL-5767 and ji issue view EVAL-5767 are identical aliases', async () 
     console.log = originalLog;
   }
 
-  // Reset fetch mock for second test
-  restoreFetch();
-  installFetchMock(async (url: string | URL, _init?: RequestInit) => {
-    const urlString = typeof url === 'string' ? url : url.toString();
-
-    if (urlString.includes('/rest/api/3/myself')) {
-      return new Response(
-        JSON.stringify({
-          accountId: 'current-user-123',
-          displayName: 'Test User',
-          emailAddress: 'test@example.com',
-          active: true,
-        }),
-        { status: 200 },
-      );
-    }
-
-    if (urlString.includes('/rest/api/3/issue/ALIAS-123')) {
-      const validatedIssue = validateAndReturn(IssueSchema, testIssue, 'Alias Test Issue');
-      return new Response(JSON.stringify(validatedIssue), { status: 200 });
-    }
-
-    // Mock Meilisearch endpoints to prevent real HTTP calls
-    if (urlString.includes('localhost:7700') || urlString.includes('meilisearch')) {
-      return new Response(JSON.stringify({ taskUid: 123, status: 'enqueued' }), { status: 200 });
-    }
-
-    throw new Error(`Unhandled request in alias test: ${urlString}`);
-  });
+  // No need to reset and reinstall handlers - MSW handlers persist for the entire test
 
   // Capture output from explicit issue view command
   const explicitOutput: string[] = [];
