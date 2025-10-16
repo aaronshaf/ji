@@ -16,24 +16,15 @@ import {
  * Handles fetching, searching, and retrieving issue data
  */
 export class JiraClientIssuesRead extends JiraClientBase {
+  /**
+   * Fetch a single issue by key
+   *
+   * @remarks
+   * This method delegates to getIssueEffect for consistent error handling.
+   * Consider using getIssueEffect directly for better error type discrimination.
+   */
   async getIssue(issueKey: string): Promise<Issue> {
-    const params = new URLSearchParams({
-      fields: ISSUE_FIELDS.join(','),
-    });
-    const url = `${this.config.jiraUrl}/rest/api/3/issue/${issueKey}?${params}`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to fetch issue: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
-    return Schema.decodeUnknownSync(IssueSchema)(data) as Issue;
+    return Effect.runPromise(this.getIssueEffect(issueKey));
   }
 
   /**
@@ -45,6 +36,9 @@ export class JiraClientIssuesRead extends JiraClientBase {
    * - `total` field may be undefined in response (falls back to issue count)
    * - Fields parameter is now required (defaults to *navigable if not specified)
    * - Empty `fields` array will be replaced with defaults to avoid API errors
+   *
+   * This method delegates to searchIssuesEffect for consistent error handling.
+   * Consider using searchIssuesEffect directly for better error type discrimination.
    *
    * @param jql - JQL query string
    * @param options - Search options including pagination and field selection
@@ -58,71 +52,28 @@ export class JiraClientIssuesRead extends JiraClientBase {
       fields?: string[];
     },
   ): Promise<{ issues: Issue[]; total: number; startAt: number }> {
-    const params = new URLSearchParams({
-      jql,
-      startAt: (options?.startAt || 0).toString(),
-      maxResults: (options?.maxResults || 50).toString(),
-      fields: options?.fields ? options.fields.join(',') : '*navigable',
-    });
-
-    const url = `${this.config.jiraUrl}/rest/api/3/search/jql?${params}`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: this.getHeaders(),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to search issues: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
-    const result = Schema.decodeUnknownSync(SearchResultSchema)(data);
-
-    return {
-      issues: result.issues as Issue[],
-      total: result.total ?? result.issues.length,
-      startAt: result.startAt ?? options?.startAt ?? 0,
-    };
+    return Effect.runPromise(this.searchIssuesEffect(jql, options));
   }
 
+  /**
+   * Get all issues for a project with pagination
+   *
+   * @remarks
+   * This method delegates to getAllProjectIssuesEffect for consistent error handling.
+   * Consider using getAllProjectIssuesEffect directly for better error type discrimination
+   * and concurrent fetching performance.
+   */
   async getAllProjectIssues(
     projectKey: string,
     onProgress?: (current: number, total: number) => void,
     jql?: string,
   ): Promise<Issue[]> {
-    const allIssues: Issue[] = [];
-    let startAt = 0;
-    const maxResults = 100; // Max allowed by Jira API
-    let total = 0;
-
-    // Use provided JQL or default to all project issues
-    const searchJql = jql || `project = ${projectKey} ORDER BY updated DESC`;
-
-    while (true) {
-      const result = await this.searchIssues(searchJql, {
-        startAt,
-        maxResults,
-        fields: ISSUE_FIELDS,
-      });
-
-      allIssues.push(...result.issues);
-      total = result.total;
-
-      if (onProgress) {
-        onProgress(allIssues.length, total);
-      }
-
-      // Check if we've fetched all issues
-      if (allIssues.length >= total || result.issues.length === 0) {
-        break;
-      }
-
-      startAt += maxResults;
-    }
-
-    return allIssues;
+    return Effect.runPromise(
+      this.getAllProjectIssuesEffect(projectKey, {
+        jql,
+        onProgress,
+      }),
+    );
   }
 
   // ============= Effect-based Core Methods =============
@@ -170,6 +121,9 @@ export class JiraClientIssuesRead extends JiraClientBase {
             }
 
             const data = await response.json();
+            // Type assertion needed: Schema.decodeUnknownSync returns readonly types
+            // which don't match our mutable Issue type. The schema validation ensures
+            // the data structure is correct.
             return Schema.decodeUnknownSync(IssueSchema)(data) as Issue;
           },
           catch: (error) => {
@@ -247,6 +201,9 @@ export class JiraClientIssuesRead extends JiraClientBase {
             const data = await response.json();
             const result = Schema.decodeUnknownSync(SearchResultSchema)(data);
 
+            // Type assertion needed: Schema.decodeUnknownSync returns readonly arrays
+            // which don't match our mutable Issue[] type. The schema validation ensures
+            // the data structure is correct.
             return {
               issues: result.issues as Issue[],
               total: result.total ?? result.issues.length,
@@ -266,6 +223,22 @@ export class JiraClientIssuesRead extends JiraClientBase {
 
   /**
    * Effect-based version of getAllProjectIssues with concurrent fetching and progress tracking
+   *
+   * @remarks
+   * **Pagination Strategy**: This implementation uses offset-based pagination (startAt/maxResults).
+   * With concurrent fetching, if issues are added/removed mid-fetch, there's a potential for
+   * inconsistencies.
+   *
+   * **Future Enhancement**: Consider implementing cursor-based pagination using `nextPageToken`
+   * when available from the API for more reliable pagination in high-churn environments:
+   * ```typescript
+   * if (result.nextPageToken) {
+   *   // Use cursor instead of offset for next page
+   * }
+   * ```
+   *
+   * For most use cases, the current offset-based approach with controlled concurrency (default: 3)
+   * provides good performance without consistency issues.
    */
   getAllProjectIssuesEffect(
     projectKey: string,
