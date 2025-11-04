@@ -1,11 +1,76 @@
 import { Effect, Exit, pipe, Schedule, Duration } from 'effect';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 /**
  * Effect-based test helpers for better testing patterns
  */
+
+/**
+ * Get a working temp directory, falling back to project directory if system tmp has issues
+ */
+function getTempDir(): string {
+  try {
+    // Try system tmp first
+    const systemTmp = tmpdir();
+    // Test if we can create a directory
+    const testDir = join(systemTmp, `ji-test-${Date.now()}`);
+    mkdirSync(testDir);
+    rmSync(testDir, { recursive: true, force: true });
+    return systemTmp;
+  } catch {
+    // Fall back to project .tmp directory
+    const projectTmp = join(process.cwd(), '.tmp');
+    if (!existsSync(projectTmp)) {
+      mkdirSync(projectTmp, { recursive: true });
+    }
+    return projectTmp;
+  }
+}
+
+/**
+ * Creates a temporary directory with retry logic to handle macOS permission races
+ */
+function createTempDirWithRetry(prefix: string, maxRetries = 3): string {
+  let lastError: Error | undefined;
+  const baseTmpDir = getTempDir();
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      // Add random suffix to avoid collisions
+      const uniquePrefix = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-`;
+      return mkdtempSync(join(baseTmpDir, uniquePrefix));
+    } catch (error) {
+      lastError = error as Error;
+      if (i < maxRetries - 1) {
+        // Wait a bit before retrying (exponential backoff)
+        const delay = Math.min(10 * 2 ** i, 50);
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
+      }
+    }
+  }
+
+  throw lastError || new Error('Failed to create temp directory');
+}
+
+/**
+ * Removes a directory with retry logic to handle cleanup races
+ */
+function removeDirWithRetry(dir: string, maxRetries = 3): void {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      return; // Success
+    } catch (_error) {
+      if (i < maxRetries - 1) {
+        // Wait before retrying
+        const delay = Math.min(10 * 2 ** i, 50);
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
+      }
+    }
+  }
+}
 
 /**
  * Creates a temporary directory Effect that cleans up after itself
@@ -15,16 +80,9 @@ export const withTempDir = <A, E>(
   operation: (dir: string) => Effect.Effect<A, E>,
 ): Effect.Effect<A, E> =>
   Effect.acquireUseRelease(
-    Effect.sync(() => mkdtempSync(join(tmpdir(), `${prefix}-`))),
+    Effect.sync(() => createTempDirWithRetry(prefix)),
     operation,
-    (dir) =>
-      Effect.sync(() => {
-        try {
-          rmSync(dir, { recursive: true, force: true });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }),
+    (dir) => Effect.sync(() => removeDirWithRetry(dir)),
   );
 
 /**

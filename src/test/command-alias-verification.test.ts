@@ -6,16 +6,18 @@ import { HttpResponse, http } from 'msw';
 import { server } from './setup-msw';
 import { IssueSchema } from '../lib/effects/jira/schemas';
 import { createValidIssue, validateAndReturn } from './msw-schema-validation';
+import { isolateTestEnvironment } from './test-helpers.js';
 
 // Test to verify that `ji EVAL-5767` and `ji issue view EVAL-5767`
 // produce identical output (they should be exact aliases)
 
 let tempDir: string;
+let cleanup: () => void;
 
 beforeEach(() => {
-  // Create temp directory for test config
-  tempDir = mkdtempSync(join(tmpdir(), 'ji-alias-test-'));
-  process.env.JI_CONFIG_DIR = tempDir;
+  const env = isolateTestEnvironment();
+  tempDir = env.tempDir;
+  cleanup = env.cleanup;
 
   // Create mock config file
   const mockConfig = {
@@ -29,12 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   // MSW's global afterEach will reset handlers automatically
   delete process.env.ALLOW_REAL_API_CALLS;
-  delete process.env.JI_CONFIG_DIR;
-
-  // Clean up temp directory
-  if (tempDir) {
-    rmSync(tempDir, { recursive: true, force: true });
-  }
+  cleanup();
 });
 
 test('ji EVAL-5767 and ji issue view EVAL-5767 are identical aliases', async () => {

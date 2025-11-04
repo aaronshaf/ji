@@ -6,16 +6,18 @@ import { HttpResponse, http } from 'msw';
 import { server } from './setup-msw';
 import { IssueSchema } from '../lib/effects/jira/schemas';
 import { createValidIssue, validateAndReturn } from './msw-schema-validation';
+import { isolateTestEnvironment } from './test-helpers.js';
 
 // Integration tests for the actual `ji EVAL-5767` command flow
 // Tests the real viewIssue function from issue.ts with comments
 
 let tempDir: string;
+let cleanup: () => void;
 
 beforeEach(() => {
-  // Create temp directory for test config
-  tempDir = mkdtempSync(join(tmpdir(), 'ji-issue-test-'));
-  process.env.JI_CONFIG_DIR = tempDir;
+  const env = isolateTestEnvironment();
+  tempDir = env.tempDir;
+  cleanup = env.cleanup;
 
   // Create mock config file
   const mockConfig = {
@@ -29,12 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   // MSW's global afterEach will reset handlers automatically
   delete process.env.ALLOW_REAL_API_CALLS;
-  delete process.env.JI_CONFIG_DIR;
-
-  // Clean up temp directory
-  if (tempDir) {
-    rmSync(tempDir, { recursive: true, force: true });
-  }
+  cleanup();
 });
 
 test('ji EVAL-5767 command - real issue viewing with comments array processing', async () => {

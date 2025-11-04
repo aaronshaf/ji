@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openCommand, setExecForTesting } from '../cli/commands/open';
+import { isolateTestEnvironment } from './test-helpers.js';
 
 // Keep track of exec calls
 let execCalls: string[] = [];
@@ -16,16 +17,18 @@ const mockExec = ((command: string, callback: (error: Error | null, stdout: stri
 }) as any;
 
 // Test directory setup
-const TEST_DIR_PREFIX = join(tmpdir(), 'ji-test-open-');
 let testDir: string;
 let testConfigPath: string;
+let cleanup: () => void;
 
 beforeEach(() => {
   // Set the mock exec for testing
   setExecForTesting(mockExec);
 
-  // Create isolated test directory under the system temp folder
-  testDir = mkdtempSync(TEST_DIR_PREFIX);
+  // Create isolated test directory
+  const env = isolateTestEnvironment();
+  testDir = env.tempDir;
+  cleanup = env.cleanup;
   testConfigPath = join(testDir, 'config.json');
 
   // Create test auth file inside the isolated directory
@@ -37,10 +40,7 @@ beforeEach(() => {
   };
   Bun.write(testConfigPath, JSON.stringify(testAuth, null, 2));
 
-  // We don't actually need a database for the open command since we removed cache checking
-
   // Set test environment
-  process.env.JI_CONFIG_DIR = testDir;
   process.env.JI_TEST_MODE = 'true';
 
   // Clear exec calls
@@ -48,14 +48,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.JI_CONFIG_DIR;
   delete process.env.JI_TEST_MODE;
   delete process.env.ALLOW_REAL_API_CALLS;
-
-  // Clean up test directory
-  if (testDir) {
-    rmSync(testDir, { recursive: true, force: true });
-  }
+  cleanup();
 
   // Clear exec calls
   execCalls = [];
@@ -165,12 +160,10 @@ test('ji open - validates issue key format', async () => {
 });
 
 test('ji open - handles missing configuration', async () => {
-  // Save and clear the environment to ensure isolation
-  const originalConfigDir = process.env.JI_CONFIG_DIR;
-
-  // Create a new temp directory for this test specifically
-  const isolatedDir = mkdtempSync(join(tmpdir(), 'ji-test-missing-config-'));
-  process.env.JI_CONFIG_DIR = isolatedDir;
+  // Create a new isolated environment for this test
+  const env = isolateTestEnvironment();
+  const isolatedDir = env.tempDir;
+  const isolatedCleanup = env.cleanup;
 
   // Ensure no auth file exists in the isolated directory
   const isolatedConfigPath = join(isolatedDir, 'config.json');
@@ -217,15 +210,8 @@ test('ji open - handles missing configuration', async () => {
     console.log = originalLog;
     console.error = originalError;
 
-    // Restore environment
-    if (originalConfigDir === undefined) {
-      delete process.env.JI_CONFIG_DIR;
-    } else {
-      process.env.JI_CONFIG_DIR = originalConfigDir;
-    }
-
     // Clean up isolated directory
-    rmSync(isolatedDir, { recursive: true, force: true });
+    isolatedCleanup();
   }
 });
 

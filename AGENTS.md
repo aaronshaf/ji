@@ -508,6 +508,81 @@ When Atlassian announces a new API version or deprecation:
 - All sensitive configuration files use 600 permissions for security
 - No local storage of sensitive data - only cached in memory during API calls
 
+## Worktree Setup Configuration
+
+The `ji do` command uses git worktrees for isolated development. You can configure setup commands that run after each worktree is created via `.jiconfig.json` in your project root.
+
+### Configuration File: `.jiconfig.json`
+
+```json
+{
+  "worktreeSetup": "source ~/.zshrc && export PATH=\"$HOME/.local/bin:$PATH\"",
+  "publish": "git push origin HEAD:refs/for/master"
+}
+```
+
+### Shell Environment
+
+**Important**: Worktree setup commands run in a **non-interactive shell** (`zsh -c`, not `zsh -i -c`). This means:
+
+- ❌ Your `~/.zshrc`, `~/.zprofile`, etc. are **NOT** automatically loaded
+- ❌ Tools from shell managers (asdf, nvm, rbenv) are **NOT** available by default
+- ✅ You must explicitly source your config or use absolute paths
+
+### Common Patterns
+
+**Load your shell environment:**
+```json
+{
+  "worktreeSetup": "source ~/.zshrc && npm install"
+}
+```
+
+**Use absolute paths:**
+```json
+{
+  "worktreeSetup": "/usr/local/bin/npm install && /usr/local/bin/npm run build"
+}
+```
+
+**Add tools to PATH explicitly:**
+```json
+{
+  "worktreeSetup": "export PATH=\"$HOME/.local/bin:$HOME/.asdf/shims:$PATH\" && npm install"
+}
+```
+
+**Run a setup script:**
+```json
+{
+  "worktreeSetup": "./scripts/dev-setup.sh"
+}
+```
+
+### Why Non-Interactive?
+
+Interactive shells (`-i` flag) load tools like `asdf` which can produce warnings/errors when looking for tools that aren't in their registry (like `claude`). Non-interactive shells:
+
+- ✅ Avoid spurious warnings from shell managers
+- ✅ Provide predictable, minimal environment
+- ✅ Work consistently in CI/automated environments
+- ✅ Force explicit environment setup
+
+### Troubleshooting
+
+**Problem**: Command not found (npm, node, etc.)
+
+**Solution**: Either source your shell config or use absolute paths:
+```json
+{
+  "worktreeSetup": "source ~/.zshrc && npm install"
+}
+```
+
+**Problem**: Tool warnings about missing versions (asdf, nvm)
+
+**Solution**: This is expected - the non-interactive shell doesn't load these tools unless you explicitly source your config.
+
 ## Current Features
 
 - ✅ Jira issue viewing with direct API access (Effect-based)
@@ -522,6 +597,62 @@ When Atlassian announces a new API version or deprecation:
 - ✅ Human-first pretty output with XML option for LLM compatibility
 - ✅ Sprint and board management (`ji sprint`, `ji board`)
 - ✅ Human-readable time parsing (24h, 7d, 30d) to JQL conversion
+- ✅ **Agentic issue resolution** with `ji do` command
+
+## Agentic Development with `ji do`
+
+The `ji do` command provides automated issue resolution using Claude Code in an isolated git worktree environment.
+
+### Prerequisites
+
+**Claude Code CLI** must be installed and accessible. The command will automatically detect Claude Code in these locations:
+
+1. `CLAUDE_CODE_PATH` environment variable (if set)
+2. `~/.claude/local/claude` (default installation)
+3. `~/.local/bin/claude` (alternative location)
+4. `/usr/local/bin/claude` (system-wide installation)
+
+**To set a custom Claude Code path:**
+
+```bash
+# Add to your ~/.zshrc or ~/.bashrc
+export CLAUDE_CODE_PATH=/path/to/claude
+```
+
+**Installation:**
+If Claude Code is not installed, visit: https://docs.claude.com/en/docs/claude-code
+
+### Usage
+
+```bash
+ji do ISSUE-123                    # Create worktree and resolve issue (2 iterations)
+ji do ISSUE-123 --iterations 3     # Run 3 development iterations
+ji do ISSUE-123 --clean            # Auto-cleanup worktree after completion
+ji do ISSUE-123 --dry-run          # Preview what would be done without executing
+```
+
+### How it Works
+
+1. **Validation**: Validates issue key format and git repository status
+2. **Worktree Creation**: Creates isolated git worktree in `~/.ji/worktrees/YYYY-MM-DD-ISSUE-KEY/`
+3. **Project Setup**: Copies `.claude/` and `.jiconfig.json`, runs configured setup commands
+4. **Iteration 1**: Claude Code implements core functionality
+5. **Iteration 2+**: Code review, refinements, testing
+6. **Publishing**: Creates PR (GitHub) or pushes to Gerrit based on detected remote
+7. **Cleanup**: Optionally removes worktree (use `--clean` flag)
+
+### Configuration
+
+Configure worktree setup and publishing via `.jiconfig.json` in your project root:
+
+```json
+{
+  "worktreeSetup": "source ~/.zshrc && bun install",
+  "publish": "git push origin HEAD:refs/for/master"
+}
+```
+
+See **Worktree Setup Configuration** section above for details on shell environment and troubleshooting.
 
 ## Testing Framework
 

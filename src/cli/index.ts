@@ -4,6 +4,7 @@ import { analyzeIssue } from './commands/analyze.js';
 import { showMyBoards } from './commands/board.js';
 import { addComment } from './commands/comment.js';
 import { configureCustomFields } from './commands/config.js';
+import { doCommand } from './commands/do.js';
 import { markIssueDone } from './commands/done.js';
 import { viewIssue } from './commands/issue.js';
 import { showIssueLog } from './commands/log.js';
@@ -331,6 +332,53 @@ ${chalk.yellow('Examples:')}
 `);
 }
 
+function showDoHelp() {
+  console.log(`
+${chalk.bold('ji do - Agentic issue resolution')}
+
+${chalk.yellow('Usage:')}
+  ji do <issue-key> [options]
+
+${chalk.yellow('Description:')}
+  Automatically resolve a Jira issue using agentic development with Claude Code.
+  Creates an isolated git worktree, iteratively works on the issue, and creates
+  a single commit with all changes.
+
+${chalk.yellow('Options:')}
+  --iterations <n>          Number of development iterations (default: 2)
+  --model <name>           AI model to use (default: claude)
+  --dry-run                Preview actions without making changes
+  --skip-tests             Skip test requirement validation
+  --clean                  Clean up worktree after completion (default: preserve)
+  --help                   Show this help message
+
+${chalk.yellow('Workflow:')}
+  1. Creates isolated git worktree in ~/.ji/worktrees/
+  2. Runs worktree setup if configured in .jiconfig.json
+  3. Fetches issue details from Jira
+  4. Executes development iterations with Claude Code
+  5. Validates changes with safety controls
+  6. Creates single commit with all changes
+  7. Pushes to GitHub (creates PR) or Gerrit (creates change)
+  8. Preserves worktree for continued development (use --clean to remove)
+
+${chalk.yellow('Worktree Setup (.jiconfig.json):')}
+  {
+    "worktreeSetup": "./scripts/dev-setup.sh"
+  }
+  
+  ${chalk.gray('or use any command:')}
+  {
+    "worktreeSetup": "npm install && npm run build"
+  }
+
+${chalk.yellow('Examples:')}
+  ji do PROJ-123                     Two iterations (default)
+  ji do PROJ-123 --iterations 3      Multiple iterations with review
+  ji do PROJ-123 --dry-run           Preview mode without changes
+`);
+}
+
 // Helper function to show usage
 function showStatusHelp() {
   console.log(`
@@ -363,6 +411,7 @@ ${chalk.yellow('Issues:')}
   ji mine [options]                    Show your issues with flexible filters
   ji take <issue-key>                  Assign an issue to yourself
   ji done <issue-key>                  Mark an issue as Done
+  ji do <issue-key> [options]          Agentic issue resolution with Claude Code
   ji open <issue-key>                  Open issue in browser
   ji comment <issue-key> [comment]     Add a comment to an issue
   ji analyze <issue-key-or-url>        Analyze issue with AI
@@ -389,6 +438,7 @@ ${chalk.gray('Examples:')}
   ji ABC-123 --xml                    View issue in XML format
   ji mine                              Show your assigned issues
   ji mine --status "In Progress"      Filter by status
+  ji do ABC-123                        Resolve issue with agentic development
   ji analyze ABC-123                   Analyze issue with AI
 `);
 }
@@ -543,6 +593,79 @@ async function main() {
         }
         await markIssueDone(subArgs[0]);
         break;
+
+      case 'do': {
+        if (args.includes('--help')) {
+          showDoHelp();
+          process.exit(0);
+        }
+        if (!subArgs[0]) {
+          console.error('Please specify an issue key');
+          showDoHelp();
+          process.exit(1);
+        }
+
+        // Validate issue exists before creating worktree (fail fast)
+        try {
+          const { ConfigManager } = await import('../lib/config.js');
+          const { JiraClient } = await import('../lib/jira-client.js');
+
+          const configManager = new ConfigManager();
+          const config = await configManager.getConfig();
+
+          if (!config) {
+            console.error(chalk.red('No configuration found. Please run "ji setup" first.'));
+            process.exit(1);
+          }
+
+          const jiraClient = new JiraClient(config);
+
+          console.log(chalk.blue(`🔍 Validating issue ${subArgs[0]}...`));
+          await jiraClient.getIssue(subArgs[0]);
+          console.log(chalk.green('✅ Issue found and accessible'));
+        } catch (error) {
+          console.error(chalk.red(`\n❌ Cannot access issue ${subArgs[0]}`));
+          console.error(chalk.red(`Error: ${error instanceof Error ? error.message : String(error)}`));
+          console.error(chalk.yellow('\nPossible reasons:'));
+          console.error(chalk.yellow('  • Issue does not exist'));
+          console.error(chalk.yellow('  • You do not have permission to view this issue'));
+          console.error(chalk.yellow('  • Issue key format is incorrect (should be PROJECT-123)'));
+          process.exit(1);
+        }
+
+        // Parse options
+        let iterations: number | undefined;
+        const iterationsIndex = args.findIndex((arg) => arg === '--iterations');
+        if (iterationsIndex !== -1 && iterationsIndex + 1 < args.length) {
+          const iterationsStr = args[iterationsIndex + 1];
+          const parsedIterations = parseInt(iterationsStr, 10);
+          if (!Number.isNaN(parsedIterations) && parsedIterations > 0) {
+            iterations = parsedIterations;
+          } else {
+            console.error('Invalid iterations value. Must be a positive number.');
+            process.exit(1);
+          }
+        }
+
+        let model: string | undefined;
+        const modelIndex = args.findIndex((arg) => arg === '--model');
+        if (modelIndex !== -1 && modelIndex + 1 < args.length) {
+          model = args[modelIndex + 1];
+        }
+
+        const dryRun = args.includes('--dry-run');
+        const skipTests = args.includes('--skip-tests');
+        const clean = args.includes('--clean');
+
+        await doCommand(subArgs[0], {
+          iterations,
+          model,
+          dryRun,
+          skipTests,
+          clean,
+        });
+        break;
+      }
 
       case 'open':
         if (args.includes('--help')) {

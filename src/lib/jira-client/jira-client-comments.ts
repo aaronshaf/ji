@@ -12,8 +12,39 @@ export class JiraClientComments extends JiraClientBase {
     const isAnalysisComment = this.isAnalysisComment(comment);
 
     if (isAnalysisComment) {
-      // For analysis comments, preserve wiki markup formatting and replace robot emoji
-      return comment.replace(/:robot:/g, '🤖');
+      // For analysis comments, ensure it starts with robot emoji and preserve wiki markup formatting
+      let formattedComment = comment.replace(/:robot:/g, '🤖');
+
+      // Ensure the comment starts with robot emoji if it's an analysis comment
+      if (!formattedComment.trimStart().startsWith('🤖')) {
+        formattedComment = `🤖 ${formattedComment.trimStart()}`;
+      }
+
+      // Ensure proper line breaks between sections for better wiki markup rendering
+      formattedComment = formattedComment
+        // Split into lines for processing
+        .split('\n')
+        .map((line, index, lines) => {
+          // If this is an h4 header and the previous line isn't empty, add spacing
+          if (line.match(/^h4\.\s+/) && index > 0 && lines[index - 1].trim() !== '') {
+            return `\n${line}`;
+          }
+          // If this is a bullet point and the previous line isn't empty or an h4, add spacing
+          if (
+            line.match(/^\*\s+/) &&
+            index > 0 &&
+            !lines[index - 1].match(/^h4\.\s+/) &&
+            lines[index - 1].trim() !== ''
+          ) {
+            return `\n${line}`;
+          }
+          return line;
+        })
+        .join('\n')
+        // Clean up any excessive line breaks (more than 2 consecutive)
+        .replace(/\n{3,}/g, '\n\n');
+
+      return formattedComment;
     }
 
     // For regular comments, return as plain text
@@ -33,6 +64,10 @@ export class JiraClientComments extends JiraClientBase {
       /(?:^|\n)h4\.\s+(Summary|Affected components|Key files|Proposal|Next steps)/i,
       // Contains Claude Code attribution
       /🤖\s+Claude Code/,
+      // Already contains robot emoji at start
+      /^🤖/,
+      // Contains analysis structure with bullet points after headers
+      /h4\.\s+\w+[\s\S]*?\*\s+/,
     ];
 
     return analysisIndicators.some((indicator) => indicator.test(comment));
