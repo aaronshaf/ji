@@ -4,24 +4,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Effect, Exit, pipe } from 'effect';
 import { ConfigManager, ConfigError, FileError, ParseError, ValidationError, type Config } from './config.js';
-import { EnvironmentSaver } from '../test/test-helpers.js';
+import { EnvironmentSaver, isolateTestEnvironment } from '../test/test-helpers.js';
 
 describe('ConfigManager Effect-based Tests', () => {
   let tempDir: string;
   let configManager: ConfigManager;
-  const envSaver = new EnvironmentSaver();
+  let cleanup: () => void;
 
   beforeEach(() => {
-    envSaver.save('JI_CONFIG_DIR');
-    tempDir = mkdtempSync(join(tmpdir(), 'ji-effect-test-'));
-    process.env.JI_CONFIG_DIR = tempDir;
+    const env = isolateTestEnvironment();
+    tempDir = env.tempDir;
+    cleanup = env.cleanup;
     configManager = new ConfigManager();
   });
 
   afterEach(() => {
     configManager?.close?.();
-    envSaver.restore();
-    rmSync(tempDir, { recursive: true, force: true });
+    cleanup();
   });
 
   describe('Effect-based getConfigEffect', () => {

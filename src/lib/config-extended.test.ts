@@ -3,38 +3,25 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigManager } from './config.js';
-import { EnvironmentSaver } from '../test/test-helpers.js';
+import { isolateTestEnvironment, EnvironmentSaver } from '../test/test-helpers.js';
 
 describe('ConfigManager Extended Tests', () => {
   let tempDir: string;
   let configManager: ConfigManager;
-  const envSaver = new EnvironmentSaver();
+  let cleanup: () => void;
 
   beforeEach(() => {
-    // Save original environment
-    envSaver.save('JI_CONFIG_DIR');
-
-    // Create a temporary directory for test database
-    tempDir = mkdtempSync(join(tmpdir(), 'ji-test-'));
-    process.env.JI_CONFIG_DIR = tempDir;
+    const env = isolateTestEnvironment();
+    tempDir = env.tempDir;
+    cleanup = env.cleanup;
     configManager = new ConfigManager();
   });
 
   afterEach(() => {
-    // Clean up
     if (configManager?.close) {
       configManager.close();
     }
-
-    // Restore environment
-    envSaver.restore();
-
-    // Remove temp directory
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch {
-      // Ignore cleanup errors
-    }
+    cleanup();
   });
 
   describe('Authentication Management', () => {
