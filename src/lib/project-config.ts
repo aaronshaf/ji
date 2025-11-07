@@ -17,6 +17,7 @@ export class ProjectConfigError extends Error {
 const ProjectConfigSchema = Schema.Struct({
   worktreeSetup: Schema.optional(Schema.String),
   publish: Schema.optional(Schema.String),
+  checkBuild: Schema.optional(Schema.String),
 });
 
 export type ProjectConfig = typeof ProjectConfigSchema.Type;

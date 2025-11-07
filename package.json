@@ -50,6 +50,7 @@
   "author": "Aaron Shafovaloff <aaronshaf@gmail.com>",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.30",
     "@effect/schema": "^0.75.5",
     "@inquirer/prompts": "^7.8.4",
     "date-fns": "^4.1.0",

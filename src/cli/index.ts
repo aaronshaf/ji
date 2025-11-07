@@ -340,42 +340,56 @@ ${chalk.yellow('Usage:')}
   ji do <issue-key> [options]
 
 ${chalk.yellow('Description:')}
-  Automatically resolve a Jira issue using agentic development with Claude Code.
-  Creates an isolated git worktree, iteratively works on the issue, and creates
-  a single commit with all changes.
+  Automatically resolve a Jira issue using agentic development with Claude Agent SDK.
+  Works in your current directory on your current branch, iteratively developing
+  the solution.
+
+${chalk.yellow('Requirements:')}
+  - Create your feature branch before running (e.g., git checkout -b feature/PROJ-123)
+  - Optional: Set ANTHROPIC_API_KEY for API-based auth (uses local Claude auth by default)
 
 ${chalk.yellow('Options:')}
-  --iterations <n>          Number of development iterations (default: 2)
-  --model <name>           AI model to use (default: claude)
+  --iterations <n>          Number of local development iterations (default: 2)
+  --remote-iterations <n>   Number of CI fix iterations after PR (default: 2, 0 to disable)
+  --model <name>           AI model to use: sonnet, opus, haiku (default: sonnet)
+  --single-commit          Create one commit at end instead of multiple commits
   --dry-run                Preview actions without making changes
   --skip-tests             Skip test requirement validation
-  --clean                  Clean up worktree after completion (default: preserve)
   --help                   Show this help message
 
 ${chalk.yellow('Workflow:')}
-  1. Creates isolated git worktree in ~/.ji/worktrees/
-  2. Runs worktree setup if configured in .jiconfig.json
-  3. Fetches issue details from Jira
-  4. Executes development iterations with Claude Code
-  5. Validates changes with safety controls
-  6. Creates single commit with all changes
-  7. Pushes to GitHub (creates PR) or Gerrit (creates change)
-  8. Preserves worktree for continued development (use --clean to remove)
+  1. Validates current git repository and branch
+  2. Fetches issue details from Jira
+  3. Executes local development iterations with Claude Agent SDK
+  4. Validates changes with safety controls
+  5. Creates commits (multiple or single based on --single-commit flag)
+  6. Pushes to GitHub (creates PR) or Gerrit (creates change)
+  7. Runs checkBuild command (if configured)
+  8. If build fails, executes remote iterations to fix CI failures
+  9. Repeats until build passes or max remote iterations reached
 
-${chalk.yellow('Worktree Setup (.jiconfig.json):')}
+${chalk.yellow('Configuration (.jiconfig.json):')}
   {
-    "worktreeSetup": "./scripts/dev-setup.sh"
-  }
-  
-  ${chalk.gray('or use any command:')}
-  {
-    "worktreeSetup": "npm install && npm run build"
+    "publish": "git push origin HEAD:refs/for/master",
+    "checkBuild": "gh pr checks $(gh pr view --json number -q .number) --watch"
   }
 
 ${chalk.yellow('Examples:')}
-  ji do PROJ-123                     Two iterations (default)
-  ji do PROJ-123 --iterations 3      Multiple iterations with review
-  ji do PROJ-123 --dry-run           Preview mode without changes
+  # Basic usage (2 iterations, multiple commits)
+  git checkout -b feature/PROJ-123
+  ji do PROJ-123
+
+  # More iterations with single commit at end
+  ji do PROJ-123 --iterations 3 --single-commit
+
+  # With remote CI fix iterations
+  ji do PROJ-123 --remote-iterations 3
+
+  # Disable remote iterations (skip CI checks)
+  ji do PROJ-123 --remote-iterations 0
+
+  # Preview mode
+  ji do PROJ-123 --dry-run
 `);
 }
 
@@ -647,6 +661,22 @@ async function main() {
           }
         }
 
+        const MAX_REMOTE_ITERATIONS = 100;
+        let remoteIterations = 2; // Default remote iterations
+        const remoteIterationsIndex = args.findIndex((arg) => arg === '--remote-iterations');
+        if (remoteIterationsIndex !== -1 && remoteIterationsIndex + 1 < args.length) {
+          const parsedRemoteIterations = Number.parseInt(args[remoteIterationsIndex + 1], 10);
+          if (parsedRemoteIterations >= 0 && parsedRemoteIterations <= MAX_REMOTE_ITERATIONS) {
+            remoteIterations = parsedRemoteIterations;
+          } else if (parsedRemoteIterations > MAX_REMOTE_ITERATIONS) {
+            console.error(`Remote iterations must be between 0 and ${MAX_REMOTE_ITERATIONS}.`);
+            process.exit(1);
+          } else {
+            console.error('Invalid remote-iterations value. Must be 0 or greater.');
+            process.exit(1);
+          }
+        }
+
         let model: string | undefined;
         const modelIndex = args.findIndex((arg) => arg === '--model');
         if (modelIndex !== -1 && modelIndex + 1 < args.length) {
@@ -655,14 +685,15 @@ async function main() {
 
         const dryRun = args.includes('--dry-run');
         const skipTests = args.includes('--skip-tests');
-        const clean = args.includes('--clean');
+        const singleCommit = args.includes('--single-commit');
 
         await doCommand(subArgs[0], {
           iterations,
+          remoteIterations,
           model,
           dryRun,
           skipTests,
-          clean,
+          singleCommit,
         });
         break;
       }

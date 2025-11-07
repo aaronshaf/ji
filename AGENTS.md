@@ -219,9 +219,15 @@ src/
 │       ├── memory.ts         # Memory management
 │       ├── comment.ts        # Add comments to issues (Effect-based)
 │       ├── board.ts          # Board and sprint management
-│       └── test.ts           # Testing framework (comprehensive Effect usage)
+│       ├── test.ts           # Testing framework (comprehensive Effect usage)
+│       ├── do.ts             # Agentic issue resolution (SDK-based)
+│       ├── do-types.ts       # Type definitions for do command
+│       ├── do-prompt.ts      # Prompt generation for do iterations
+│       ├── do-iteration.ts   # Iteration execution logic
+│       └── do-publish.ts     # Publishing and PR creation
 └── lib/                      # Shared libraries
     ├── config.ts             # Configuration & auth management (Effect-based)
+    ├── agent-sdk-wrapper.ts  # Claude Agent SDK wrapper (Effect-based)
     ├── jira-client.ts        # Jira API client (LARGE FILE - needs splitting)
     └── jira-client/          # Jira client components
 ```
@@ -508,80 +514,24 @@ When Atlassian announces a new API version or deprecation:
 - All sensitive configuration files use 600 permissions for security
 - No local storage of sensitive data - only cached in memory during API calls
 
-## Worktree Setup Configuration
+## Project Configuration: `.jiconfig.json`
 
-The `ji do` command uses git worktrees for isolated development. You can configure setup commands that run after each worktree is created via `.jiconfig.json` in your project root.
-
-### Configuration File: `.jiconfig.json`
+Configure project-specific settings for `ji do` command in `.jiconfig.json` in your project root:
 
 ```json
 {
-  "worktreeSetup": "source ~/.zshrc && export PATH=\"$HOME/.local/bin:$PATH\"",
   "publish": "git push origin HEAD:refs/for/master"
 }
 ```
 
-### Shell Environment
+### Configuration Options
 
-**Important**: Worktree setup commands run in a **non-interactive shell** (`zsh -c`, not `zsh -i -c`). This means:
+- **`publish`** (optional): Shell command to execute after successful iterations but before creating a PR. Use this for:
+  - Custom git push commands (e.g., Gerrit: `git push origin HEAD:refs/for/master`)
+  - Pre-publish validation scripts
+  - Custom deployment workflows
 
-- ❌ Your `~/.zshrc`, `~/.zprofile`, etc. are **NOT** automatically loaded
-- ❌ Tools from shell managers (asdf, nvm, rbenv) are **NOT** available by default
-- ✅ You must explicitly source your config or use absolute paths
-
-### Common Patterns
-
-**Load your shell environment:**
-```json
-{
-  "worktreeSetup": "source ~/.zshrc && npm install"
-}
-```
-
-**Use absolute paths:**
-```json
-{
-  "worktreeSetup": "/usr/local/bin/npm install && /usr/local/bin/npm run build"
-}
-```
-
-**Add tools to PATH explicitly:**
-```json
-{
-  "worktreeSetup": "export PATH=\"$HOME/.local/bin:$HOME/.asdf/shims:$PATH\" && npm install"
-}
-```
-
-**Run a setup script:**
-```json
-{
-  "worktreeSetup": "./scripts/dev-setup.sh"
-}
-```
-
-### Why Non-Interactive?
-
-Interactive shells (`-i` flag) load tools like `asdf` which can produce warnings/errors when looking for tools that aren't in their registry (like `claude`). Non-interactive shells:
-
-- ✅ Avoid spurious warnings from shell managers
-- ✅ Provide predictable, minimal environment
-- ✅ Work consistently in CI/automated environments
-- ✅ Force explicit environment setup
-
-### Troubleshooting
-
-**Problem**: Command not found (npm, node, etc.)
-
-**Solution**: Either source your shell config or use absolute paths:
-```json
-{
-  "worktreeSetup": "source ~/.zshrc && npm install"
-}
-```
-
-**Problem**: Tool warnings about missing versions (asdf, nvm)
-
-**Solution**: This is expected - the non-interactive shell doesn't load these tools unless you explicitly source your config.
+**Note**: The `publish` command runs in a non-interactive shell, so you may need to source your shell config or use absolute paths if the command depends on tools from shell managers (asdf, nvm, etc.).
 
 ## Current Features
 
@@ -601,58 +551,225 @@ Interactive shells (`-i` flag) load tools like `asdf` which can produce warnings
 
 ## Agentic Development with `ji do`
 
-The `ji do` command provides automated issue resolution using Claude Code in an isolated git worktree environment.
+The `ji do` command provides automated issue resolution using the **Claude Agent SDK**, working directly in your current directory with iterative development cycles.
 
 ### Prerequisites
 
-**Claude Code CLI** must be installed and accessible. The command will automatically detect Claude Code in these locations:
+**Authentication**: The command uses the Claude Agent SDK which supports two authentication methods:
 
-1. `CLAUDE_CODE_PATH` environment variable (if set)
-2. `~/.claude/local/claude` (default installation)
-3. `~/.local/bin/claude` (alternative location)
-4. `/usr/local/bin/claude` (system-wide installation)
+1. **Local Claude Code authentication** (default, recommended):
+   - No configuration needed if you're already signed into Claude Code
+   - SDK automatically uses your local Claude Code session
 
-**To set a custom Claude Code path:**
+2. **API Key authentication** (optional):
+   - Set `ANTHROPIC_API_KEY` environment variable
+   - Useful for CI/CD or automated workflows
+   ```bash
+   export ANTHROPIC_API_KEY=your_api_key_here
+   ```
 
-```bash
-# Add to your ~/.zshrc or ~/.bashrc
-export CLAUDE_CODE_PATH=/path/to/claude
-```
-
-**Installation:**
-If Claude Code is not installed, visit: https://docs.claude.com/en/docs/claude-code
+**Important**: The SDK will use local authentication by default. Only set `ANTHROPIC_API_KEY` if you need explicit API key authentication.
 
 ### Usage
 
 ```bash
-ji do ISSUE-123                    # Create worktree and resolve issue (2 iterations)
-ji do ISSUE-123 --iterations 3     # Run 3 development iterations
-ji do ISSUE-123 --clean            # Auto-cleanup worktree after completion
-ji do ISSUE-123 --dry-run          # Preview what would be done without executing
+ji do ISSUE-123                      # Resolve issue in current directory (2 iterations)
+ji do ISSUE-123 --iterations 3       # Run 3 development iterations
+ji do ISSUE-123 --single-commit      # Create one commit at end (default: multiple commits)
+ji do ISSUE-123 --dry-run            # Preview what would be done without executing
+ji do ISSUE-123 --model opus         # Use Claude Opus (default: sonnet)
 ```
 
 ### How it Works
 
 1. **Validation**: Validates issue key format and git repository status
-2. **Worktree Creation**: Creates isolated git worktree in `~/.ji/worktrees/YYYY-MM-DD-ISSUE-KEY/`
-3. **Project Setup**: Copies `.claude/` and `.jiconfig.json`, runs configured setup commands
-4. **Iteration 1**: Claude Code implements core functionality
-5. **Iteration 2+**: Code review, refinements, testing
-6. **Publishing**: Creates PR (GitHub) or pushes to Gerrit based on detected remote
-7. **Cleanup**: Optionally removes worktree (use `--clean` flag)
+2. **Branch Check**: Ensures you're on a clean branch (you create the feature branch)
+3. **Iteration 1 (Implementation)**: SDK agent implements core functionality
+   - Analyzes issue requirements
+   - Examines codebase
+   - Implements solution
+   - Adds tests
+   - Creates commits (unless `--single-commit` is used)
+4. **Iteration 2+ (Review & Refinement)**: SDK agent reviews and improves
+   - Reviews previous iteration's changes
+   - Identifies bugs and issues
+   - Makes refinements
+   - Ensures quality checks pass
+   - Stops early if no further changes needed
+5. **Safety Validation**: Validates modified files and test requirements
+6. **Publishing**:
+   - Executes custom `publish` command if configured in `.jiconfig.json`
+   - Creates GitHub PR (if GitHub remote detected)
+   - Or completes Gerrit workflow (if Gerrit remote detected)
+
+### Commit Strategies
+
+The `--single-commit` flag controls how commits are created:
+
+#### Multiple Commits (default)
+```bash
+ji do ISSUE-123
+```
+- Creates logical commits after each meaningful change
+- Uses conventional commit format (`feat:`, `fix:`, etc.)
+- Provides clear development history
+- Recommended for most workflows
+
+#### Single Commit
+```bash
+ji do ISSUE-123 --single-commit
+```
+- Makes all changes first, then creates one comprehensive commit at the end
+- Cleaner commit history for simple changes
+- Useful for squash-merge workflows
+- Better for small, focused issues
+
+### Workflow
+
+**Before running `ji do`:**
+1. Create your feature branch: `git checkout -b feature/ISSUE-123-description`
+2. Ensure working directory is clean (commit or stash changes)
+
+**The command will:**
+- Work in your current directory (no worktrees)
+- Use your current branch
+- Respect your `.claude/` project settings
+- Create commits based on strategy (single or multiple)
+- Run safety validation
+- Create PR or execute publish command
+
+**After completion:**
+- Review the changes and commits
+- Push your branch if not already pushed
+- The PR will be created automatically (for GitHub)
 
 ### Configuration
 
-Configure worktree setup and publishing via `.jiconfig.json` in your project root:
+Configure the publish workflow via `.jiconfig.json` (see **Project Configuration** section above):
 
 ```json
 {
-  "worktreeSetup": "source ~/.zshrc && bun install",
-  "publish": "git push origin HEAD:refs/for/master"
+  "publish": "git push origin HEAD:refs/for/master",
+  "checkBuild": "gh pr checks $(gh pr view --json number -q .number) --watch"
 }
 ```
 
-See **Worktree Setup Configuration** section above for details on shell environment and troubleshooting.
+### Remote Iterations (CI Build Fixes)
+
+After local iterations complete and PR is created, `ji do` can automatically fix CI build failures:
+
+```bash
+ji do ISSUE-123 --remote-iterations 2    # Fix CI failures (default: 2)
+ji do ISSUE-123 --remote-iterations 0    # Disable remote iterations
+```
+
+#### How Remote Iterations Work
+
+1. **Local iterations complete** → PR created and pushed
+2. **Run `checkBuild`** command from `.jiconfig.json`
+3. **If build fails**:
+   - Agent analyzes build failure output
+   - Agent runs relevant tests locally to reproduce
+   - Agent makes targeted fixes
+   - Commits and pushes (amends for Gerrit)
+   - Runs `checkBuild` again
+4. **Repeat** until build passes or max iterations reached (early exit on success)
+
+#### Configuration
+
+Add `checkBuild` to `.jiconfig.json`:
+
+```json
+{
+  "publish": "git push origin HEAD:refs/for/master",
+  "checkBuild": "gh pr checks $(gh pr view --json number -q .number) --watch"
+}
+```
+
+The `checkBuild` command should:
+- Exit with code 0 on success, non-zero on failure
+- Output build logs/errors to stdout/stderr
+- Wait for CI checks to complete (if needed)
+
+**Example commands:**
+- GitHub: `gh pr checks $(gh pr view --json number -q .number) --watch`
+- Custom script: `./scripts/check-ci.sh`
+- Jenkins: `jenkins-cli build-status $BUILD_ID`
+
+#### Gerrit vs GitHub
+
+- **Gerrit**: Automatically amends commits to maintain single commit (uses `git commit --amend`)
+- **GitHub**: Creates new commits for each fix (or respects `--single-commit` if used)
+
+#### Example Output
+
+```
+🌐 Starting remote iterations (max: 2)
+🔍 Running build check: gh pr checks 123 --watch
+❌ Build failed - starting remote iterations
+
+🔄 Remote iteration 1/2
+📝 Agent analyzing build failure...
+✅ Fixed failing tests in auth module
+⬆️  Pushing changes to remote
+⏳ Waiting for CI to process...
+🔍 Running build check...
+✅ Build passed after 1 remote iteration(s)!
+```
+
+### Module Architecture
+
+The `ji do` command is organized into focused modules for maintainability:
+
+```
+src/cli/commands/
+├── do.ts                      # Main entry point (294 lines)
+│                              # - Issue validation & git checks
+│                              # - Jira client setup
+│                              # - Remote/branch detection
+│                              # - Orchestration
+│
+├── do-types.ts                # Type definitions (109 lines)
+│                              # - DoCommandOptions (with remoteIterations)
+│                              # - IterationContext
+│                              # - RemoteIterationContext
+│                              # - RemoteIterationResult
+│                              # - IssueInfo, RemoteType
+│                              # - SafetyReport, FinalResult
+│
+├── do-prompt.ts               # Prompt generation (217 lines)
+│                              # - generateIterationPrompt()
+│                              # - generateRemoteIterationPrompt()
+│                              # - generatePRDescription()
+│
+├── do-iteration.ts            # Local iteration execution (78 lines)
+│                              # - executeIterations()
+│                              # - SDK agent invocation
+│                              # - Early termination logic
+│
+├── do-remote.ts               # Remote utilities (NEW, 95 lines)
+│                              # - executeCheckBuild()
+│                              # - pushToRemote()
+│                              # - Build status checking
+│
+├── do-remote-iteration.ts     # Remote iteration loop (NEW, 126 lines)
+│                              # - executeRemoteIterations()
+│                              # - CI failure fixing loop
+│                              # - Gerrit amend handling
+│
+└── do-publish.ts              # Publishing workflow (307 lines)
+                               # - executeFinalPublishStep()
+                               # - createPullRequest()
+                               # - performSafetyValidation()
+                               # - executePublishCommand()
+                               # - Remote iteration integration
+```
+
+**Key Design Principles:**
+- Each module has a single responsibility
+- Uses Effect-based functional composition
+- Comprehensive error handling with custom error types
+- All modules <300 lines for maintainability
 
 ## Testing Framework
 
