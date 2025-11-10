@@ -197,13 +197,14 @@ interface MessageHandlerContext {
 function handleSDKMessage(message: SDKMessage, context: MessageHandlerContext): void {
   switch (message.type) {
     case 'assistant': {
-      // Stream assistant messages to console
+      // Complete assistant messages (not streaming)
       const assistantMsg = message as SDKAssistantMessage;
       // The message is an API message object, we need to extract text content and track tool uses
       if (assistantMsg.message.content) {
         for (const block of assistantMsg.message.content) {
           if (block.type === 'text') {
-            process.stdout.write(block.text);
+            // Print text with newline for complete messages
+            console.log(block.text);
           } else if (block.type === 'tool_use') {
             // Track file modifications from Write/Edit tool uses
             if (block.name === 'Write' || block.name === 'Edit') {
