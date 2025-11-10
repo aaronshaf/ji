@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
 import chalk from 'chalk';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { analyzeIssue } from './commands/analyze.js';
 import { showMyBoards } from './commands/board.js';
 import { addComment } from './commands/comment.js';
@@ -14,6 +17,13 @@ import { setup } from './commands/setup.js';
 // import { initializeSetup } from './commands/setup.js'; // Disabled due to TypeScript errors
 import { showSprint } from './commands/sprint.js';
 import { statusCommand } from './commands/status.js';
+
+// Get version from package.json
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageJsonPath = join(__dirname, '..', '..', 'package.json');
+const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+const VERSION = packageJson.version;
 
 // Command-specific help functions
 
@@ -446,6 +456,7 @@ ${chalk.yellow('Configuration:')}
 ${chalk.yellow('Help:')}
   ji help                              Show this help message
   ji [command] --help                  Show help for a specific command
+  ji --version                         Show version number
 
 ${chalk.gray('Examples:')}
   ji ABC-123                           View issue with pretty colors
@@ -462,6 +473,11 @@ async function main() {
 
   if (args.length === 0 || args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
     showHelp();
+    process.exit(0);
+  }
+
+  if (args[0] === '--version' || args[0] === '-v') {
+    console.log(`ji version ${VERSION}`);
     process.exit(0);
   }
 

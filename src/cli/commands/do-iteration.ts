@@ -26,7 +26,7 @@ export const executeIterations = (context: IterationContext, options: DoCommandO
       // Execute SDK agent
       const result = yield* executeAgent({
         cwd: context.workingDirectory,
-        maxTurns: 1, // One turn per iteration
+        maxTurns: 30, // Allow agent enough turns to analyze, implement, and commit
         prompt,
         model: (options.model as 'sonnet' | 'opus' | 'haiku') || 'sonnet',
         permissionMode: 'acceptEdits',

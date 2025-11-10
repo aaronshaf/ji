@@ -72,7 +72,7 @@ export const executeRemoteIterations = (
       // Execute SDK agent to fix the build
       const agentResult = yield* executeAgent({
         cwd: workingDirectory,
-        maxTurns: 1,
+        maxTurns: 20, // Allow enough turns to diagnose, fix, and test
         prompt,
         model: (options.model as 'sonnet' | 'opus' | 'haiku') || 'sonnet',
         permissionMode: 'acceptEdits',

@@ -115,6 +115,7 @@ export const executeAgent = (
     const errors: string[] = [];
     let issueResolved = false;
     let reviewNotes: string | undefined;
+    let summary = 'Iteration completed successfully'; // Default summary
 
     // ANTHROPIC_API_KEY is optional - SDK will use local Claude Code auth if not set
     if (process.env.DEBUG && !process.env.ANTHROPIC_API_KEY) {
@@ -151,6 +152,9 @@ export const executeAgent = (
             onCommitDetected: (hash) => {
               commitHash = hash;
             },
+            onSummaryAvailable: (summaryText) => {
+              summary = summaryText;
+            },
           });
         }
 
@@ -158,7 +162,7 @@ export const executeAgent = (
         resume(
           Effect.succeed({
             success: true,
-            summary: 'Iteration completed successfully',
+            summary,
             filesModified: [...filesModified], // Convert to mutable array
             commitHash,
             errors: errors.length > 0 ? [...errors] : undefined, // Convert to mutable array
@@ -181,6 +185,7 @@ interface MessageHandlerContext {
   onIssueResolved: () => void;
   onReviewNotes: (notes: string) => void;
   onCommitDetected: (hash: string) => void;
+  onSummaryAvailable: (summary: string) => void;
 }
 
 /**
@@ -194,11 +199,20 @@ function handleSDKMessage(message: SDKMessage, context: MessageHandlerContext): 
     case 'assistant': {
       // Stream assistant messages to console
       const assistantMsg = message as SDKAssistantMessage;
-      // The message is an API message object, we need to extract text content
+      // The message is an API message object, we need to extract text content and track tool uses
       if (assistantMsg.message.content) {
         for (const block of assistantMsg.message.content) {
           if (block.type === 'text') {
             process.stdout.write(block.text);
+          } else if (block.type === 'tool_use') {
+            // Track file modifications from Write/Edit tool uses
+            if (block.name === 'Write' || block.name === 'Edit') {
+              const input = block.input as Record<string, unknown>;
+              const filePath = input?.file_path;
+              if (typeof filePath === 'string' && !context.filesModified.includes(filePath)) {
+                context.filesModified.push(filePath);
+              }
+            }
           }
         }
       }
@@ -232,7 +246,11 @@ function handleSDKMessage(message: SDKMessage, context: MessageHandlerContext): 
       // Handle final result
       const resultMsg = message as SDKResultMessage;
       if (resultMsg.subtype === 'success') {
-        // Success - check for additional metadata
+        // Success - extract the actual summary from the result
+        if ('result' in resultMsg && resultMsg.result) {
+          context.onSummaryAvailable(resultMsg.result);
+        }
+
         if (process.env.DEBUG) {
           console.log(chalk.dim(`\n[Usage] ${JSON.stringify(resultMsg.usage)}`));
           console.log(chalk.dim(`[Cost] $${resultMsg.total_cost_usd.toFixed(4)}`));
