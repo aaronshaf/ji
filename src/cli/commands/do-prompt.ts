@@ -24,16 +24,26 @@ This is a SINGLE COMMIT workflow. Do NOT create any commits during development.
 Make all your changes first, then at the very end create ONE comprehensive commit with all changes included.
 Use conventional commit format: "feat: description" or "fix: description"`
     : `
-**Commit Strategy**:
-Create logical commits as you work. Commit after each meaningful change using conventional commit format.
+**COMMIT STRATEGY - YOU MUST COMMIT YOUR CHANGES**:
+After making changes, you MUST create a git commit. DO NOT skip this step.
+
+REQUIRED steps after making code changes:
+1. Stage all changes: \`git add -A\`
+2. Create commit with conventional format: \`git commit -m "feat: brief description\`
+3. Verify commit was created: \`git log --oneline -1\`
 
 Example:
-  \`git add -A\`
-  \`git commit -m "feat: implement user authentication
+\`\`\`bash
+git add -A
+git commit -m "feat: convert ReactDOM.render to createRoot
 
-  Add JWT-based authentication with refresh tokens.
+Migrate TotalGradeColumnHeaderRenderer to React 18 createRoot API
+with flushSync for synchronous rendering compatibility.
 
-  Part of resolving ${context.issueKey}"\``;
+Resolves: ${context.issueKey}"
+\`\`\`
+
+**CRITICAL**: If you don't commit, your changes will not be published!`;
 
   if (isFirstIteration) {
     return `You are helping resolve a Jira issue through iterative development.
