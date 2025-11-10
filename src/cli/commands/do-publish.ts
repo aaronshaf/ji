@@ -175,14 +175,24 @@ export const createPullRequest = (
 /**
  * Performs safety validation on modified files
  */
-export const performSafetyValidation = (modifiedFiles: string[], workingDirectory: string, options: DoCommandOptions) =>
+export const performSafetyValidation = (
+  modifiedFiles: string[],
+  workingDirectory: string,
+  options: DoCommandOptions,
+  allResults: IterationResult[], // NEW: check if tests were run
+) =>
   pipe(
     Effect.all([
       validateFiles(modifiedFiles, workingDirectory, { ...defaultSafetyConfig, ...options.safetyConfig }),
-      checkTestRequirements(modifiedFiles, workingDirectory, {
-        ...defaultSafetyConfig,
-        ...options.safetyConfig,
-      }),
+      checkTestRequirements(
+        modifiedFiles,
+        workingDirectory,
+        {
+          ...defaultSafetyConfig,
+          ...options.safetyConfig,
+        },
+        allResults.some((r) => r.testsRun), // NEW: pass if any iteration ran tests
+      ),
     ]),
     Effect.flatMap(([validation, testReqs]) => createSafetyReport(validation, testReqs)),
     Effect.tap((report) =>
@@ -275,7 +285,7 @@ export const executeFinalPublishStep = (
 
   // Files were modified - run safety validation then publish
   return pipe(
-    performSafetyValidation(allFilesModified, workingDirectory, options),
+    performSafetyValidation(allFilesModified, workingDirectory, options, allResults),
     Effect.flatMap((safetyReport) => {
       if (!safetyReport.overall && !options.dryRun) {
         return Effect.fail(new DoCommandError('Safety validation failed - aborting'));

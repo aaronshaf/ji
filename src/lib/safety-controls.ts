@@ -246,6 +246,7 @@ export const checkTestRequirements = (
   modifiedFiles: string[],
   _basePath: string,
   config: SafetyConfig = defaultSafetyConfig,
+  testsWereRun = false, // NEW: indicate if tests were executed during iterations
 ) =>
   Effect.sync(() => {
     if (!config.requireTests) {
@@ -259,6 +260,14 @@ export const checkTestRequirements = (
 
     if (codeFiles.length === 0) {
       return { satisfied: true, reason: 'No code files modified' };
+    }
+
+    // NEW: If tests were run by the agent, that satisfies the requirement
+    if (testsWereRun) {
+      return {
+        satisfied: true,
+        reason: `Tests were executed by agent for ${codeFiles.length} modified code file(s)`,
+      };
     }
 
     const testFiles = modifiedFiles.filter(

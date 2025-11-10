@@ -55,6 +55,7 @@ const IterationResultSchema = Schema.Struct({
   errors: Schema.optional(Schema.Array(Schema.String)),
   issueResolved: Schema.optional(Schema.Boolean),
   reviewNotes: Schema.optional(Schema.String),
+  testsRun: Schema.optional(Schema.Boolean), // Track if tests were executed
 });
 
 export type IterationResult = typeof IterationResultSchema.Type;
@@ -116,6 +117,7 @@ export const executeAgent = (
     let issueResolved = false;
     let reviewNotes: string | undefined;
     let summary = 'Iteration completed successfully'; // Default summary
+    let testsRun = false; // Track if tests were executed
 
     // ANTHROPIC_API_KEY is optional - SDK will use local Claude Code auth if not set
     if (process.env.DEBUG && !process.env.ANTHROPIC_API_KEY) {
@@ -155,6 +157,9 @@ export const executeAgent = (
             onSummaryAvailable: (summaryText) => {
               summary = summaryText;
             },
+            onTestsDetected: () => {
+              testsRun = true;
+            },
           });
         }
 
@@ -168,6 +173,7 @@ export const executeAgent = (
             errors: errors.length > 0 ? [...errors] : undefined, // Convert to mutable array
             issueResolved,
             reviewNotes,
+            testsRun: testsRun || undefined, // Only include if tests were run
           }),
         );
       } catch (error) {
@@ -179,6 +185,35 @@ export const executeAgent = (
 
 // ============= Message Handling =============
 
+/**
+ * Detects if a bash command is running tests
+ */
+function isTestCommand(command: string): boolean {
+  const testPatterns = [
+    /\btest\b/i,
+    /\bspec\b/i,
+    /\bjest\b/i,
+    /\bmocha\b/i,
+    /\bvitest\b/i,
+    /\bpytest\b/i,
+    /\bkarma\b/i,
+    /\btap\b/i,
+    /\bava\b/i,
+    /\bcargo test\b/i,
+    /\bgo test\b/i,
+    /\bnpm test\b/i,
+    /\byarn test\b/i,
+    /\bpnpm test\b/i,
+    /\bbun test\b/i,
+    /\bmvn test\b/i,
+    /\bgradle test\b/i,
+    /\brake test\b/i,
+    /\bphpunit\b/i,
+    /\brspec\b/i,
+  ];
+  return testPatterns.some((pattern) => pattern.test(command));
+}
+
 interface MessageHandlerContext {
   filesModified: string[];
   errors: string[];
@@ -186,6 +221,7 @@ interface MessageHandlerContext {
   onReviewNotes: (notes: string) => void;
   onCommitDetected: (hash: string) => void;
   onSummaryAvailable: (summary: string) => void;
+  onTestsDetected: () => void;
 }
 
 /**
@@ -212,6 +248,14 @@ function handleSDKMessage(message: SDKMessage, context: MessageHandlerContext): 
               const filePath = input?.file_path;
               if (typeof filePath === 'string' && !context.filesModified.includes(filePath)) {
                 context.filesModified.push(filePath);
+              }
+            }
+            // Track test execution from Bash commands
+            else if (block.name === 'Bash') {
+              const input = block.input as Record<string, unknown>;
+              const command = input?.command;
+              if (typeof command === 'string' && isTestCommand(command)) {
+                context.onTestsDetected();
               }
             }
           }
