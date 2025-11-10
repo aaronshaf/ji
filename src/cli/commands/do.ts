@@ -217,6 +217,10 @@ export const doCommandEffect = (issueKey: string, options: DoCommandOptions = {}
     Effect.flatMap(({ remote, targetBranch, issueInfo, projectConfig, workingDirectory }) => {
       const iterations = options.iterations || 2;
 
+      // CRITICAL: Gerrit requires single commit workflow (amend pattern)
+      // GitHub uses multiple commits (PR pattern)
+      const singleCommit = options.singleCommit !== undefined ? options.singleCommit : remote.type === 'gerrit';
+
       const context: IterationContext = {
         issueKey: issueInfo.key,
         issueDescription: issueInfo.description, // Full XML representation
@@ -224,7 +228,7 @@ export const doCommandEffect = (issueKey: string, options: DoCommandOptions = {}
         iteration: 1,
         totalIterations: iterations,
         previousResults: [],
-        singleCommit: options.singleCommit || false,
+        singleCommit,
       };
 
       console.log(chalk.blue(`\n🚀 Starting ji do for ${issueKey}`));
