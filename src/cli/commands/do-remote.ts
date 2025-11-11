@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { Effect } from 'effect';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import type { ProjectConfig } from '../../lib/project-config.js';
 import { DoCommandError, type RemoteType } from './do-types.js';
 
@@ -26,19 +26,6 @@ export interface BuildStatusResult {
 }
 
 /**
- * Type guard for exec errors with output properties
- */
-interface ExecError {
-  stdout?: string;
-  stderr?: string;
-  message?: string;
-}
-
-function isExecError(error: unknown): error is ExecError {
-  return typeof error === 'object' && error !== null && ('stdout' in error || 'stderr' in error || 'message' in error);
-}
-
-/**
  * Checks the current build status by executing checkBuildStatus command.
  * Returns the state (pending, running, success, failure) by parsing JSON output.
  *
@@ -56,13 +43,27 @@ export const executeCheckBuildStatus = (
     }
 
     try {
-      const output = execSync(projectConfig.checkBuildStatus, {
+      // Use spawnSync with array args to prevent command injection
+      // The command comes from .jiconfig.json (trusted config), but we use
+      // spawnSync for defense in depth, matching the pattern in do-publish.ts
+      const result = spawnSync('sh', ['-c', projectConfig.checkBuildStatus], {
         cwd: workingDirectory,
         encoding: 'utf8',
-        stdio: 'pipe',
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
 
-      const raw = output.toString().trim();
+      if (result.error) {
+        throw new DoCommandError(`checkBuildStatus command failed to execute: ${result.error.message}`);
+      }
+
+      if (result.status !== 0) {
+        const output = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
+        throw new DoCommandError(
+          `checkBuildStatus failed with exit code ${result.status}: ${output || 'Unknown error'}`,
+        );
+      }
+
+      const raw = result.stdout.toString().trim();
 
       // Parse JSON output: { "state": "pending|running|success|failure" }
       const parsed = JSON.parse(raw);
@@ -77,9 +78,8 @@ export const executeCheckBuildStatus = (
       if (error instanceof DoCommandError) {
         throw error;
       }
-      if (isExecError(error)) {
-        const output = `${error.stdout || ''}\n${error.stderr || ''}`.trim();
-        throw new DoCommandError(`checkBuildStatus failed: ${output || error.message || 'Unknown error'}`);
+      if (error instanceof SyntaxError) {
+        throw new DoCommandError(`checkBuildStatus returned invalid JSON: ${error.message}`);
       }
       throw new DoCommandError(`checkBuildStatus failed: ${error}`);
     }
@@ -105,20 +105,27 @@ export const executeCheckBuildFailures = (
     console.log(chalk.blue(`📋 Getting build failure logs: ${projectConfig.checkBuildFailures}`));
 
     try {
-      const output = execSync(projectConfig.checkBuildFailures, {
+      // Use spawnSync with array args to prevent command injection
+      // The command comes from .jiconfig.json (trusted config), but we use
+      // spawnSync for defense in depth, matching the pattern in do-publish.ts
+      const result = spawnSync('sh', ['-c', projectConfig.checkBuildFailures], {
         cwd: workingDirectory,
         encoding: 'utf8',
-        stdio: 'pipe',
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
 
-      return output.toString();
-    } catch (error: unknown) {
-      if (isExecError(error)) {
-        const output = `${error.stdout || ''}\n${error.stderr || ''}`.trim();
-        // For checkBuildFailures, we still want to return whatever output we got
-        return output || error.message || 'Failed to get build failure logs';
+      // For checkBuildFailures, we use lenient error handling - return whatever
+      // output we got even if the command failed, because partial logs are better
+      // than no logs when debugging build failures.
+      if (result.error) {
+        return `Failed to execute checkBuildFailures: ${result.error.message}`;
       }
-      return 'Failed to get build failure logs';
+
+      const output = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
+      return output || 'No failure logs available';
+    } catch (error: unknown) {
+      // Even in catastrophic failure, return a message rather than throwing
+      return `Failed to get build failure logs: ${error}`;
     }
   });
 
@@ -198,25 +205,32 @@ export const executeCheckBuild = (
     console.log(chalk.blue(`🔍 Running build check: ${projectConfig.checkBuild}`));
 
     try {
-      const output = execSync(projectConfig.checkBuild, {
+      // Use spawnSync with array args to prevent command injection
+      // The command comes from .jiconfig.json (trusted config), but we use
+      // spawnSync for defense in depth, matching the pattern in do-publish.ts
+      const result = spawnSync('sh', ['-c', projectConfig.checkBuild], {
         cwd: workingDirectory,
         encoding: 'utf8',
-        stdio: 'pipe',
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
 
-      console.log(chalk.green('✅ Build check passed'));
-      return { success: true, output: output.toString() };
-    } catch (error: unknown) {
-      // Non-zero exit code = build failed (expected outcome)
-      // Extract stdout and stderr containing the failure details
-      if (isExecError(error)) {
-        const output = `${error.stdout || ''}\n${error.stderr || ''}`.trim();
+      if (result.error) {
         console.log(chalk.red('❌ Build check failed'));
-        return { success: false, output: output || error.message || 'Unknown build failure' };
+        return { success: false, output: `Command failed to execute: ${result.error.message}` };
       }
 
+      if (result.status === 0) {
+        console.log(chalk.green('✅ Build check passed'));
+        return { success: true, output: result.stdout.toString() };
+      }
+
+      // Non-zero exit code = build failed (expected outcome)
+      const output = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
       console.log(chalk.red('❌ Build check failed'));
-      return { success: false, output: 'Unknown build failure' };
+      return { success: false, output: output || 'Unknown build failure' };
+    } catch (error: unknown) {
+      console.log(chalk.red('❌ Build check failed'));
+      return { success: false, output: `Unexpected error: ${error}` };
     }
   });
 
