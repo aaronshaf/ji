@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { Effect } from 'effect';
 import { executeAgent, type AgentSDKError, type AgentConfigError } from '../../lib/agent-sdk-wrapper.js';
 import { generateRemoteIterationPrompt } from './do-prompt.js';
-import { executeCheckBuild, pushToRemote } from './do-remote.js';
+import { executeCheckBuild, pollBuildStatus, pushToRemote } from './do-remote.js';
 import type {
   DoCommandError,
   DoCommandOptions,
@@ -40,8 +40,16 @@ export const executeRemoteIterations = (
 
     console.log(chalk.blue(`\n🌐 Starting remote iterations (max: ${maxIterations})`));
 
+    // Determine which build check strategy to use
+    const usePolling = projectConfig.checkBuildStatus && projectConfig.checkBuildFailures;
+
     // Initial build check
-    const initialCheck = yield* executeCheckBuild(projectConfig, workingDirectory);
+    const initialCheck = usePolling
+      ? yield* Effect.catchAll(pollBuildStatus(projectConfig, workingDirectory), (error: DoCommandError) =>
+          // If polling fails, treat as build failure to trigger iterations
+          Effect.succeed({ success: false, output: `Polling failed: ${error.message}` }),
+        )
+      : yield* executeCheckBuild(projectConfig, workingDirectory);
 
     if (initialCheck.success) {
       console.log(chalk.green('✅ Build already passing - no remote iterations needed'));
@@ -85,12 +93,18 @@ export const executeRemoteIterations = (
       const isAmend = remoteType === 'gerrit' && i > 1;
       yield* pushToRemote(workingDirectory, remoteType, isAmend);
 
-      // Wait for CI to start (1 minute polling interval)
-      console.log(chalk.dim('⏳ Waiting 1 minute for CI to process...'));
-      yield* Effect.sleep('60 seconds');
-
-      // Check build again
-      const buildCheck = yield* executeCheckBuild(projectConfig, workingDirectory);
+      // Check build again with appropriate strategy
+      const buildCheck = usePolling
+        ? yield* Effect.catchAll(pollBuildStatus(projectConfig, workingDirectory), (error: DoCommandError) =>
+            // If polling fails, treat as build failure
+            Effect.succeed({ success: false, output: `Polling failed: ${error.message}` }),
+          )
+        : yield* Effect.gen(function* () {
+            // Legacy strategy: wait 1 minute then check once
+            console.log(chalk.dim('⏳ Waiting 1 minute for CI to process...'));
+            yield* Effect.sleep('60 seconds');
+            return yield* executeCheckBuild(projectConfig, workingDirectory);
+          });
 
       const result: RemoteIterationResult = {
         iteration: i,
