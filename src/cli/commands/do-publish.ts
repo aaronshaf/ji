@@ -52,8 +52,17 @@ const countCommitsSinceBase = (workingDirectory: string): number => {
 };
 
 /**
+ * Extracts the Resolves: line from a commit message if it exists.
+ */
+const extractResolvesLine = (message: string): string | null => {
+  const match = message.match(/^Resolves:\s+(.+)$/m);
+  return match ? `Resolves: ${match[1]}` : null;
+};
+
+/**
  * Squashes multiple commits into a single commit for Gerrit.
- * Preserves the first commit message and adds details from subsequent commits.
+ * Creates a clean commit message from the first commit's subject and body,
+ * removing any evidence of multiple commits or Change-Ids.
  */
 const squashCommitsForGerrit = (workingDirectory: string, commitCount: number): Effect.Effect<void, DoCommandError> =>
   Effect.sync(() => {
@@ -61,12 +70,28 @@ const squashCommitsForGerrit = (workingDirectory: string, commitCount: number): 
     console.log(chalk.blue('🔄 Squashing commits into a single commit...'));
 
     try {
-      // Get all commit messages
-      const messages = execSync(`git log --format=%B -n ${commitCount}`, {
+      // Get the first commit's full message (subject + body, no Change-Id)
+      const firstCommitMessage = execSync(`git log --format=%B -n 1 HEAD~${commitCount - 1}`, {
         cwd: workingDirectory,
         encoding: 'utf8',
         stdio: 'pipe',
       }).trim();
+
+      // Remove any Change-Id or other Gerrit footers from first commit
+      const cleanMessage = firstCommitMessage
+        .split('\n')
+        .filter((line) => !line.match(/^(Change-Id:|Reviewed-on:|Tested-by:|Reviewed-by:|QA-Review:|Product-Review:)/))
+        .join('\n')
+        .trim();
+
+      // Extract Resolves: line if it exists
+      const resolvesLine = extractResolvesLine(firstCommitMessage);
+
+      // Build final clean message
+      let finalMessage = cleanMessage;
+      if (resolvesLine && !cleanMessage.includes('Resolves:')) {
+        finalMessage = `${cleanMessage}\n\n${resolvesLine}`;
+      }
 
       // Soft reset to base branch (keeps all changes staged)
       execSync(`git reset --soft HEAD~${commitCount}`, {
@@ -74,12 +99,8 @@ const squashCommitsForGerrit = (workingDirectory: string, commitCount: number): 
         stdio: 'pipe',
       });
 
-      // Create a single commit with combined message
-      const firstMessage = messages.split('\n\n')[0]; // Get first commit's subject
-      const commitMessage = `${firstMessage}\n\nSquashed ${commitCount} commits from ji do iterations.\n\n${messages}`;
-
-      // Create commit (let hooks run to add Change-Id)
-      const result = spawnSync('git', ['commit', '-m', commitMessage], {
+      // Create a single clean commit (let hooks run to add new Change-Id)
+      const result = spawnSync('git', ['commit', '-m', finalMessage], {
         cwd: workingDirectory,
         stdio: 'pipe',
         encoding: 'utf8',
