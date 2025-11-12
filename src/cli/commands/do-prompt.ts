@@ -18,11 +18,45 @@ export const generateIterationPrompt = (context: IterationContext): string => {
 
   // Commit instructions based on strategy
   const commitInstructions = context.singleCommit
-    ? `
-**IMPORTANT COMMIT STRATEGY**:
-This is a SINGLE COMMIT workflow. Do NOT create any commits during development.
-Make all your changes first, then at the very end create ONE comprehensive commit with all changes included.
-Use conventional commit format: "feat: description" or "fix: description"`
+    ? isFirstIteration
+      ? `
+**IMPORTANT COMMIT STRATEGY - SINGLE COMMIT WORKFLOW**:
+This is iteration 1 of a SINGLE COMMIT workflow. At the END of this iteration, create ONE commit with all your changes.
+
+Steps:
+1. Make all your implementation changes
+2. Stage all changes: \`git add -A\`
+3. Create ONE commit with conventional format:
+   \`\`\`bash
+   git commit -m "feat: brief description
+
+   Detailed explanation of changes.
+
+   Resolves: ${context.issueKey}"
+   \`\`\`
+
+**DO NOT use --no-verify** - let all git hooks run (they add required metadata like Change-Id).`
+      : `
+**IMPORTANT COMMIT STRATEGY - AMEND EXISTING COMMIT**:
+This is iteration ${context.iteration} of a SINGLE COMMIT workflow. You must AMEND the existing commit, NOT create a new one.
+
+Steps after making changes:
+1. Stage all changes: \`git add -A\`
+2. Amend the existing commit (preserves Change-Id and other metadata):
+   \`\`\`bash
+   git commit --amend --no-edit
+   \`\`\`
+3. If you need to update the commit message:
+   \`\`\`bash
+   git commit --amend -m "feat: updated description
+
+   Additional details about iteration ${context.iteration} changes.
+
+   Resolves: ${context.issueKey}"
+   \`\`\`
+
+**CRITICAL**: Use \`git commit --amend\` to modify the existing commit. DO NOT create a new commit with \`git commit\`.
+**DO NOT use --no-verify** - let all git hooks run.`
     : `
 **COMMIT STRATEGY - YOU MUST COMMIT YOUR CHANGES**:
 After making changes, you MUST create a git commit. DO NOT skip this step.
@@ -43,7 +77,8 @@ with flushSync for synchronous rendering compatibility.
 Resolves: ${context.issueKey}"
 \`\`\`
 
-**CRITICAL**: If you don't commit, your changes will not be published!`;
+**CRITICAL**: If you don't commit, your changes will not be published!
+**DO NOT use --no-verify** - let all git hooks run.`;
 
   if (isFirstIteration) {
     return `You are helping resolve a Jira issue through iterative development.
@@ -210,9 +245,10 @@ ${context.buildFailureOutput}
 5. **Commit your changes**:
 ${
   context.remoteType === 'gerrit'
-    ? `   - GERRIT WORKFLOW: Your commit will be automatically amended
-   - Do NOT create a new commit, just stage your changes with \`git add\`
-   - The system will handle the amend and push`
+    ? `   - GERRIT WORKFLOW: Amend the existing commit with your fixes
+   - Stage changes: \`git add -A\`
+   - Amend commit: \`git commit --amend --no-edit\`
+   - The system will handle the push to Gerrit`
     : `   - Create a clear commit with conventional format
    - Example: \`git commit -m "fix: resolve test failure in UserAuth"\``
 }
@@ -220,5 +256,6 @@ ${
 **IMPORTANT**:
 - Focus on fixing the build failure, not improving the code
 - Test locally before committing
+- **DO NOT use --no-verify** - let all git hooks run
 - Be concise - you have limited iterations to fix this`;
 };
