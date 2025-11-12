@@ -24,140 +24,81 @@ import {
 import { executeRemoteIterations } from './do-remote-iteration.js';
 
 /**
- * Counts the number of commits that will be published.
- * For Gerrit, this checks commits since the base branch.
+ * Creates a single commit with all changes after iterations complete.
+ * Generates a comprehensive commit message from all iteration results.
  */
-const countCommitsSinceBase = (workingDirectory: string): number => {
-  try {
-    // Get the merge base (common ancestor with origin/master or origin/main)
-    let baseBranch: string;
-    try {
-      execSync('git rev-parse --verify origin/master', { cwd: workingDirectory, stdio: 'pipe' });
-      baseBranch = 'origin/master';
-    } catch {
-      baseBranch = 'origin/main';
-    }
-
-    const commitCount = execSync(`git rev-list --count HEAD ^${baseBranch}`, {
-      cwd: workingDirectory,
-      encoding: 'utf8',
-      stdio: 'pipe',
-    }).trim();
-
-    return Number.parseInt(commitCount, 10);
-  } catch (error) {
-    console.warn(chalk.yellow(`⚠️  Could not count commits: ${error}`));
-    return 0;
-  }
-};
-
-/**
- * Extracts the Resolves: line from a commit message if it exists.
- */
-const extractResolvesLine = (message: string): string | null => {
-  const match = message.match(/^Resolves:\s+(.+)$/m);
-  return match ? `Resolves: ${match[1]}` : null;
-};
-
-/**
- * Squashes multiple commits into a single commit for Gerrit.
- * Creates a clean commit message from the first commit's subject and body,
- * removing any evidence of multiple commits or Change-Ids.
- */
-const squashCommitsForGerrit = (workingDirectory: string, commitCount: number): Effect.Effect<void, DoCommandError> =>
+const createFinalCommit = (
+  workingDirectory: string,
+  issueInfo: IssueInfo,
+  allResults: IterationResult[],
+): Effect.Effect<string, DoCommandError> =>
   Effect.sync(() => {
-    console.log(chalk.yellow(`⚠️  Found ${commitCount} commits - Gerrit requires exactly 1`));
-    console.log(chalk.blue('🔄 Squashing commits into a single commit...'));
+    console.log(chalk.blue('\n📝 Creating commit with all changes...'));
 
     try {
-      // Get the first commit's full message (subject + body, no Change-Id)
-      const firstCommitMessage = execSync(`git log --format=%B -n 1 HEAD~${commitCount - 1}`, {
+      // Check if there are any changes to commit
+      const statusResult = execSync('git status --porcelain', {
         cwd: workingDirectory,
         encoding: 'utf8',
         stdio: 'pipe',
       }).trim();
 
-      // Remove any Change-Id or other Gerrit footers from first commit
-      const cleanMessage = firstCommitMessage
-        .split('\n')
-        .filter((line) => !line.match(/^(Change-Id:|Reviewed-on:|Tested-by:|Reviewed-by:|QA-Review:|Product-Review:)/))
-        .join('\n')
-        .trim();
-
-      // Extract Resolves: line if it exists
-      const resolvesLine = extractResolvesLine(firstCommitMessage);
-
-      // Build final clean message
-      let finalMessage = cleanMessage;
-      if (resolvesLine && !cleanMessage.includes('Resolves:')) {
-        finalMessage = `${cleanMessage}\n\n${resolvesLine}`;
+      if (!statusResult) {
+        console.log(chalk.yellow('⚠️  No changes to commit'));
+        return 'NO_CHANGES';
       }
 
-      // Soft reset to base branch (keeps all changes staged)
-      execSync(`git reset --soft HEAD~${commitCount}`, {
+      // Stage all changes
+      execSync('git add -A', {
         cwd: workingDirectory,
         stdio: 'pipe',
       });
 
-      // Create a single clean commit (let hooks run to add new Change-Id)
-      const result = spawnSync('git', ['commit', '-m', finalMessage], {
+      // Generate comprehensive commit message
+      const successfulIterations = allResults.filter((r) => r.success);
+      const allFilesModified = Array.from(new Set(allResults.flatMap((r) => r.filesModified)));
+
+      // Create commit message with conventional format
+      const commitSubject = `feat: ${issueInfo.summary}`;
+      const commitBody = [
+        '',
+        `Resolved ${issueInfo.key} through ${successfulIterations.length} iteration(s).`,
+        '',
+        ...successfulIterations.map((r, i) => `Iteration ${i + 1}: ${r.summary}`),
+        '',
+        `Files modified: ${allFilesModified.length}`,
+        '',
+        `Resolves: ${issueInfo.key}`,
+      ].join('\n');
+
+      const fullMessage = `${commitSubject}\n${commitBody}`;
+
+      // Create commit (let hooks run to add Change-Id for Gerrit)
+      const result = spawnSync('git', ['commit', '-m', fullMessage], {
         cwd: workingDirectory,
         stdio: 'pipe',
         encoding: 'utf8',
       });
 
       if (result.status !== 0) {
-        throw new Error(`Failed to create squashed commit: ${result.stderr}`);
+        throw new Error(`Failed to create commit: ${result.stderr}`);
       }
 
-      console.log(chalk.green('✅ Commits squashed into a single commit'));
+      // Get the commit hash
+      const commitHash = execSync('git rev-parse HEAD', {
+        cwd: workingDirectory,
+        encoding: 'utf8',
+        stdio: 'pipe',
+      }).trim();
 
-      // Verify we now have exactly 1 commit
-      const newCount = countCommitsSinceBase(workingDirectory);
-      if (newCount !== 1) {
-        throw new Error(`Expected 1 commit after squash, but found ${newCount}`);
-      }
+      console.log(chalk.green(`✅ Created commit: ${commitHash.substring(0, 8)}`));
+      console.log(chalk.dim(`   ${commitSubject}`));
+
+      return commitHash;
     } catch (error) {
-      throw new DoCommandError(`Failed to squash commits: ${error}`);
+      throw new DoCommandError(`Failed to create final commit: ${error}`);
     }
   });
-
-/**
- * Ensures exactly one commit exists before publishing to Gerrit.
- * If multiple commits are found, squashes them into one.
- */
-const ensureSingleCommitForGerrit = (
-  workingDirectory: string,
-  remoteType: RemoteType,
-): Effect.Effect<void, DoCommandError> => {
-  if (remoteType !== 'gerrit') {
-    return Effect.void; // Only enforce for Gerrit
-  }
-
-  return Effect.sync(() => {
-    const commitCount = countCommitsSinceBase(workingDirectory);
-
-    if (commitCount === 0) {
-      console.log(chalk.yellow('⚠️  No commits found - nothing to publish'));
-      return commitCount;
-    }
-
-    if (commitCount === 1) {
-      console.log(chalk.green('✅ Exactly 1 commit found - ready for Gerrit'));
-      return commitCount;
-    }
-
-    // Multiple commits found - need to squash
-    return commitCount;
-  }).pipe(
-    Effect.flatMap((commitCount) => {
-      if (commitCount > 1) {
-        return squashCommitsForGerrit(workingDirectory, commitCount);
-      }
-      return Effect.void;
-    }),
-  );
-};
 
 /**
  * Executes the configured publish command from .jiconfig.json
@@ -214,12 +155,8 @@ export const createPullRequest = (
   options: DoCommandOptions,
 ) =>
   pipe(
-    // Ensure single commit for Gerrit before publishing
-    ensureSingleCommitForGerrit(workingDirectory, remoteType),
-    Effect.flatMap(() =>
-      // Execute publish command first if configured
-      executePublishCommand(projectConfig, workingDirectory, options),
-    ),
+    // Execute publish command first if configured
+    executePublishCommand(projectConfig, workingDirectory, options),
     Effect.flatMap(() =>
       Effect.sync(() => {
         if (remoteType !== 'github') {
@@ -376,9 +313,8 @@ export const executeFinalPublishStep = (
   allFilesModified: string[],
   options: DoCommandOptions,
 ) => {
-  const hasCommits = allResults.some((r) => r.commitHash);
-
-  if (allFilesModified.length === 0 && !hasCommits) {
+  // Check if there are any changes to commit
+  if (allFilesModified.length === 0) {
     console.log(chalk.yellow('⚠️  No changes were made - skipping publish/PR step'));
     return Effect.succeed({
       safetyReport: {
@@ -393,72 +329,56 @@ export const executeFinalPublishStep = (
     });
   }
 
-  if (allFilesModified.length === 0 && hasCommits) {
-    console.log(chalk.blue('📝 Commits were made - executing publish step'));
-    return pipe(
-      createPullRequest(workingDirectory, issueInfo, allResults, remoteType, projectConfig, options),
-      Effect.flatMap((prResult) => {
-        // Execute remote iterations if configured
-        if (options.remoteIterations && options.remoteIterations > 0) {
-          return pipe(
-            executeRemoteIterations(workingDirectory, issueInfo.key, remoteType, projectConfig, options),
-            Effect.map((remoteResults) => ({
-              safetyReport: {
-                overall: true,
-                fileValidation: { valid: true, errors: [] as string[], filesValidated: 0 },
-                testRequirements: { satisfied: true, reason: 'Commits made by agent' },
-                additionalChecks: {} as Record<string, boolean>,
-                summary: 'Publish executed for existing commits',
-              },
-              prResult,
-              remoteResults,
-            })),
-          );
-        }
-
+  // Files were modified - create commit, run safety validation, then publish
+  return pipe(
+    // Step 1: Create single commit with all changes
+    createFinalCommit(workingDirectory, issueInfo, allResults),
+    Effect.flatMap((commitHash) => {
+      if (commitHash === 'NO_CHANGES') {
         return Effect.succeed({
           safetyReport: {
             overall: true,
             fileValidation: { valid: true, errors: [] as string[], filesValidated: 0 },
-            testRequirements: { satisfied: true, reason: 'Commits made by agent' },
+            testRequirements: { satisfied: true, reason: 'No changes to commit' },
             additionalChecks: {} as Record<string, boolean>,
-            summary: 'Publish executed for existing commits',
+            summary: 'No changes to publish',
           },
-          prResult,
+          prResult: 'No changes to publish',
           remoteResults: [],
         });
-      }),
-    );
-  }
-
-  // Files were modified - run safety validation then publish
-  return pipe(
-    performSafetyValidation(allFilesModified, workingDirectory, options, allResults),
-    Effect.flatMap((safetyReport) => {
-      if (!safetyReport.overall && !options.dryRun) {
-        return Effect.fail(new DoCommandError('Safety validation failed - aborting'));
       }
 
+      // Step 2: Run safety validation
       return pipe(
-        createPullRequest(workingDirectory, issueInfo, allResults, remoteType, projectConfig, options),
-        Effect.flatMap((prResult) => {
-          // Execute remote iterations if configured
-          if (options.remoteIterations && options.remoteIterations > 0) {
-            return pipe(
-              executeRemoteIterations(workingDirectory, issueInfo.key, remoteType, projectConfig, options),
-              Effect.map((remoteResults) => ({
-                safetyReport,
-                prResult,
-                remoteResults,
-              })),
-            );
+        performSafetyValidation(allFilesModified, workingDirectory, options, allResults),
+        Effect.flatMap((safetyReport) => {
+          if (!safetyReport.overall && !options.dryRun) {
+            return Effect.fail(new DoCommandError('Safety validation failed - aborting'));
           }
 
-          return Effect.succeed({
-            safetyReport,
-            prResult,
-            remoteResults: [],
-          });
+          // Step 3: Publish (create PR or push to Gerrit)
+          return pipe(
+            createPullRequest(workingDirectory, issueInfo, allResults, remoteType, projectConfig, options),
+            Effect.flatMap((prResult) => {
+              // Execute remote iterations if configured
+              if (options.remoteIterations && options.remoteIterations > 0) {
+                return pipe(
+                  executeRemoteIterations(workingDirectory, issueInfo.key, remoteType, projectConfig, options),
+                  Effect.map((remoteResults) => ({
+                    safetyReport,
+                    prResult,
+                    remoteResults,
+                  })),
+                );
+              }
+
+              return Effect.succeed({
+                safetyReport,
+                prResult,
+                remoteResults: [],
+              });
+            }),
+          );
         }),
       );
     }),

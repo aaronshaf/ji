@@ -25,7 +25,7 @@ export interface DoCommandOptions {
   readonly dryRun?: boolean;
   readonly skipTests?: boolean;
   readonly safetyConfig?: Partial<SafetyConfig>;
-  readonly singleCommit?: boolean; // Control commit strategy
+  readonly singleCommit?: boolean; // Deprecated - always creates single commit now
 }
 
 /**
@@ -66,7 +66,7 @@ export interface IterationContext {
   iteration: number;
   totalIterations: number;
   previousResults: IterationResult[];
-  singleCommit: boolean; // Commit strategy
+  singleCommit: boolean; // Deprecated - always true now (single commit after all iterations)
 }
 
 /**

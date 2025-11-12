@@ -54,7 +54,7 @@ export const executeIterations = (context: IterationContext, options: DoCommandO
         // Explicit issue resolution signal
         (result.issueResolved && result.success) ||
         // No changes made in a follow-up iteration (indicates work is complete)
-        (i > 1 && result.success && result.filesModified.length === 0 && !result.commitHash);
+        (i > 1 && result.success && result.filesModified.length === 0);
 
       if (shouldTerminate) {
         if (result.issueResolved) {

@@ -237,7 +237,7 @@ export const doCommandEffect = (issueKey: string, options: DoCommandOptions = {}
       console.log(`Issue: ${issueInfo.summary}`);
       console.log(`Working Directory: ${workingDirectory}`);
       console.log(`Iterations: ${iterations}`);
-      console.log(`Commit Strategy: ${context.singleCommit ? 'Single commit at end' : 'Multiple commits as needed'}`);
+      console.log('Commit Strategy: Single commit created after all iterations complete');
       console.log(`Remote type: ${remote.type}`);
       console.log(`Target branch: ${targetBranch}`);
 

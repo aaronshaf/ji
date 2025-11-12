@@ -16,85 +16,6 @@ export const generateIterationPrompt = (context: IterationContext): string => {
   const isFirstIteration = context.iteration === 1;
   const hasChanges = context.previousResults.some((r) => r.filesModified.length > 0);
 
-  // Commit instructions based on strategy
-  const commitInstructions = context.singleCommit
-    ? isFirstIteration
-      ? `
-**IMPORTANT COMMIT STRATEGY - SINGLE COMMIT WORKFLOW (GERRIT)**:
-This is iteration 1 of a SINGLE COMMIT workflow for Gerrit code review.
-
-**WHY THIS MATTERS**: Gerrit requires EXACTLY ONE COMMIT per change. Multiple commits will create multiple separate Gerrit changes instead of a single reviewable change.
-
-Steps:
-1. Make all your implementation changes
-2. Stage all changes: \`git add -A\`
-3. Create ONE commit with conventional format:
-   \`\`\`bash
-   git commit -m "feat: brief description
-
-   Detailed explanation of changes.
-
-   Resolves: ${context.issueKey}"
-   \`\`\`
-
-**CRITICAL RULES**:
-- ✅ Create ONE commit at the END of this iteration
-- ✅ Let git hooks run (they add Change-Id required by Gerrit)
-- ❌ DO NOT use --no-verify
-- ❌ DO NOT create multiple commits`
-      : `
-**IMPORTANT COMMIT STRATEGY - AMEND EXISTING COMMIT (GERRIT)**:
-This is iteration ${context.iteration} of a SINGLE COMMIT workflow for Gerrit code review.
-
-**WHY THIS MATTERS**: You already created ONE commit in iteration 1. Gerrit requires EXACTLY ONE COMMIT per change. If you create a NEW commit now, you will break the Gerrit workflow and create multiple separate changes.
-
-**YOU MUST AMEND THE EXISTING COMMIT**:
-
-Steps after making changes:
-1. Stage all changes: \`git add -A\`
-2. Amend the existing commit (DO NOT create a new one):
-   \`\`\`bash
-   git commit --amend --no-edit
-   \`\`\`
-3. If you need to update the commit message:
-   \`\`\`bash
-   git commit --amend -m "feat: updated description
-
-   Additional details about iteration ${context.iteration} changes.
-
-   Resolves: ${context.issueKey}"
-   \`\`\`
-
-**CRITICAL RULES**:
-- ✅ Use \`git commit --amend\` to modify the existing commit
-- ✅ Preserve the Change-Id in the commit message
-- ✅ Let git hooks run
-- ❌ DO NOT create a new commit with \`git commit\` (without --amend)
-- ❌ DO NOT use --no-verify
-- ❌ NEVER have more than ONE commit for this issue`
-    : `
-**COMMIT STRATEGY - YOU MUST COMMIT YOUR CHANGES**:
-After making changes, you MUST create a git commit. DO NOT skip this step.
-
-REQUIRED steps after making code changes:
-1. Stage all changes: \`git add -A\`
-2. Create commit with conventional format: \`git commit -m "feat: brief description\`
-3. Verify commit was created: \`git log --oneline -1\`
-
-Example:
-\`\`\`bash
-git add -A
-git commit -m "feat: convert ReactDOM.render to createRoot
-
-Migrate TotalGradeColumnHeaderRenderer to React 18 createRoot API
-with flushSync for synchronous rendering compatibility.
-
-Resolves: ${context.issueKey}"
-\`\`\`
-
-**CRITICAL**: If you don't commit, your changes will not be published!
-**DO NOT use --no-verify** - let all git hooks run.`;
-
   if (isFirstIteration) {
     return `You are helping resolve a Jira issue through iterative development.
 
@@ -115,7 +36,11 @@ ${context.issueDescription}
 5. Add basic tests if applicable
 6. Ensure quality checks pass (tests, lint, typecheck)
 
-${commitInstructions}
+**IMPORTANT - DO NOT CREATE GIT COMMITS**:
+- Focus on making code changes only
+- DO NOT run \`git commit\` commands
+- DO NOT stage changes with \`git add\`
+- The system will create a single commit after all iterations are complete
 
 Focus on getting the core functionality working. Subsequent iterations will review and refine your work.`;
   }
@@ -137,9 +62,9 @@ ${
     ? `
 ### Review Previous Work First
 1. **Examine the changes from iteration ${context.iteration - 1}**:
-   - Recent commits: \`git log --oneline -n 3\`
-   - Latest changes: \`git diff HEAD~1 HEAD\` (or \`git show HEAD\`)
-   - Staged/unstaged: \`git diff --staged\` and \`git diff\`
+   - Use \`git diff\` to see unstaged changes
+   - Review modified files in the working directory
+   - Check what functionality was implemented
 
 2. **Conduct a thorough code review**:
    - Check for bugs, edge cases, code quality issues
@@ -171,7 +96,11 @@ ${
    - Improve documentation
    - Add edge case handling
 
-${commitInstructions}
+**IMPORTANT - DO NOT CREATE GIT COMMITS**:
+- Focus on making code changes only
+- DO NOT run \`git commit\` commands
+- DO NOT stage changes with \`git add\`
+- The system will create a single commit after all iterations are complete
 
 6. **Validate complete solution**:
    - Ensure all requirements are met
