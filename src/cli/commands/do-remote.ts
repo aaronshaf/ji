@@ -43,7 +43,7 @@ export const executeCheckBuildStatus = (
     }
 
     try {
-      // Use spawnSync with array args to prevent command injection
+      // Use spawnSync with shell but no interpolation to prevent command injection
       // The command comes from .jiconfig.json (trusted config), but we use
       // spawnSync for defense in depth, matching the pattern in do-publish.ts
       const result = spawnSync('sh', ['-c', projectConfig.checkBuildStatus], {
@@ -105,7 +105,7 @@ export const executeCheckBuildFailures = (
     console.log(chalk.blue(`📋 Getting build failure logs: ${projectConfig.checkBuildFailures}`));
 
     try {
-      // Use spawnSync with array args to prevent command injection
+      // Use spawnSync with shell but no interpolation to prevent command injection
       // The command comes from .jiconfig.json (trusted config), but we use
       // spawnSync for defense in depth, matching the pattern in do-publish.ts
       const result = spawnSync('sh', ['-c', projectConfig.checkBuildFailures], {
@@ -117,6 +117,8 @@ export const executeCheckBuildFailures = (
       // For checkBuildFailures, we use lenient error handling - return whatever
       // output we got even if the command failed, because partial logs are better
       // than no logs when debugging build failures.
+      // Note: We don't check result.status because even if the log retrieval
+      // command fails, we want to return whatever partial logs we got.
       if (result.error) {
         return `Failed to execute checkBuildFailures: ${result.error.message}`;
       }
@@ -205,7 +207,7 @@ export const executeCheckBuild = (
     console.log(chalk.blue(`🔍 Running build check: ${projectConfig.checkBuild}`));
 
     try {
-      // Use spawnSync with array args to prevent command injection
+      // Use spawnSync with shell but no interpolation to prevent command injection
       // The command comes from .jiconfig.json (trusted config), but we use
       // spawnSync for defense in depth, matching the pattern in do-publish.ts
       const result = spawnSync('sh', ['-c', projectConfig.checkBuild], {
@@ -247,25 +249,42 @@ export const pushToRemote = (
   remoteType: RemoteType,
   isAmend: boolean,
 ): Effect.Effect<boolean, DoCommandError> =>
-  Effect.tryPromise({
-    try: async () => {
-      if (remoteType === 'gerrit' && isAmend) {
-        // Gerrit: Amend the last commit to maintain single commit
-        console.log(chalk.blue('📝 Amending commit for Gerrit workflow'));
-        execSync('git add -A && git commit --amend --no-edit', {
-          cwd: workingDirectory,
-          stdio: 'inherit',
-        });
-      }
+  Effect.sync(() => {
+    if (remoteType === 'gerrit' && isAmend) {
+      // Gerrit: Amend the last commit to maintain single commit
+      console.log(chalk.blue('📝 Amending commit for Gerrit workflow'));
 
-      // Push to remote
-      console.log(chalk.blue('⬆️  Pushing changes to remote'));
-      execSync('git push', {
+      // Use spawnSync to prevent command injection, matching pattern in do-publish.ts
+      const amendResult = spawnSync('sh', ['-c', 'git add -A && git commit --amend --no-edit'], {
         cwd: workingDirectory,
         stdio: 'inherit',
       });
 
-      return true;
-    },
-    catch: (error) => new DoCommandError(`Failed to push: ${error}`),
+      if (amendResult.error) {
+        throw new DoCommandError(`Failed to amend commit: ${amendResult.error.message}`);
+      }
+
+      if (amendResult.status !== 0) {
+        throw new DoCommandError(`Git amend failed with exit code ${amendResult.status}`);
+      }
+    }
+
+    // Push to remote
+    console.log(chalk.blue('⬆️  Pushing changes to remote'));
+
+    // Use spawnSync to prevent command injection, matching pattern in do-publish.ts
+    const pushResult = spawnSync('sh', ['-c', 'git push'], {
+      cwd: workingDirectory,
+      stdio: 'inherit',
+    });
+
+    if (pushResult.error) {
+      throw new DoCommandError(`Failed to execute git push: ${pushResult.error.message}`);
+    }
+
+    if (pushResult.status !== 0) {
+      throw new DoCommandError(`Git push failed with exit code ${pushResult.status}`);
+    }
+
+    return true;
   });
