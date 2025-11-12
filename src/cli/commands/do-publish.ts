@@ -24,6 +24,113 @@ import {
 import { executeRemoteIterations } from './do-remote-iteration.js';
 
 /**
+ * Counts the number of commits that will be published.
+ * For Gerrit, this checks commits since the base branch.
+ */
+const countCommitsSinceBase = (workingDirectory: string): number => {
+  try {
+    // Get the merge base (common ancestor with origin/master or origin/main)
+    let baseBranch: string;
+    try {
+      execSync('git rev-parse --verify origin/master', { cwd: workingDirectory, stdio: 'pipe' });
+      baseBranch = 'origin/master';
+    } catch {
+      baseBranch = 'origin/main';
+    }
+
+    const commitCount = execSync(`git rev-list --count HEAD ^${baseBranch}`, {
+      cwd: workingDirectory,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    }).trim();
+
+    return Number.parseInt(commitCount, 10);
+  } catch (error) {
+    console.warn(chalk.yellow(`⚠️  Could not count commits: ${error}`));
+    return 0;
+  }
+};
+
+/**
+ * Squashes multiple commits into a single commit for Gerrit.
+ * Preserves the first commit message and adds details from subsequent commits.
+ */
+const squashCommitsForGerrit = (workingDirectory: string, commitCount: number): Effect.Effect<void, DoCommandError> =>
+  Effect.sync(() => {
+    console.log(chalk.yellow(`⚠️  Found ${commitCount} commits - Gerrit requires exactly 1`));
+    console.log(chalk.blue('🔄 Squashing commits into a single commit...'));
+
+    try {
+      // Get all commit messages
+      const messages = execSync(`git log --format=%B -n ${commitCount}`, {
+        cwd: workingDirectory,
+        encoding: 'utf8',
+        stdio: 'pipe',
+      }).trim();
+
+      // Soft reset to base branch (keeps all changes staged)
+      execSync(`git reset --soft HEAD~${commitCount}`, {
+        cwd: workingDirectory,
+        stdio: 'pipe',
+      });
+
+      // Create a single commit with combined message
+      const firstMessage = messages.split('\n\n')[0]; // Get first commit's subject
+      const commitMessage = `${firstMessage}\n\nSquashed ${commitCount} commits from ji do iterations.\n\n${messages}`;
+
+      // Create commit (let hooks run to add Change-Id)
+      const result = spawnSync('git', ['commit', '-m', commitMessage], {
+        cwd: workingDirectory,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      });
+
+      if (result.status !== 0) {
+        throw new Error(`Failed to create squashed commit: ${result.stderr}`);
+      }
+
+      console.log(chalk.green('✅ Commits squashed into a single commit'));
+
+      // Verify we now have exactly 1 commit
+      const newCount = countCommitsSinceBase(workingDirectory);
+      if (newCount !== 1) {
+        throw new Error(`Expected 1 commit after squash, but found ${newCount}`);
+      }
+    } catch (error) {
+      throw new DoCommandError(`Failed to squash commits: ${error}`);
+    }
+  });
+
+/**
+ * Ensures exactly one commit exists before publishing to Gerrit.
+ * If multiple commits are found, squashes them into one.
+ */
+const ensureSingleCommitForGerrit = (
+  workingDirectory: string,
+  remoteType: RemoteType,
+): Effect.Effect<void, DoCommandError> =>
+  Effect.sync(() => {
+    if (remoteType !== 'gerrit') {
+      return; // Only enforce for Gerrit
+    }
+
+    const commitCount = countCommitsSinceBase(workingDirectory);
+
+    if (commitCount === 0) {
+      console.log(chalk.yellow('⚠️  No commits found - nothing to publish'));
+      return;
+    }
+
+    if (commitCount === 1) {
+      console.log(chalk.green('✅ Exactly 1 commit found - ready for Gerrit'));
+      return;
+    }
+
+    // Multiple commits found - need to squash
+    return Effect.runSync(squashCommitsForGerrit(workingDirectory, commitCount));
+  });
+
+/**
  * Executes the configured publish command from .jiconfig.json
  */
 export const executePublishCommand = (
@@ -78,8 +185,12 @@ export const createPullRequest = (
   options: DoCommandOptions,
 ) =>
   pipe(
-    // Execute publish command first if configured
-    executePublishCommand(projectConfig, workingDirectory, options),
+    // Ensure single commit for Gerrit before publishing
+    ensureSingleCommitForGerrit(workingDirectory, remoteType),
+    Effect.flatMap(() =>
+      // Execute publish command first if configured
+      executePublishCommand(projectConfig, workingDirectory, options),
+    ),
     Effect.flatMap(() =>
       Effect.sync(() => {
         if (remoteType !== 'github') {
