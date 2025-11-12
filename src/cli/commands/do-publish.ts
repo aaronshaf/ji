@@ -108,27 +108,35 @@ const squashCommitsForGerrit = (workingDirectory: string, commitCount: number): 
 const ensureSingleCommitForGerrit = (
   workingDirectory: string,
   remoteType: RemoteType,
-): Effect.Effect<void, DoCommandError> =>
-  Effect.sync(() => {
-    if (remoteType !== 'gerrit') {
-      return; // Only enforce for Gerrit
-    }
+): Effect.Effect<void, DoCommandError> => {
+  if (remoteType !== 'gerrit') {
+    return Effect.void; // Only enforce for Gerrit
+  }
 
+  return Effect.sync(() => {
     const commitCount = countCommitsSinceBase(workingDirectory);
 
     if (commitCount === 0) {
       console.log(chalk.yellow('⚠️  No commits found - nothing to publish'));
-      return;
+      return commitCount;
     }
 
     if (commitCount === 1) {
       console.log(chalk.green('✅ Exactly 1 commit found - ready for Gerrit'));
-      return;
+      return commitCount;
     }
 
     // Multiple commits found - need to squash
-    return Effect.runSync(squashCommitsForGerrit(workingDirectory, commitCount));
-  });
+    return commitCount;
+  }).pipe(
+    Effect.flatMap((commitCount) => {
+      if (commitCount > 1) {
+        return squashCommitsForGerrit(workingDirectory, commitCount);
+      }
+      return Effect.void;
+    }),
+  );
+};
 
 /**
  * Executes the configured publish command from .jiconfig.json
