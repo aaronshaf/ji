@@ -20,8 +20,10 @@ export const generateIterationPrompt = (context: IterationContext): string => {
   const commitInstructions = context.singleCommit
     ? isFirstIteration
       ? `
-**IMPORTANT COMMIT STRATEGY - SINGLE COMMIT WORKFLOW**:
-This is iteration 1 of a SINGLE COMMIT workflow. At the END of this iteration, create ONE commit with all your changes.
+**IMPORTANT COMMIT STRATEGY - SINGLE COMMIT WORKFLOW (GERRIT)**:
+This is iteration 1 of a SINGLE COMMIT workflow for Gerrit code review.
+
+**WHY THIS MATTERS**: Gerrit requires EXACTLY ONE COMMIT per change. Multiple commits will create multiple separate Gerrit changes instead of a single reviewable change.
 
 Steps:
 1. Make all your implementation changes
@@ -35,14 +37,22 @@ Steps:
    Resolves: ${context.issueKey}"
    \`\`\`
 
-**DO NOT use --no-verify** - let all git hooks run (they add required metadata like Change-Id).`
+**CRITICAL RULES**:
+- ✅ Create ONE commit at the END of this iteration
+- ✅ Let git hooks run (they add Change-Id required by Gerrit)
+- ❌ DO NOT use --no-verify
+- ❌ DO NOT create multiple commits`
       : `
-**IMPORTANT COMMIT STRATEGY - AMEND EXISTING COMMIT**:
-This is iteration ${context.iteration} of a SINGLE COMMIT workflow. You must AMEND the existing commit, NOT create a new one.
+**IMPORTANT COMMIT STRATEGY - AMEND EXISTING COMMIT (GERRIT)**:
+This is iteration ${context.iteration} of a SINGLE COMMIT workflow for Gerrit code review.
+
+**WHY THIS MATTERS**: You already created ONE commit in iteration 1. Gerrit requires EXACTLY ONE COMMIT per change. If you create a NEW commit now, you will break the Gerrit workflow and create multiple separate changes.
+
+**YOU MUST AMEND THE EXISTING COMMIT**:
 
 Steps after making changes:
 1. Stage all changes: \`git add -A\`
-2. Amend the existing commit (preserves Change-Id and other metadata):
+2. Amend the existing commit (DO NOT create a new one):
    \`\`\`bash
    git commit --amend --no-edit
    \`\`\`
@@ -55,8 +65,13 @@ Steps after making changes:
    Resolves: ${context.issueKey}"
    \`\`\`
 
-**CRITICAL**: Use \`git commit --amend\` to modify the existing commit. DO NOT create a new commit with \`git commit\`.
-**DO NOT use --no-verify** - let all git hooks run.`
+**CRITICAL RULES**:
+- ✅ Use \`git commit --amend\` to modify the existing commit
+- ✅ Preserve the Change-Id in the commit message
+- ✅ Let git hooks run
+- ❌ DO NOT create a new commit with \`git commit\` (without --amend)
+- ❌ DO NOT use --no-verify
+- ❌ NEVER have more than ONE commit for this issue`
     : `
 **COMMIT STRATEGY - YOU MUST COMMIT YOUR CHANGES**:
 After making changes, you MUST create a git commit. DO NOT skip this step.
