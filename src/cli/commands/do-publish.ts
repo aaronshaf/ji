@@ -330,6 +330,10 @@ export const performSafetyValidation = (
         {
           ...defaultSafetyConfig,
           ...options.safetyConfig,
+          // If skipTests flag is set, disable test requirements
+          requireTests: options.skipTests
+            ? false
+            : (options.safetyConfig?.requireTests ?? defaultSafetyConfig.requireTests),
         },
         allResults.some((r) => r.testsRun), // NEW: pass if any iteration ran tests
       ),
@@ -341,6 +345,10 @@ export const performSafetyValidation = (
         console.log(`Overall: ${report.overall ? chalk.green('✅ PASS') : chalk.red('❌ FAIL')}`);
         console.log(`Files validated: ${report.fileValidation.filesValidated}`);
         console.log(`Test requirements: ${report.testRequirements.satisfied ? '✅ Satisfied' : '❌ Not satisfied'}`);
+
+        if (options.skipTests) {
+          console.log(chalk.yellow('⚠️  Test requirements skipped via --skip-tests flag'));
+        }
 
         if (!report.overall) {
           console.log(chalk.red('\n⚠️  Safety validation failed:'));
