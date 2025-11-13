@@ -216,10 +216,32 @@ export const doCommandEffect = (issueKey: string, options: DoCommandOptions = {}
     // Setup and execute iterations
     Effect.flatMap(({ remote, targetBranch, issueInfo, projectConfig, workingDirectory }) =>
       pipe(
-        // If --resume flag is set, infer where we left off
-        options.resume ? inferPreviousIterations(workingDirectory, issueInfo.key) : Effect.succeed(0),
-        Effect.flatMap((startingIteration) => {
+        // If --resume flag is set, infer where we left off and check if complete
+        options.resume
+          ? inferPreviousIterations(workingDirectory, issueInfo.key, projectConfig)
+          : Effect.succeed({ completedIterations: 0, isComplete: false, reason: 'Starting fresh' }),
+        Effect.flatMap((resumeResult) => {
+          // If work is already complete (build passed), skip everything
+          if (resumeResult.isComplete) {
+            console.log(chalk.green(`\n✅ Issue ${issueKey} is already complete!`));
+            console.log(chalk.dim(`   Reason: ${resumeResult.reason}`));
+            console.log(chalk.yellow('   No further action needed.'));
+            return Effect.succeed({
+              workingDirectory,
+              allResults: [],
+              safetyReport: {
+                overall: true,
+                fileValidation: { valid: true, errors: [], filesValidated: 0 },
+                testRequirements: { satisfied: true, reason: 'Work already complete' },
+                additionalChecks: {},
+                summary: 'Issue already complete',
+              },
+              prResult: 'Already complete',
+            });
+          }
+
           const iterations = options.iterations || 2;
+          const startingIteration = resumeResult.completedIterations;
 
           // CRITICAL: Gerrit requires single commit workflow (amend pattern)
           // GitHub uses multiple commits (PR pattern)
@@ -242,6 +264,7 @@ export const doCommandEffect = (issueKey: string, options: DoCommandOptions = {}
           console.log(`Working Directory: ${workingDirectory}`);
           if (options.resume && startingIteration > 0) {
             console.log(`Resuming from iteration: ${startingIteration + 1}/${iterations}`);
+            console.log(chalk.dim(`   Resume reason: ${resumeResult.reason}`));
           } else {
             console.log(`Iterations: ${iterations}`);
           }
