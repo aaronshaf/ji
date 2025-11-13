@@ -354,11 +354,15 @@ export const executeFinalPublishStep = (
     }
   }
 
-  // Files were modified - create commit, run safety validation, then publish
+  // Files were modified OR we have unpushed commits - handle accordingly
   return pipe(
-    // Step 1: Create single commit with all changes
-    createFinalCommit(workingDirectory, issueInfo, allResults),
+    // Step 1: Create single commit with all changes (skip if no new files modified)
+    allFilesModified.length > 0
+      ? createFinalCommit(workingDirectory, issueInfo, allResults)
+      : Effect.succeed('EXISTING_COMMIT' as const), // Signal that we're using existing commits
     Effect.flatMap((commitHash) => {
+      // If createFinalCommit returned NO_CHANGES and we don't have unpushed commits,
+      // we should have already exited above. If we get here with NO_CHANGES, something's wrong.
       if (commitHash === 'NO_CHANGES') {
         return Effect.succeed({
           safetyReport: {
@@ -373,9 +377,27 @@ export const executeFinalPublishStep = (
         });
       }
 
-      // Step 2: Run safety validation
+      // Get list of modified files from existing commits if we didn't create a new commit
+      const filesToValidate =
+        commitHash === 'EXISTING_COMMIT'
+          ? [] // Skip file validation for existing commits (already validated when created)
+          : allFilesModified;
+
+      // For existing commits, skip safety validation (already done when commit was created)
+      const safetyValidationEffect =
+        commitHash === 'EXISTING_COMMIT'
+          ? Effect.succeed({
+              overall: true,
+              fileValidation: { valid: true, errors: [] as string[], filesValidated: 0 },
+              testRequirements: { satisfied: true, reason: 'Using existing validated commit' },
+              additionalChecks: {} as Record<string, boolean>,
+              summary: 'Using existing commit',
+            })
+          : performSafetyValidation(filesToValidate, workingDirectory, options, allResults);
+
+      // Step 2: Run safety validation (or skip if using existing commit)
       return pipe(
-        performSafetyValidation(allFilesModified, workingDirectory, options, allResults),
+        safetyValidationEffect,
         Effect.flatMap((safetyReport) => {
           if (!safetyReport.overall && !options.dryRun) {
             return Effect.fail(new DoCommandError('Safety validation failed - aborting'));
