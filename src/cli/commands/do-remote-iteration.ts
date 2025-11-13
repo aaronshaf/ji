@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { Effect } from 'effect';
 import { executeAgent, type AgentSDKError, type AgentConfigError } from '../../lib/agent-sdk-wrapper.js';
 import { generateRemoteIterationPrompt } from './do-prompt.js';
-import { executeCheckBuild, pollBuildStatus, pushToRemote } from './do-remote.js';
+import { pollBuildStatus, pushToRemote } from './do-remote.js';
 import type {
   DoCommandError,
   DoCommandOptions,
@@ -19,7 +19,7 @@ import type { ProjectConfig } from '../../lib/project-config.js';
  * @param workingDirectory - Directory where the code is located
  * @param issueKey - Jira issue key being resolved
  * @param remoteType - Type of remote (github, gerrit, unknown)
- * @param projectConfig - Project configuration with checkBuild command
+ * @param projectConfig - Project configuration with checkBuildStatus and checkBuildFailures commands
  * @param options - Command options including remoteIterations count
  * @returns Effect with array of remote iteration results
  */
@@ -33,23 +33,26 @@ export const executeRemoteIterations = (
   Effect.gen(function* () {
     const maxIterations = options.remoteIterations ?? 2;
 
-    if (!projectConfig.checkBuild) {
-      console.log(chalk.yellow('⚠️  No checkBuild configured - skipping remote iterations'));
+    // Check if build status checking is configured
+    if (!projectConfig.checkBuildStatus || !projectConfig.checkBuildFailures) {
+      console.log(
+        chalk.yellow(
+          '⚠️  No build check configured - skipping remote iterations\n' +
+            '   Configure checkBuildStatus + checkBuildFailures in .jiconfig.json',
+        ),
+      );
       return [];
     }
 
     console.log(chalk.blue(`\n🌐 Starting remote iterations (max: ${maxIterations})`));
 
-    // Determine which build check strategy to use
-    const usePolling = projectConfig.checkBuildStatus && projectConfig.checkBuildFailures;
-
     // Initial build check
-    const initialCheck = usePolling
-      ? yield* Effect.catchAll(pollBuildStatus(projectConfig, workingDirectory), (error: DoCommandError) =>
-          // If polling fails, treat as build failure to trigger iterations
-          Effect.succeed({ success: false, output: `Polling failed: ${error.message}` }),
-        )
-      : yield* executeCheckBuild(projectConfig, workingDirectory);
+    const initialCheck = yield* Effect.catchAll(
+      pollBuildStatus(projectConfig, workingDirectory),
+      (error: DoCommandError) =>
+        // If polling fails, treat as build failure to trigger iterations
+        Effect.succeed({ success: false, output: `Polling failed: ${error.message}` }),
+    );
 
     if (initialCheck.success) {
       console.log(chalk.green('✅ Build already passing - no remote iterations needed'));
@@ -93,18 +96,13 @@ export const executeRemoteIterations = (
       const isAmend = remoteType === 'gerrit' && i > 1;
       yield* pushToRemote(workingDirectory, remoteType, isAmend);
 
-      // Check build again with appropriate strategy
-      const buildCheck = usePolling
-        ? yield* Effect.catchAll(pollBuildStatus(projectConfig, workingDirectory), (error: DoCommandError) =>
-            // If polling fails, treat as build failure
-            Effect.succeed({ success: false, output: `Polling failed: ${error.message}` }),
-          )
-        : yield* Effect.gen(function* () {
-            // Legacy strategy: wait 1 minute then check once
-            console.log(chalk.dim('⏳ Waiting 1 minute for CI to process...'));
-            yield* Effect.sleep('60 seconds');
-            return yield* executeCheckBuild(projectConfig, workingDirectory);
-          });
+      // Check build again with polling strategy
+      const buildCheck = yield* Effect.catchAll(
+        pollBuildStatus(projectConfig, workingDirectory),
+        (error: DoCommandError) =>
+          // If polling fails, treat as build failure
+          Effect.succeed({ success: false, output: `Polling failed: ${error.message}` }),
+      );
 
       const result: RemoteIterationResult = {
         iteration: i,

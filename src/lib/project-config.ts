@@ -17,7 +17,6 @@ export class ProjectConfigError extends Error {
 const ProjectConfigSchema = Schema.Struct({
   worktreeSetup: Schema.optional(Schema.String),
   publish: Schema.optional(Schema.String),
-  checkBuild: Schema.optional(Schema.String), // Deprecated: use checkBuildStatus + checkBuildFailures
   checkBuildStatus: Schema.optional(Schema.String), // Returns JSON: { "state": "pending|running|success|failure" }
   checkBuildFailures: Schema.optional(Schema.String), // Returns failure logs (only called when status is "failure")
 });

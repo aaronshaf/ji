@@ -177,66 +177,6 @@ export const pollBuildStatus = (
   });
 
 /**
- * Executes the checkBuild command and returns results.
- * Exit code 0 = success, non-zero = failure.
- * Stdout/stderr contains build logs/errors.
- *
- * DEPRECATED: Use pollBuildStatus with checkBuildStatus + checkBuildFailures instead.
- * This function is kept for backward compatibility with existing .jiconfig.json files.
- *
- * Note: This function returns success/failure as part of the result value rather
- * than using Effect's error channel. This is intentional - a failed build is an
- * expected outcome that we handle in the normal control flow, not an error condition.
- *
- * The checkBuild command comes from .jiconfig.json, which is a trusted project
- * configuration file (similar to package.json). We execute it directly with high trust.
- *
- * @param projectConfig - Project configuration containing checkBuild command
- * @param workingDirectory - Directory to execute command in
- * @returns Effect with build check result (never fails via Effect error channel)
- */
-export const executeCheckBuild = (
-  projectConfig: ProjectConfig,
-  workingDirectory: string,
-): Effect.Effect<BuildCheckResult, never> =>
-  Effect.sync(() => {
-    if (!projectConfig.checkBuild) {
-      return { success: true, output: 'No checkBuild configured - skipping' };
-    }
-
-    console.log(chalk.blue(`🔍 Running build check: ${projectConfig.checkBuild}`));
-
-    try {
-      // Use spawnSync with shell but no interpolation to prevent command injection
-      // The command comes from .jiconfig.json (trusted config), but we use
-      // spawnSync for defense in depth, matching the pattern in do-publish.ts
-      const result = spawnSync('sh', ['-c', projectConfig.checkBuild], {
-        cwd: workingDirectory,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      if (result.error) {
-        console.log(chalk.red('❌ Build check failed'));
-        return { success: false, output: `Command failed to execute: ${result.error.message}` };
-      }
-
-      if (result.status === 0) {
-        console.log(chalk.green('✅ Build check passed'));
-        return { success: true, output: result.stdout.toString() };
-      }
-
-      // Non-zero exit code = build failed (expected outcome)
-      const output = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
-      console.log(chalk.red('❌ Build check failed'));
-      return { success: false, output: output || 'Unknown build failure' };
-    } catch (error: unknown) {
-      console.log(chalk.red('❌ Build check failed'));
-      return { success: false, output: `Unexpected error: ${error}` };
-    }
-  });
-
-/**
  * Pushes commits to remote, handling Gerrit amend vs GitHub new commits.
  *
  * @param workingDirectory - Directory to execute git commands in
