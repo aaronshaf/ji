@@ -77,19 +77,39 @@ export const inferPreviousIterations = (
 
       // If we have commits ahead of origin, check if they were pushed
       if (commitCount > 0) {
-        // Check if commit exists on remote (pushed to Gerrit/GitHub)
+        // Check if commit exists on remote
         let isPushed = false;
         try {
-          // Check if HEAD exists on any remote branch
+          // For GitHub: Check if HEAD exists on any remote branch
           const remoteCheck = execSync('git branch -r --contains HEAD', {
             cwd: workingDirectory,
             encoding: 'utf8',
             stdio: 'pipe',
           }).trim();
-          isPushed = remoteCheck.length > 0;
-          console.log(chalk.dim(`   Pushed to remote: ${isPushed ? 'yes' : 'no'}`));
-        } catch {
-          console.log(chalk.dim('   Could not determine if pushed to remote'));
+
+          if (remoteCheck.length > 0) {
+            isPushed = true;
+            console.log(chalk.dim('   Pushed to remote: yes (found on remote branch)'));
+          } else {
+            // For Gerrit: Check if commit has Change-Id (indicates it was pushed)
+            // Gerrit doesn't push to remote branches, commits go to refs/changes/
+            const commitMessage = execSync('git log -1 --format=%B HEAD', {
+              cwd: workingDirectory,
+              encoding: 'utf8',
+              stdio: 'pipe',
+            }).trim();
+
+            const hasChangeId = /Change-Id: I[0-9a-f]{40}/.test(commitMessage);
+            if (hasChangeId) {
+              isPushed = true;
+              console.log(chalk.dim('   Pushed to remote: yes (Gerrit Change-Id detected)'));
+            } else {
+              isPushed = false;
+              console.log(chalk.dim('   Pushed to remote: no'));
+            }
+          }
+        } catch (error) {
+          console.log(chalk.dim(`   Could not determine if pushed to remote: ${error}`));
           isPushed = false;
         }
 
