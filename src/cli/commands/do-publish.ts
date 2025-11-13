@@ -67,11 +67,12 @@ const createFinalCommit = (
         ...successfulIterations.map((r, i) => `Iteration ${i + 1}: ${r.summary}`),
         '',
         `Files modified: ${allFilesModified.length}`,
-        '',
-        `Resolves: ${issueInfo.key}`,
       ].join('\n');
 
       const fullMessage = `${commitSubject}\n${commitBody}`;
+
+      // Note: Not including Resolves: footer to avoid conflicts with Gerrit's Change-Id footer
+      // The issue key is already in the commit message body
 
       // Create commit (let hooks run to add Change-Id for Gerrit)
       const result = spawnSync('git', ['commit', '-m', fullMessage], {
