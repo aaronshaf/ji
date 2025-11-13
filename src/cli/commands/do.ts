@@ -219,7 +219,12 @@ export const doCommandEffect = (issueKey: string, options: DoCommandOptions = {}
         // If --resume flag is set, infer where we left off and check if complete
         options.resume
           ? inferPreviousIterations(workingDirectory, issueInfo.key, projectConfig)
-          : Effect.succeed({ completedIterations: 0, isComplete: false, reason: 'Starting fresh' }),
+          : Effect.succeed({
+              completedIterations: 0,
+              isComplete: false,
+              skipToRemotePolling: false,
+              reason: 'Starting fresh',
+            }),
         Effect.flatMap((resumeResult) => {
           // If work is already complete (build passed), skip everything
           if (resumeResult.isComplete) {
@@ -238,6 +243,22 @@ export const doCommandEffect = (issueKey: string, options: DoCommandOptions = {}
               },
               prResult: 'Already complete',
             });
+          }
+
+          // If build is running/pending, skip local iterations and go straight to remote polling
+          if (resumeResult.skipToRemotePolling) {
+            console.log(chalk.blue(`\n⏭️  Skipping local iterations - build is already ${resumeResult.reason}`));
+            console.log(chalk.dim('   Going straight to remote build polling...'));
+
+            return pipe(
+              executeFinalPublishStep(workingDirectory, issueInfo, [], remote.type, projectConfig, [], options),
+              Effect.map(({ safetyReport, prResult }) => ({
+                workingDirectory,
+                allResults: [],
+                safetyReport,
+                prResult,
+              })),
+            );
           }
 
           const iterations = options.iterations || 2;

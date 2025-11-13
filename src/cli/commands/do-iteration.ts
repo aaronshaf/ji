@@ -15,6 +15,8 @@ export interface ResumeCheckResult {
   completedIterations: number;
   /** If true, work is complete and no further action needed */
   isComplete: boolean;
+  /** If true, skip local iterations and go straight to remote polling */
+  skipToRemotePolling: boolean;
   /** Reason for the result (for user feedback) */
   reason: string;
 }
@@ -149,6 +151,7 @@ export const inferPreviousIterations = (
             return {
               completedIterations: commitCount,
               isComplete: true,
+              skipToRemotePolling: false,
               reason: 'Build passed on remote',
             };
           }
@@ -158,15 +161,17 @@ export const inferPreviousIterations = (
             return {
               completedIterations: commitCount,
               isComplete: false,
+              skipToRemotePolling: false,
               reason: 'Build failed - needs remote iteration fixes',
             };
           }
 
-          // pending or running - treat as incomplete
-          console.log(chalk.yellow(`⏳ Build is ${buildResult.state} - treating as incomplete`));
+          // pending or running - skip local iterations and go straight to polling
+          console.log(chalk.yellow(`⏳ Build is ${buildResult.state} - will skip to remote polling`));
           return {
             completedIterations: commitCount,
             isComplete: false,
+            skipToRemotePolling: true,
             reason: `Build is ${buildResult.state}`,
           };
         }
@@ -178,6 +183,7 @@ export const inferPreviousIterations = (
           return {
             completedIterations: commitCount,
             isComplete: false,
+            skipToRemotePolling: false,
             reason: `Unstaged changes detected after ${commitCount} iteration(s)`,
           };
         }
@@ -187,6 +193,7 @@ export const inferPreviousIterations = (
         return {
           completedIterations: commitCount,
           isComplete: false,
+          skipToRemotePolling: false,
           reason: `${commitCount} iteration(s) completed, ready to continue`,
         };
       }
@@ -198,6 +205,7 @@ export const inferPreviousIterations = (
         return {
           completedIterations: 0,
           isComplete: false,
+          skipToRemotePolling: false,
           reason: 'Unstaged changes detected, iteration 1 in progress',
         };
       }
@@ -206,6 +214,7 @@ export const inferPreviousIterations = (
       return {
         completedIterations: 0,
         isComplete: false,
+        skipToRemotePolling: false,
         reason: 'No previous work found',
       };
     } catch (error) {
@@ -214,6 +223,7 @@ export const inferPreviousIterations = (
       return {
         completedIterations: 0,
         isComplete: false,
+        skipToRemotePolling: false,
         reason: `Error checking previous work: ${error}`,
       };
     }
