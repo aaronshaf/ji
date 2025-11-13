@@ -702,6 +702,7 @@ async function main() {
         const dryRun = args.includes('--dry-run');
         const skipTests = args.includes('--skip-tests');
         const singleCommit = args.includes('--single-commit');
+        const resume = args.includes('--resume');
 
         await doCommand(subArgs[0], {
           iterations,
@@ -710,6 +711,7 @@ async function main() {
           dryRun,
           skipTests,
           singleCommit,
+          resume,
         });
         break;
       }

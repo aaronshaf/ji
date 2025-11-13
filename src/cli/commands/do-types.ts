@@ -26,6 +26,7 @@ export interface DoCommandOptions {
   readonly skipTests?: boolean;
   readonly safetyConfig?: Partial<SafetyConfig>;
   readonly singleCommit?: boolean; // Deprecated - always creates single commit now
+  readonly resume?: boolean; // Resume from previous iterations (inferred from git log)
 }
 
 /**

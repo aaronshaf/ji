@@ -54,7 +54,7 @@ const createFinalCommit = (
         stdio: 'pipe',
       });
 
-      // Generate comprehensive commit message
+      // Generate concise commit message
       const successfulIterations = allResults.filter((r) => r.success);
       const allFilesModified = Array.from(new Set(allResults.flatMap((r) => r.filesModified)));
 
@@ -63,8 +63,6 @@ const createFinalCommit = (
       const commitBody = [
         '',
         `Resolved ${issueInfo.key} through ${successfulIterations.length} iteration(s).`,
-        '',
-        ...successfulIterations.map((r, i) => `Iteration ${i + 1}: ${r.summary}`),
         '',
         `Files modified: ${allFilesModified.length}`,
       ].join('\n');

@@ -7,7 +7,7 @@ import { validateGitRepository } from '../../lib/git-worktree.js';
 import { checkSDKConfiguration } from '../../lib/agent-sdk-wrapper.js';
 import { loadProjectConfig } from '../../lib/project-config.js';
 import { formatDescription } from '../formatters/issue.js';
-import { executeIterations } from './do-iteration.js';
+import { executeIterations, inferPreviousIterations } from './do-iteration.js';
 import { executeFinalPublishStep } from './do-publish.js';
 import {
   DoCommandError,
@@ -214,63 +214,73 @@ export const doCommandEffect = (issueKey: string, options: DoCommandOptions = {}
     ),
 
     // Setup and execute iterations
-    Effect.flatMap(({ remote, targetBranch, issueInfo, projectConfig, workingDirectory }) => {
-      const iterations = options.iterations || 2;
+    Effect.flatMap(({ remote, targetBranch, issueInfo, projectConfig, workingDirectory }) =>
+      pipe(
+        // If --resume flag is set, infer where we left off
+        options.resume ? inferPreviousIterations(workingDirectory, issueInfo.key) : Effect.succeed(0),
+        Effect.flatMap((startingIteration) => {
+          const iterations = options.iterations || 2;
 
-      // CRITICAL: Gerrit requires single commit workflow (amend pattern)
-      // GitHub uses multiple commits (PR pattern)
-      const singleCommit = options.singleCommit !== undefined ? options.singleCommit : remote.type === 'gerrit';
+          // CRITICAL: Gerrit requires single commit workflow (amend pattern)
+          // GitHub uses multiple commits (PR pattern)
+          const singleCommit = options.singleCommit !== undefined ? options.singleCommit : remote.type === 'gerrit';
 
-      const context: IterationContext = {
-        issueKey: issueInfo.key,
-        issueDescription: issueInfo.description, // Full XML representation
-        workingDirectory,
-        iteration: 1,
-        totalIterations: iterations,
-        previousResults: [],
-        singleCommit,
-      };
+          const context: IterationContext = {
+            issueKey: issueInfo.key,
+            issueDescription: issueInfo.description, // Full XML representation
+            workingDirectory,
+            iteration: startingIteration + 1,
+            totalIterations: iterations,
+            previousResults: [],
+            singleCommit,
+          };
 
-      console.log(chalk.blue(`\n🚀 Starting ji do for ${issueKey}`));
-      console.log(chalk.yellow('⚠️  EXPERIMENTAL FEATURE: Powered by Claude Agent SDK'));
-      console.log(chalk.yellow('   Always review changes before publishing.\n'));
-      console.log(`Issue: ${issueInfo.summary}`);
-      console.log(`Working Directory: ${workingDirectory}`);
-      console.log(`Iterations: ${iterations}`);
-      console.log('Commit Strategy: Single commit created after all iterations complete');
-      console.log(`Remote type: ${remote.type}`);
-      console.log(`Target branch: ${targetBranch}`);
+          console.log(chalk.blue(`\n🚀 Starting ji do for ${issueKey}`));
+          console.log(chalk.yellow('⚠️  EXPERIMENTAL FEATURE: Powered by Claude Agent SDK'));
+          console.log(chalk.yellow('   Always review changes before publishing.\n'));
+          console.log(`Issue: ${issueInfo.summary}`);
+          console.log(`Working Directory: ${workingDirectory}`);
+          if (options.resume && startingIteration > 0) {
+            console.log(`Resuming from iteration: ${startingIteration + 1}/${iterations}`);
+          } else {
+            console.log(`Iterations: ${iterations}`);
+          }
+          console.log('Commit Strategy: Single commit created after all iterations complete');
+          console.log(`Remote type: ${remote.type}`);
+          console.log(`Target branch: ${targetBranch}`);
 
-      return pipe(
-        executeIterations(context, options),
-        Effect.flatMap((allResults) => {
-          const successfulIterations = allResults.filter((r) => r.success).length;
-          const allFilesModified = Array.from(new Set(allResults.flatMap((r) => r.filesModified)));
-
-          console.log(chalk.blue(`\n📊 Summary: ${successfulIterations}/${iterations} iterations successful`));
-          console.log(`Total files modified: ${allFilesModified.length}`);
-
-          // Execute final publish/PR step
           return pipe(
-            executeFinalPublishStep(
-              workingDirectory,
-              issueInfo,
-              allResults,
-              remote.type,
-              projectConfig,
-              allFilesModified,
-              options,
-            ),
-            Effect.map(({ safetyReport, prResult }) => ({
-              workingDirectory,
-              allResults,
-              safetyReport,
-              prResult,
-            })),
+            executeIterations(context, options),
+            Effect.flatMap((allResults) => {
+              const successfulIterations = allResults.filter((r) => r.success).length;
+              const allFilesModified = Array.from(new Set(allResults.flatMap((r) => r.filesModified)));
+
+              console.log(chalk.blue(`\n📊 Summary: ${successfulIterations}/${iterations} iterations successful`));
+              console.log(`Total files modified: ${allFilesModified.length}`);
+
+              // Execute final publish/PR step
+              return pipe(
+                executeFinalPublishStep(
+                  workingDirectory,
+                  issueInfo,
+                  allResults,
+                  remote.type,
+                  projectConfig,
+                  allFilesModified,
+                  options,
+                ),
+                Effect.map(({ safetyReport, prResult }) => ({
+                  workingDirectory,
+                  allResults,
+                  safetyReport,
+                  prResult,
+                })),
+              );
+            }),
           );
         }),
-      );
-    }),
+      ),
+    ),
 
     // Return final result (no cleanup needed - working in current directory)
     Effect.map((result: FinalResult) => {
