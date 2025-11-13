@@ -19,39 +19,58 @@ export const inferPreviousIterations = (
   issueKey: string,
 ): Effect.Effect<number, DoCommandError> =>
   Effect.sync(() => {
+    console.log(chalk.dim(`\n🔍 DEBUG: Inferring previous iterations for ${issueKey}`));
+    console.log(chalk.dim(`   Working directory: ${workingDirectory}`));
+
     try {
       // Check if there are unstaged changes
-      const statusResult = execSync('git status --porcelain', {
+      const statusCmd = 'git status --porcelain';
+      console.log(chalk.dim(`   Running: ${statusCmd}`));
+      const statusResult = execSync(statusCmd, {
         cwd: workingDirectory,
         encoding: 'utf8',
         stdio: 'pipe',
       }).trim();
 
       const hasUnstagedChanges = statusResult.length > 0;
+      console.log(chalk.dim(`   Has unstaged changes: ${hasUnstagedChanges}`));
+      if (hasUnstagedChanges) {
+        console.log(chalk.dim(`   Status output (first 200 chars): ${statusResult.substring(0, 200)}`));
+      }
 
       if (!hasUnstagedChanges) {
         // No work in progress - check if there's a commit for this issue
         try {
           // Look for the most recent commit that mentions this issue key
-          const logResult = execSync(`git log -1 --grep="${issueKey}" --format="%s"`, {
+          const logCmd = `git log -1 --grep="${issueKey}" --format="%s"`;
+          console.log(chalk.dim(`   Running: ${logCmd}`));
+          const logResult = execSync(logCmd, {
             cwd: workingDirectory,
             encoding: 'utf8',
             stdio: 'pipe',
           }).trim();
 
+          console.log(chalk.dim(`   Log result: "${logResult}"`));
+
           if (logResult) {
             // Found a commit - try to extract iteration count from commit message
             // Format: "Resolved ISSUE-123 through N iteration(s)"
             const match = logResult.match(/through (\d+) iteration/);
+            console.log(chalk.dim(`   Regex match: ${match ? `[${match[0]}, ${match[1]}]` : 'null'}`));
             if (match) {
               const completedIterations = Number.parseInt(match[1], 10);
               console.log(chalk.blue(`📌 Found commit with ${completedIterations} completed iteration(s)`));
               console.log(chalk.yellow('   No unstaged changes - issue appears to be complete'));
               console.log(chalk.yellow('   Use --resume to continue from this point'));
               return completedIterations;
+            } else {
+              console.log(chalk.dim(`   No iteration count found in commit message`));
             }
+          } else {
+            console.log(chalk.dim(`   No commit found with issue key`));
           }
-        } catch {
+        } catch (error) {
+          console.log(chalk.dim(`   Error searching git log: ${error}`));
           // No commit found, start from scratch
           return 0;
         }
@@ -60,14 +79,19 @@ export const inferPreviousIterations = (
       // Has unstaged changes - assume we're in the middle of an iteration
       // Try to count from commit message if it exists
       try {
-        const logResult = execSync(`git log -1 --grep="${issueKey}" --format="%s"`, {
+        const logCmd = `git log -1 --grep="${issueKey}" --format="%s"`;
+        console.log(chalk.dim(`   Running (with changes): ${logCmd}`));
+        const logResult = execSync(logCmd, {
           cwd: workingDirectory,
           encoding: 'utf8',
           stdio: 'pipe',
         }).trim();
 
+        console.log(chalk.dim(`   Log result: "${logResult}"`));
+
         if (logResult) {
           const match = logResult.match(/through (\d+) iteration/);
+          console.log(chalk.dim(`   Regex match: ${match ? `[${match[0]}, ${match[1]}]` : 'null'}`));
           if (match) {
             const previousIterations = Number.parseInt(match[1], 10);
             console.log(chalk.blue(`📌 Resuming: Found ${previousIterations} completed iteration(s) in commit`));
@@ -75,9 +99,14 @@ export const inferPreviousIterations = (
               chalk.yellow(`   Unstaged changes detected - assuming iteration ${previousIterations + 1} in progress`),
             );
             return previousIterations;
+          } else {
+            console.log(chalk.dim(`   No iteration count found in commit message`));
           }
+        } else {
+          console.log(chalk.dim(`   No commit found with issue key`));
         }
-      } catch {
+      } catch (error) {
+        console.log(chalk.dim(`   Error searching git log (with changes): ${error}`));
         // No previous commit
       }
 
@@ -88,6 +117,7 @@ export const inferPreviousIterations = (
         return 0;
       }
 
+      console.log(chalk.dim(`   Returning 0 (default fallback)`));
       return 0;
     } catch (error) {
       console.log(chalk.yellow(`⚠️  Could not infer previous iterations: ${error}`));
