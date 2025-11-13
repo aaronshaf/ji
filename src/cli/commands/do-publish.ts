@@ -251,7 +251,7 @@ export const performSafetyValidation = (
   modifiedFiles: string[],
   workingDirectory: string,
   options: DoCommandOptions,
-  allResults: IterationResult[], // NEW: check if tests were run
+  allResults: IterationResult[], // NEW: check if iterations completed successfully
 ) =>
   pipe(
     Effect.all([
@@ -267,7 +267,7 @@ export const performSafetyValidation = (
             ? false
             : (options.safetyConfig?.requireTests ?? defaultSafetyConfig.requireTests),
         },
-        allResults.some((r) => r.testsRun), // NEW: pass if any iteration ran tests
+        allResults.length > 0 && allResults.every((r) => r.success), // Agent completed successfully
       ),
     ]),
     Effect.flatMap(([validation, testReqs]) => createSafetyReport(validation, testReqs)),
