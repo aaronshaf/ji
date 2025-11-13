@@ -70,12 +70,14 @@ export const executeCheckBuildStatus = (
 
       const raw = result.stdout.toString().trim();
 
-      // Parse JSON output: { "state": "pending|running|success|failure" }
+      // Parse JSON output: { "state": "not_found|pending|running|success|failure" }
       const parsed = JSON.parse(raw);
       const state = parsed.state as BuildStatus;
 
-      if (!['pending', 'running', 'success', 'failure'].includes(state)) {
-        throw new DoCommandError(`Invalid build state: ${state}. Expected: pending, running, success, or failure`);
+      if (!['not_found', 'pending', 'running', 'success', 'failure'].includes(state)) {
+        throw new DoCommandError(
+          `Invalid build state: ${state}. Expected: not_found, pending, running, success, or failure`,
+        );
       }
 
       return { state, raw };
@@ -159,7 +161,10 @@ export const pollBuildStatus = (
 
       const statusResult = yield* executeCheckBuildStatus(projectConfig, workingDirectory);
 
-      if (statusResult.state === 'pending') {
+      if (statusResult.state === 'not_found') {
+        console.log(chalk.yellow('❓ Change not found on remote'));
+        return { success: false, output: 'Change not found on remote - not pushed yet' };
+      } else if (statusResult.state === 'pending') {
         console.log(chalk.dim(`⏳ Build pending (${attempts * 30}s elapsed)...`));
       } else if (statusResult.state === 'running') {
         console.log(chalk.dim(`⚙️  Build running (${attempts * 30}s elapsed)...`));
