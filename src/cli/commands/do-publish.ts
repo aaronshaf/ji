@@ -308,20 +308,50 @@ export const executeFinalPublishStep = (
   allFilesModified: string[],
   options: DoCommandOptions,
 ) => {
-  // Check if there are any changes to commit
+  // Check if there are any changes to commit OR existing unpushed commits
   if (allFilesModified.length === 0) {
-    console.log(chalk.yellow('⚠️  No changes were made - skipping publish/PR step'));
-    return Effect.succeed({
-      safetyReport: {
-        overall: true,
-        fileValidation: { valid: true, errors: [] as string[], filesValidated: 0 },
-        testRequirements: { satisfied: true, reason: 'No changes made' },
-        additionalChecks: {} as Record<string, boolean>,
-        summary: 'No changes to publish',
-      },
-      prResult: 'No changes to publish',
-      remoteResults: [],
-    });
+    // Check if there are any unpushed commits from previous iterations
+    try {
+      const commitsAhead = execSync('git rev-list --count @{u}..HEAD 2>/dev/null || echo "0"', {
+        cwd: workingDirectory,
+        encoding: 'utf8',
+      }).trim();
+
+      const hasUnpushedCommits = Number.parseInt(commitsAhead, 10) > 0;
+
+      if (!hasUnpushedCommits) {
+        console.log(chalk.yellow('⚠️  No changes were made - skipping publish/PR step'));
+        return Effect.succeed({
+          safetyReport: {
+            overall: true,
+            fileValidation: { valid: true, errors: [] as string[], filesValidated: 0 },
+            testRequirements: { satisfied: true, reason: 'No changes made' },
+            additionalChecks: {} as Record<string, boolean>,
+            summary: 'No changes to publish',
+          },
+          prResult: 'No changes to publish',
+          remoteResults: [],
+        });
+      }
+
+      // Has unpushed commits - proceed to publish them
+      console.log(chalk.blue(`\n📝 Found ${commitsAhead} unpushed commit(s) from previous iterations`));
+      console.log(chalk.dim('   Proceeding to publish existing commits...'));
+    } catch (error) {
+      // If we can't determine unpushed commits, play it safe and skip
+      console.log(chalk.yellow('⚠️  No changes were made - skipping publish/PR step'));
+      return Effect.succeed({
+        safetyReport: {
+          overall: true,
+          fileValidation: { valid: true, errors: [] as string[], filesValidated: 0 },
+          testRequirements: { satisfied: true, reason: 'No changes made' },
+          additionalChecks: {} as Record<string, boolean>,
+          summary: 'No changes to publish',
+        },
+        prResult: 'No changes to publish',
+        remoteResults: [],
+      });
+    }
   }
 
   // Files were modified - create commit, run safety validation, then publish
