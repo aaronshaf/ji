@@ -6,12 +6,12 @@ import { generateIterationPrompt } from './do-prompt.js';
 import type { IterationContext, DoCommandOptions, DoCommandError } from './do-types.js';
 
 /**
- * Infers previous iteration results from git log to support --resume.
- * Looks at unstaged changes and the most recent commit to determine
- * how many iterations have been completed.
+ * Infers previous iteration results from git state to support --resume.
+ * Counts commits ahead of origin/master to determine how many iterations
+ * have been completed. Each commit represents one iteration.
  *
- * @param workingDirectory - Directory to check git log
- * @param issueKey - Issue key to match in commit messages
+ * @param workingDirectory - Directory to check git state
+ * @param issueKey - Issue key (unused but kept for API compatibility)
  * @returns Number of completed iterations (0 if none found)
  */
 export const inferPreviousIterations = (
@@ -19,105 +19,68 @@ export const inferPreviousIterations = (
   issueKey: string,
 ): Effect.Effect<number, DoCommandError> =>
   Effect.sync(() => {
-    console.log(chalk.dim(`\n🔍 DEBUG: Inferring previous iterations for ${issueKey}`));
+    console.log(chalk.dim(`\n🔍 Inferring previous iterations for ${issueKey}`));
     console.log(chalk.dim(`   Working directory: ${workingDirectory}`));
 
     try {
       // Check if there are unstaged changes
-      const statusCmd = 'git status --porcelain';
-      console.log(chalk.dim(`   Running: ${statusCmd}`));
-      const statusResult = execSync(statusCmd, {
+      const statusResult = execSync('git status --porcelain', {
         cwd: workingDirectory,
         encoding: 'utf8',
         stdio: 'pipe',
       }).trim();
 
       const hasUnstagedChanges = statusResult.length > 0;
-      console.log(chalk.dim(`   Has unstaged changes: ${hasUnstagedChanges}`));
-      if (hasUnstagedChanges) {
-        console.log(chalk.dim(`   Status output (first 200 chars): ${statusResult.substring(0, 200)}`));
-      }
+      console.log(chalk.dim(`   Unstaged changes: ${hasUnstagedChanges ? 'yes' : 'no'}`));
 
-      if (!hasUnstagedChanges) {
-        // No work in progress - check if there's a commit for this issue
-        try {
-          // Look for the most recent commit that mentions this issue key
-          const logCmd = `git log -1 --grep="${issueKey}" --format="%s"`;
-          console.log(chalk.dim(`   Running: ${logCmd}`));
-          const logResult = execSync(logCmd, {
-            cwd: workingDirectory,
-            encoding: 'utf8',
-            stdio: 'pipe',
-          }).trim();
-
-          console.log(chalk.dim(`   Log result: "${logResult}"`));
-
-          if (logResult) {
-            // Found a commit - try to extract iteration count from commit message
-            // Format: "Resolved ISSUE-123 through N iteration(s)"
-            const match = logResult.match(/through (\d+) iteration/);
-            console.log(chalk.dim(`   Regex match: ${match ? `[${match[0]}, ${match[1]}]` : 'null'}`));
-            if (match) {
-              const completedIterations = Number.parseInt(match[1], 10);
-              console.log(chalk.blue(`📌 Found commit with ${completedIterations} completed iteration(s)`));
-              console.log(chalk.yellow('   No unstaged changes - issue appears to be complete'));
-              console.log(chalk.yellow('   Use --resume to continue from this point'));
-              return completedIterations;
-            } else {
-              console.log(chalk.dim(`   No iteration count found in commit message`));
-            }
-          } else {
-            console.log(chalk.dim(`   No commit found with issue key`));
-          }
-        } catch (error) {
-          console.log(chalk.dim(`   Error searching git log: ${error}`));
-          // No commit found, start from scratch
-          return 0;
-        }
-      }
-
-      // Has unstaged changes - assume we're in the middle of an iteration
-      // Try to count from commit message if it exists
+      // Count commits ahead of origin/master (or origin/main)
+      // This works for both GitHub (multiple commits) and Gerrit (single amended commit)
+      let commitCount = 0;
       try {
-        const logCmd = `git log -1 --grep="${issueKey}" --format="%s"`;
-        console.log(chalk.dim(`   Running (with changes): ${logCmd}`));
-        const logResult = execSync(logCmd, {
+        // Try origin/master first (Gerrit convention)
+        const countResult = execSync('git rev-list --count origin/master..HEAD', {
           cwd: workingDirectory,
           encoding: 'utf8',
           stdio: 'pipe',
         }).trim();
-
-        console.log(chalk.dim(`   Log result: "${logResult}"`));
-
-        if (logResult) {
-          const match = logResult.match(/through (\d+) iteration/);
-          console.log(chalk.dim(`   Regex match: ${match ? `[${match[0]}, ${match[1]}]` : 'null'}`));
-          if (match) {
-            const previousIterations = Number.parseInt(match[1], 10);
-            console.log(chalk.blue(`📌 Resuming: Found ${previousIterations} completed iteration(s) in commit`));
-            console.log(
-              chalk.yellow(`   Unstaged changes detected - assuming iteration ${previousIterations + 1} in progress`),
-            );
-            return previousIterations;
-          } else {
-            console.log(chalk.dim(`   No iteration count found in commit message`));
-          }
-        } else {
-          console.log(chalk.dim(`   No commit found with issue key`));
+        commitCount = Number.parseInt(countResult, 10);
+        console.log(chalk.dim(`   Commits ahead of origin/master: ${commitCount}`));
+      } catch {
+        // Fallback to origin/main (GitHub convention)
+        try {
+          const countResult = execSync('git rev-list --count origin/main..HEAD', {
+            cwd: workingDirectory,
+            encoding: 'utf8',
+            stdio: 'pipe',
+          }).trim();
+          commitCount = Number.parseInt(countResult, 10);
+          console.log(chalk.dim(`   Commits ahead of origin/main: ${commitCount}`));
+        } catch {
+          console.log(chalk.dim('   Could not determine commits ahead of origin'));
+          commitCount = 0;
         }
-      } catch (error) {
-        console.log(chalk.dim(`   Error searching git log (with changes): ${error}`));
-        // No previous commit
       }
 
-      // Has changes but no commit - assume first iteration in progress
+      // If we have commits ahead of origin, those represent completed iterations
+      if (commitCount > 0) {
+        if (hasUnstagedChanges) {
+          console.log(chalk.blue(`📌 Resuming: Found ${commitCount} completed iteration(s)`));
+          console.log(chalk.yellow(`   Unstaged changes detected - iteration ${commitCount + 1} in progress`));
+        } else {
+          console.log(chalk.blue(`📌 Found ${commitCount} completed iteration(s)`));
+          console.log(chalk.yellow('   No unstaged changes - ready to continue'));
+        }
+        return commitCount;
+      }
+
+      // No commits ahead of origin
       if (hasUnstagedChanges) {
-        console.log(chalk.blue('📌 Resuming: Unstaged changes detected, no previous commit found'));
+        console.log(chalk.blue('📌 Resuming: Unstaged changes detected, no commits yet'));
         console.log(chalk.yellow('   Assuming iteration 1 in progress'));
         return 0;
       }
 
-      console.log(chalk.dim(`   Returning 0 (default fallback)`));
+      console.log(chalk.dim('   No previous work found - starting fresh'));
       return 0;
     } catch (error) {
       console.log(chalk.yellow(`⚠️  Could not infer previous iterations: ${error}`));
