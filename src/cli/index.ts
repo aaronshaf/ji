@@ -705,6 +705,23 @@ async function main() {
           prompt = args[promptIndex + 1];
         }
 
+        // Check if stdin is being piped
+        let stdinPrompt: string | undefined;
+        if (!process.stdin.isTTY) {
+          // Read from stdin
+          const chunks: Buffer[] = [];
+          for await (const chunk of process.stdin) {
+            chunks.push(chunk);
+          }
+          const stdinContent = Buffer.concat(chunks).toString('utf8').trim();
+          if (stdinContent) {
+            stdinPrompt = stdinContent;
+          }
+        }
+
+        // Combine -p flag and stdin if both provided
+        const finalPrompt = [prompt, stdinPrompt].filter(Boolean).join('\n\n');
+
         const dryRun = args.includes('--dry-run');
         const skipTests = args.includes('--skip-tests');
         const singleCommit = args.includes('--single-commit');
@@ -718,7 +735,7 @@ async function main() {
           skipTests,
           singleCommit,
           resume,
-          prompt,
+          prompt: finalPrompt || undefined,
         });
         break;
       }
