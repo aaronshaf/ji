@@ -126,6 +126,36 @@ export const inferPreviousIterations = (
 
           if (buildResult.state === 'success') {
             console.log(chalk.green('✅ Build passed - issue appears complete'));
+
+            // Try to extract Gerrit change number from commit message or git remote
+            try {
+              const commitMessage = execSync('git log -1 --format=%B HEAD', {
+                cwd: workingDirectory,
+                encoding: 'utf8',
+                stdio: 'pipe',
+              }).trim();
+
+              const changeIdMatch = commitMessage.match(/Change-Id: (I[0-9a-f]{40})/);
+              if (changeIdMatch) {
+                // Try to get the change number using gerrit query (if ger CLI is available)
+                try {
+                  const gerritUrl = execSync(`ger show --format=url 2>/dev/null || echo ""`, {
+                    cwd: workingDirectory,
+                    encoding: 'utf8',
+                    stdio: 'pipe',
+                  }).trim();
+
+                  if (gerritUrl) {
+                    console.log(chalk.blue(`   Gerrit: ${gerritUrl}`));
+                  }
+                } catch {
+                  // ger CLI not available, skip URL display
+                }
+              }
+            } catch {
+              // Couldn't extract Gerrit info, that's okay
+            }
+
             return {
               completedIterations: commitCount,
               isComplete: true,
