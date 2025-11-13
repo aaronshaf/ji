@@ -5,7 +5,7 @@ import { executeAgent, type IterationResult } from '../../lib/agent-sdk-wrapper.
 import { generateIterationPrompt } from './do-prompt.js';
 import type { IterationContext, DoCommandOptions, DoCommandError } from './do-types.js';
 import type { ProjectConfig } from '../../lib/project-config.js';
-import { executeCheckBuildStatus } from './do-remote.js';
+import { executeCheckBuildStatus, type BuildStatusResult } from './do-remote.js';
 
 /**
  * Result of inferring previous iterations
@@ -91,8 +91,9 @@ export const inferPreviousIterations = (
             isPushed = true;
             console.log(chalk.dim('   Pushed to remote: yes (found on remote branch)'));
           } else {
-            // For Gerrit: Check if commit has Change-Id (indicates it was pushed)
-            // Gerrit doesn't push to remote branches, commits go to refs/changes/
+            // For Gerrit: Can't reliably detect push status without remote verification
+            // Gerrit commits go to refs/changes/, not regular branches
+            // If checkBuildStatus is configured, we'll verify via that command
             const commitMessage = execSync('git log -1 --format=%B HEAD', {
               cwd: workingDirectory,
               encoding: 'utf8',
@@ -101,8 +102,12 @@ export const inferPreviousIterations = (
 
             const hasChangeId = /Change-Id: I[0-9a-f]{40}/.test(commitMessage);
             if (hasChangeId) {
-              isPushed = true;
-              console.log(chalk.dim('   Pushed to remote: yes (Gerrit Change-Id detected)'));
+              // Has Change-Id: Might be Gerrit, but we don't know if it's pushed yet
+              // Mark as potentially pushed - will verify via checkBuildStatus if configured
+              isPushed = true; // Tentative - will be verified if checkBuildStatus exists
+              console.log(
+                chalk.dim('   Pushed to remote: unknown (Gerrit Change-Id found, will verify via checkBuildStatus)'),
+              );
             } else {
               isPushed = false;
               console.log(chalk.dim('   Pushed to remote: no'));
@@ -118,43 +123,28 @@ export const inferPreviousIterations = (
           console.log(chalk.dim('   Checking build status...'));
           const buildResult = yield* Effect.catchAll(
             executeCheckBuildStatus(projectConfig, workingDirectory),
-            (error: DoCommandError) => {
+            (error: DoCommandError): Effect.Effect<BuildStatusResult, never> => {
+              // Special handling for "not found" errors (commit not pushed to Gerrit yet)
+              if (error.message.includes('Not found') || error.message.includes('No messages found')) {
+                console.log(chalk.dim('   Build check failed: Change not found on remote (not pushed yet)'));
+                // Mark as not pushed and return early
+                isPushed = false;
+                return Effect.succeed({ state: 'not_found' as const, raw: error.message });
+              }
               console.log(chalk.dim(`   Build check failed: ${error.message}`));
               return Effect.succeed({ state: 'failure' as const, raw: error.message });
             },
           );
 
-          if (buildResult.state === 'success') {
+          // If change wasn't found on remote, treat as not pushed
+          if (buildResult.state === 'not_found') {
+            isPushed = false;
+            console.log(chalk.dim('   Pushed to remote: no (verified via checkBuildStatus)'));
+            // Fall through to the "not pushed" logic below
+          } else if (buildResult.state === 'success') {
             console.log(chalk.green('✅ Build passed - issue appears complete'));
 
-            // Try to extract Gerrit change number from commit message or git remote
-            try {
-              const commitMessage = execSync('git log -1 --format=%B HEAD', {
-                cwd: workingDirectory,
-                encoding: 'utf8',
-                stdio: 'pipe',
-              }).trim();
-
-              const changeIdMatch = commitMessage.match(/Change-Id: (I[0-9a-f]{40})/);
-              if (changeIdMatch) {
-                // Try to get the change number using gerrit query (if ger CLI is available)
-                try {
-                  const gerritUrl = execSync(`ger show --format=url 2>/dev/null || echo ""`, {
-                    cwd: workingDirectory,
-                    encoding: 'utf8',
-                    stdio: 'pipe',
-                  }).trim();
-
-                  if (gerritUrl) {
-                    console.log(chalk.blue(`   Gerrit: ${gerritUrl}`));
-                  }
-                } catch {
-                  // ger CLI not available, skip URL display
-                }
-              }
-            } catch {
-              // Couldn't extract Gerrit info, that's okay
-            }
+            // Change was pushed and build passed - work is complete!
 
             return {
               completedIterations: commitCount,

@@ -14,8 +14,13 @@ export interface BuildCheckResult {
 
 /**
  * Build status states returned by checkBuildStatus command
+ * - 'not_found': Change doesn't exist on remote (not pushed yet)
+ * - 'pending': Build is queued but not started
+ * - 'running': Build is currently executing
+ * - 'success': Build completed successfully
+ * - 'failure': Build failed
  */
-export type BuildStatus = 'pending' | 'running' | 'success' | 'failure';
+export type BuildStatus = 'not_found' | 'pending' | 'running' | 'success' | 'failure';
 
 /**
  * Result of checking build status
