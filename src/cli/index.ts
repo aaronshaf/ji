@@ -699,6 +699,12 @@ async function main() {
           model = args[modelIndex + 1];
         }
 
+        let prompt: string | undefined;
+        const promptIndex = args.findIndex((arg) => arg === '-p' || arg === '--prompt');
+        if (promptIndex !== -1 && promptIndex + 1 < args.length) {
+          prompt = args[promptIndex + 1];
+        }
+
         const dryRun = args.includes('--dry-run');
         const skipTests = args.includes('--skip-tests');
         const singleCommit = args.includes('--single-commit');
@@ -712,6 +718,7 @@ async function main() {
           skipTests,
           singleCommit,
           resume,
+          prompt,
         });
         break;
       }

@@ -113,7 +113,7 @@ export const executeIterations = (context: IterationContext, options: DoCommandO
       console.log(chalk.blue(`\n📝 Starting iteration ${i}/${context.totalIterations}...`));
 
       // Generate prompt for this iteration
-      const prompt = generateIterationPrompt(iterationContext);
+      const prompt = generateIterationPrompt(iterationContext, options);
 
       // Execute SDK agent
       const result = yield* executeAgent({

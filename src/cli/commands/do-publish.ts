@@ -56,16 +56,12 @@ const createFinalCommit = (
 
       // Generate concise commit message
       const successfulIterations = allResults.filter((r) => r.success);
-      const allFilesModified = Array.from(new Set(allResults.flatMap((r) => r.filesModified)));
 
       // Create commit message with conventional format
       const commitSubject = `feat: ${issueInfo.summary}`;
-      const commitBody = [
-        '',
-        `Resolved ${issueInfo.key} through ${successfulIterations.length} iteration(s).`,
-        '',
-        `Files modified: ${allFilesModified.length}`,
-      ].join('\n');
+      const commitBody = ['', `Resolved ${issueInfo.key} through ${successfulIterations.length} iteration(s).`].join(
+        '\n',
+      );
 
       const fullMessage = `${commitSubject}\n${commitBody}`;
 

@@ -27,6 +27,7 @@ export interface DoCommandOptions {
   readonly safetyConfig?: Partial<SafetyConfig>;
   readonly singleCommit?: boolean; // Deprecated - always creates single commit now
   readonly resume?: boolean; // Resume from previous iterations (inferred from git log)
+  readonly prompt?: string; // Custom instructions to append to the iteration prompt
 }
 
 /**

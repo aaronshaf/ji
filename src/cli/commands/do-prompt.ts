@@ -1,11 +1,11 @@
-import type { IterationContext, IssueInfo, RemoteIterationContext } from './do-types.js';
+import type { IterationContext, IssueInfo, RemoteIterationContext, DoCommandOptions } from './do-types.js';
 import type { IterationResult } from '../../lib/agent-sdk-wrapper.js';
 
 /**
  * Generates the prompt for a specific iteration.
  * First iteration focuses on implementation, subsequent iterations on review and refinement.
  */
-export const generateIterationPrompt = (context: IterationContext): string => {
+export const generateIterationPrompt = (context: IterationContext, options?: DoCommandOptions): string => {
   const previousContext =
     context.previousResults.length > 0
       ? `\n## Previous Iterations:\n${context.previousResults
@@ -42,7 +42,15 @@ ${context.issueDescription}
 - DO NOT stage changes with \`git add\`
 - The system will create a single commit after all iterations are complete
 
-Focus on getting the core functionality working. Subsequent iterations will review and refine your work.`;
+Focus on getting the core functionality working. Subsequent iterations will review and refine your work.${
+      options?.prompt
+        ? `
+
+## Additional Instructions
+
+${options.prompt}`
+        : ''
+    }`;
   }
 
   return `You are helping resolve a Jira issue through iterative development.
@@ -109,7 +117,15 @@ ${
     : 'No changes detected in previous iterations. Review the implementation status and determine next steps.'
 }
 
-**Remember**: Only fix critical issues. Do not over-engineer or add unnecessary features.`;
+**Remember**: Only fix critical issues. Do not over-engineer or add unnecessary features.${
+    options?.prompt
+      ? `
+
+## Additional Instructions
+
+${options.prompt}`
+      : ''
+  }`;
 };
 
 /**
