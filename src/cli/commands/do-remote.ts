@@ -63,6 +63,13 @@ export const executeCheckBuildStatus = (
 
       if (result.status !== 0) {
         const output = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
+
+        // Special case: "No messages found" means Jenkins hasn't posted yet (right after push)
+        // Treat this as 'not_found' state to allow polling to retry
+        if (output.includes('No messages found') || output.includes('Error: No messages found')) {
+          return { state: 'not_found' as BuildStatus, raw: output };
+        }
+
         throw new DoCommandError(
           `checkBuildStatus failed with exit code ${result.status}: ${output || 'Unknown error'}`,
         );
@@ -141,6 +148,7 @@ export const executeCheckBuildFailures = (
 /**
  * Polls build status until it reaches a terminal state (success or failure).
  * Polls every 30 seconds while status is pending or running.
+ * Treats 'not_found' as a transient state (Jenkins hasn't posted yet) and retries.
  *
  * @param projectConfig - Project configuration
  * @param workingDirectory - Directory to execute commands in
@@ -155,6 +163,7 @@ export const pollBuildStatus = (
   Effect.gen(function* () {
     const maxAttempts = (maxWaitMinutes * 60) / 30; // Poll every 30 seconds
     let attempts = 0;
+    let notFoundCount = 0;
 
     while (attempts < maxAttempts) {
       attempts++;
@@ -162,8 +171,15 @@ export const pollBuildStatus = (
       const statusResult = yield* executeCheckBuildStatus(projectConfig, workingDirectory);
 
       if (statusResult.state === 'not_found') {
-        console.log(chalk.yellow('❓ Change not found on remote'));
-        return { success: false, output: 'Change not found on remote - not pushed yet' };
+        notFoundCount++;
+        // Give Jenkins up to 3 minutes (6 attempts) to pick up the change and post messages
+        if (notFoundCount <= 6) {
+          console.log(chalk.dim(`⏳ Waiting for Jenkins to pick up change (${notFoundCount * 30}s elapsed)...`));
+        } else {
+          // After 3 minutes, assume the change really isn't on the remote
+          console.log(chalk.yellow('❓ Change not found on remote after 3 minutes'));
+          return { success: false, output: 'Change not found on remote - may not be pushed or Jenkins unavailable' };
+        }
       } else if (statusResult.state === 'pending') {
         console.log(chalk.dim(`⏳ Build pending (${attempts * 30}s elapsed)...`));
       } else if (statusResult.state === 'running') {
