@@ -298,6 +298,8 @@ export const performSafetyValidation = (
 
 /**
  * Executes the final publish/PR creation step
+ *
+ * @param skipPublish - If true, skip commit creation and publishing (for when already pushed and polling)
  */
 export const executeFinalPublishStep = (
   workingDirectory: string,
@@ -307,7 +309,44 @@ export const executeFinalPublishStep = (
   projectConfig: ProjectConfig,
   allFilesModified: string[],
   options: DoCommandOptions,
+  skipPublish = false,
 ) => {
+  // If skipPublish is true, skip commit creation and publishing, go straight to remote iterations
+  if (skipPublish) {
+    console.log(chalk.dim('   Skipping publish step - already pushed to remote'));
+    console.log(chalk.dim('   Going straight to remote build polling...'));
+
+    return pipe(
+      // Skip safety validation and publishing, go directly to remote iterations
+      Effect.succeed({
+        overall: true,
+        fileValidation: { valid: true, errors: [] as string[], filesValidated: 0 },
+        testRequirements: { satisfied: true, reason: 'Skipped - already pushed' },
+        additionalChecks: {} as Record<string, boolean>,
+        summary: 'Skipped publish',
+      }),
+      Effect.flatMap((safetyReport) => {
+        // Execute remote iterations if configured
+        if (options.remoteIterations && options.remoteIterations > 0) {
+          return pipe(
+            executeRemoteIterations(workingDirectory, issueInfo.key, remoteType, projectConfig, options),
+            Effect.map((remoteResults) => ({
+              safetyReport,
+              prResult: 'Skipped - already pushed',
+              remoteResults,
+            })),
+          );
+        }
+
+        return Effect.succeed({
+          safetyReport,
+          prResult: 'Skipped - already pushed',
+          remoteResults: [],
+        });
+      }),
+    );
+  }
+
   // Check if there are any changes to commit OR existing unpushed commits
   if (allFilesModified.length === 0) {
     // Check if there are any unpushed commits from previous iterations

@@ -248,10 +248,18 @@ export const doCommandEffect = (issueKey: string, options: DoCommandOptions = {}
           // If build is running/pending, skip local iterations and go straight to remote polling
           if (resumeResult.skipToRemotePolling) {
             console.log(chalk.blue(`\n⏭️  Skipping local iterations - build is already ${resumeResult.reason}`));
-            console.log(chalk.dim('   Going straight to remote build polling...'));
 
             return pipe(
-              executeFinalPublishStep(workingDirectory, issueInfo, [], remote.type, projectConfig, [], options),
+              executeFinalPublishStep(
+                workingDirectory,
+                issueInfo,
+                [],
+                remote.type,
+                projectConfig,
+                [],
+                options,
+                true, // skipPublish: true - already pushed, just poll the build
+              ),
               Effect.map(({ safetyReport, prResult }) => ({
                 workingDirectory,
                 allResults: [],
