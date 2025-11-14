@@ -157,11 +157,11 @@ export const inferPreviousIterations = (
           }
 
           if (buildResult.state === 'failure') {
-            console.log(chalk.yellow('❌ Build failed - will need remote iterations to fix'));
+            console.log(chalk.yellow('❌ Build failed - will skip to remote iterations to fix'));
             return {
               completedIterations: commitCount,
               isComplete: false,
-              skipToRemotePolling: false,
+              skipToRemotePolling: true, // Skip local iterations when build already failed
               reason: 'Build failed - needs remote iteration fixes',
             };
           }
